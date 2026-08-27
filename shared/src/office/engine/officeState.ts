@@ -246,6 +246,12 @@ export class OfficeState {
     // (used internally) being correct from the very next line.
     this.furniturePlacements = this.layout.furniture;
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
+    // …and the animated-type list with them, for the same reason: the cache is normally
+    // refreshed by rebuildFurnitureInstances, which the lines above deliberately skip. Without
+    // this the list stays empty for the life of the state, animationFrameChanged never finds a
+    // change, and nothing animates ever — measured on uponu, which places three animated pieces
+    // (a fountain, a goldfish bowl, a flag) and showed 0 rebuilds in 10 s of ticks.
+    this.animatedTypes = this.collectAnimatedTypes();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildPoints();
     this.computePortalTiles();
@@ -1789,18 +1795,42 @@ export class OfficeState {
    *  currently visually "on" (a harmless extra rebuild when an unused
    *  on-animation ticks over is fine, and far simpler than duplicating the
    *  auto-on facing check here too). */
-  private animationSignature(elapsedMs: number): string {
+  /**
+   * Did any placed animation show a different frame at `prevMs` than it does at `nowMs`?
+   *
+   * This was a pair of SIGNATURE STRINGS, built twice per tick: a pass over every placement,
+   * `entryFor` and `resolveOnState` per item, a Set to dedupe, and a concatenated string of
+   * `type:frame` pairs — then the two strings were compared. Measured on uponu (160 placements):
+   * 14.1 µs per call, twice a tick, which was HALF the entire engine tick of 56 µs. All of it to
+   * answer one boolean.
+   *
+   * What made that avoidable is that the QUESTION and the DATA change at different rates. Which
+   * types are placed and animating can only change when something is added, removed, switched or
+   * re-seated — and every one of those paths already ends in `rebuildFurnitureInstances`, which
+   * is where the list is refreshed. Between two rebuilds only the CLOCK moves, and a clock cannot
+   * introduce a new type. So the per-tick work is a handful of integer-ish frame lookups over the
+   * cached list (uponu has six animation groups), compared directly and exited on the first
+   * difference — no allocation at all.
+   */
+  private animationFrameChanged(prevMs: number, nowMs: number): boolean {
+    for (const type of this.animatedTypes) {
+      if (animationFrameAt(type, prevMs) !== animationFrameAt(type, nowMs)) return true;
+    }
+    return false;
+  }
+
+  /** The distinct animated types currently placed. Refreshed by rebuildFurnitureInstances,
+   *  which is the only thing that can change the answer (see animationFrameChanged). */
+  private collectAnimatedTypes(): string[] {
     const seen = new Set<string>();
-    let sig = '';
     for (const item of this.layout.furniture) {
       const onType = resolveOnState(item, entryFor(item));
       const animType = onType !== item.id ? onType : item.id;
       if (seen.has(animType)) continue;
       seen.add(animType);
-      const frame = animationFrameAt(animType, elapsedMs);
-      if (frame) sig += `${animType}:${frame}|`;
     }
-    return sig;
+    // Only the ones that actually animate: a type with no frame data can never change.
+    return [...seen].filter((t) => animationFrameAt(t, 0) !== null);
   }
 
   /** Every character that currently switches nearby electronics ON by sitting at
@@ -1832,6 +1862,9 @@ export class OfficeState {
    *  right away: the rebuild used to be reached only when the animation clock
    *  ticked over or setAgentActive fired, so on a map with no animated furniture
    *  a monitor could stay dark until something unrelated happened. */
+  /** See animationFrameChanged. Empty until the first rebuild, which the constructor does. */
+  private animatedTypes: string[] = [];
+
   private autoOnSignature(): string {
     let sig = '';
     for (const s of this.autoOnSitters()) sig += `${s.col},${s.row},${s.dir}|`;
@@ -1841,6 +1874,9 @@ export class OfficeState {
   /** Rebuild furniture instances with auto-state applied (sitting characters turn
    *  electronics ON — see autoOnSitters) */
   private rebuildFurnitureInstances(): void {
+    // Refreshed here because this is the one place reached by everything that can change WHICH
+    // types are placed and animating: a layout rebuild, a toggle, an auto-on change.
+    this.animatedTypes = this.collectAnimatedTypes();
     this.lastAutoOnSig = this.autoOnSignature();
     // Collect the tiles those sitters face
     const autoOnTiles = new Set<string>();
@@ -2025,14 +2061,11 @@ export class OfficeState {
     // shared frame index to compare anymore. Snapshot which frame every
     // distinct animated type would show before vs. after advancing the clock;
     // only pay for a full rebuild when something actually changed.
-    const prevSig = this.animationSignature(this.furnitureAnimElapsedMs);
+    const prevElapsedMs = this.furnitureAnimElapsedMs;
     this.furnitureAnimElapsedMs += dt * 1000;
     // One rebuild covers both reasons it could be due this tick — a new animation
     // frame, or somebody sitting down / standing up / turning in their seat.
-    if (
-      this.animationSignature(this.furnitureAnimElapsedMs) !== prevSig ||
-      this.autoOnSignature() !== this.lastAutoOnSig
-    ) {
+    if (this.animationFrameChanged(prevElapsedMs, this.furnitureAnimElapsedMs) || this.autoOnSignature() !== this.lastAutoOnSig) {
       this.rebuildFurnitureInstances();
     }
 
