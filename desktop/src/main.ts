@@ -18,8 +18,9 @@ import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
 import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
 import { initMumbleHotkeys, registerMumbleIpc, sendMumbleCommand, shutdownMumble } from './mumble/service.js';
 import { registerTimeTrackingIpc, shutdownTimeTracking } from './timetracking/service.js';
-import { createTray, destroyTray, setTrayUnread } from './tray.js';
+import { createTray, destroyTray, probeTrayHost, setTrayUnread } from './tray.js';
 import { checkForUpdatesInteractive, registerUpdaterIpc } from './updater.js';
+import { configureAppPaths } from './appPaths.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
 // "secure" scheme gives the renderer a stable secure-context origin across
@@ -207,10 +208,13 @@ async function clearStoredServerUrl(): Promise<void> {
 //
 // The default is "quit": it is what the app has always done, and it is the only
 // choice that cannot strand a user. Hiding a window is only safe if there is
-// visibly somewhere for it to go, and on Linux we cannot actually verify that —
+// visibly somewhere for it to go, and on Linux that cannot be verified in full —
 // Electron reports no error when a tray icon is published to a session with no
-// StatusNotifier host to draw it. So the honest position is that the user opts
-// in from the tray menu, which they can only find if their tray works.
+// StatusNotifier host, and a host can accept the item and then discard it
+// (`probeTrayHost` catches the first, nothing catches the second). So the honest
+// position stays: the user opts in from the tray menu, which they can only find
+// if their tray works, and the setting is forced off for any run where the
+// session bus says outright that nothing is listening.
 const CLOSE_TO_TRAY_DEFAULT = false;
 
 let closeToTray = CLOSE_TO_TRAY_DEFAULT;
@@ -531,6 +535,18 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+// Name and userData location, before anything reads a path from either. Ahead of
+// the single-instance lock in particular: that lock is keyed off userData, so
+// taking it first would take it in the pre-pin directory.
+const pathsOutcome = configureAppPaths();
+if (pathsOutcome !== 'pinned') {
+  console.log(
+    pathsOutcome === 'migrated'
+      ? `[paths] moved user data to ${app.getPath('userData')}`
+      : `[paths] kept legacy user data at ${app.getPath('userData')} (migration failed)`,
+  );
+}
+
 // Single-instance lock (P3): a second launch focuses the existing window.
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -601,6 +617,20 @@ if (!gotLock) {
     // next launch, and silently rewriting a preference the user did set would be
     // worse than ignoring it while it cannot be honoured.
     if (!trayShown) closeToTray = false;
+    // `trayShown` only says the Tray object was constructed, which on Linux is
+    // true even with nothing to draw it, so the guard above never fired for the
+    // case it was written for: a stored preference carried into a session with no
+    // status area. Ask the session bus as well, and apply the same rule. Not
+    // awaited — the tray is an accessory and the window must not wait on a
+    // subprocess — so a close in the first moments of a launch onto a trayless
+    // desktop can still hide; a second launch reveals it, as it does today.
+    if (trayShown) {
+      void probeTrayHost().then((status) => {
+        if (status !== 'absent') return;
+        console.log('[tray] no StatusNotifier host on this session; close-to-tray disabled');
+        closeToTray = false;
+      });
+    }
 
     // The stored mic/deafen hotkeys, grabbed system-wide where the OS allows
     // (globalShortcut needs the app to be ready). Best-effort like the tray.

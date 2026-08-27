@@ -29,13 +29,26 @@
  *  - Tray icons go through StatusNotifierItem/AppIndicator. Where no host is
  *    running (a bare tiling WM with no status bar applet) `new Tray()` still
  *    succeeds and simply shows nothing — which is why nothing below treats the
- *    tray as a required part of the boot path.
+ *    tray as a required part of the boot path. `probeTrayHost()` is how far that
+ *    can be checked, and it is not all the way; see its comment.
+ *  - Vanilla GNOME draws no tray at all: the XEmbed area was removed in 3.26 and
+ *    GNOME Shell implements no StatusNotifier host, so this needs the
+ *    `appindicatorsupport@rgcjonas.gmail.com` extension. With that extension
+ *    installed the icon is STILL dropped, and that one is upstream rather than
+ *    ours: it fetches the item's properties on registration and Chromium answers
+ *    `Get` on `IconName` with a D-Bus error rather than an empty string, so the
+ *    extension logs "Impossible to get basic properties" and discards the item.
+ *    Electron exposes no way to publish `IconName` (the icon goes out only as
+ *    `IconPixmap`, which tolerant hosts — KDE, Quickshell, Waybar — fall back to),
+ *    so there is nothing to fix on this side. Diagnose with:
+ *      journalctl --user -b | grep -iE 'appindicator|statusnotifier'
  *  - `tray.on('click')` never fires under AppIndicator: a left click opens the
  *    context menu. "Show Pixel Agents" being a real menu item is therefore not
  *    a convenience, it is the only way back to the window on this platform.
  */
 import { app, Menu, nativeImage, Tray } from 'electron';
 import type { NativeImage } from 'electron';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -203,6 +216,77 @@ export function createTray(trayHooks: TrayHooks): boolean {
   tray.on('click', () => hooks.reveal());
   render();
   return true;
+}
+
+/**
+ * Whether anything on this desktop is in a position to DRAW a tray icon.
+ *
+ * `createTray` cannot answer this. It reports whether the icon asset decoded and
+ * `new Tray()` returned, and on Linux both succeed against a session with no
+ * status area at all — the item is published to D-Bus and nobody listens. So its
+ * `true` has been standing in for "the user can see this", which it never meant.
+ *
+ * 'absent' is a firm answer and the only one worth acting on. 'unknown' covers
+ * a session bus we could not ask (no `gdbus`, no bus, a timeout) and is
+ * deliberately NOT treated as absence: on a working desktop that would switch
+ * off a preference the user set on purpose.
+ *
+ * What this still cannot detect, and no probe can: a host that accepts the
+ * registration and then discards the item. That is a real case, not a
+ * hypothetical — gnome-shell-extension-appindicator reads the item's properties
+ * on registration, Chromium's implementation answers `Get` on `IconName` with a
+ * D-Bus error instead of an empty string (it publishes the icon only as
+ * `IconPixmap`), and the extension logs "Impossible to get basic properties" and
+ * drops it. The watcher still lists the item, so from here that desktop is
+ * indistinguishable from a working one. Hence the close-to-tray default stays
+ * "quit", and a second launch stays a way back to a hidden window.
+ */
+export type TrayHostStatus = 'present' | 'absent' | 'unknown';
+
+/** Long enough for a busy session bus, short enough that nothing waits on it.
+ *  The caller does not block on this either way. */
+const PROBE_TIMEOUT_MS = 2000;
+
+export async function probeTrayHost(): Promise<TrayHostStatus> {
+  // Windows and macOS have a status area as part of the OS; there is no
+  // equivalent question to ask, and no gdbus to ask it with.
+  if (process.platform !== 'linux') return 'present';
+
+  // Two separate facts. A watcher can be running with no panel attached to it
+  // (a host crashed, an extension was disabled), which is exactly the state that
+  // looks fine and draws nothing.
+  const watcher = await gdbusCall([
+    '--dest', 'org.freedesktop.DBus',
+    '--object-path', '/org/freedesktop/DBus',
+    '--method', 'org.freedesktop.DBus.NameHasOwner',
+    'org.kde.StatusNotifierWatcher',
+  ]);
+  if (watcher === null) return 'unknown';
+  if (!/\btrue\b/.test(watcher)) return 'absent';
+
+  const host = await gdbusCall([
+    '--dest', 'org.kde.StatusNotifierWatcher',
+    '--object-path', '/StatusNotifierWatcher',
+    '--method', 'org.freedesktop.DBus.Properties.Get',
+    'org.kde.StatusNotifierWatcher', 'IsStatusNotifierHostRegistered',
+  ]);
+  // A watcher that does not implement the property is not evidence of absence —
+  // it answered, which means something is there.
+  if (host === null) return 'unknown';
+  return /\btrue\b/.test(host) ? 'present' : 'absent';
+}
+
+/** One `gdbus call --session`, or null if it could not be asked. stdout only;
+ *  `gdbus` prints a GVariant, so the caller matches on the literal `true`. */
+function gdbusCall(args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      'gdbus',
+      ['call', '--session', ...args],
+      { timeout: PROBE_TIMEOUT_MS, windowsHide: true },
+      (error, stdout) => resolve(error ? null : stdout),
+    );
+  });
 }
 
 /**
