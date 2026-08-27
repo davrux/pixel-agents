@@ -12,6 +12,7 @@ import {
   type TrackPlay,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
+import { previewFrameMs } from '@pixel/shared/office/poseCadence.js';
 import { gridFromImageData, imagePixels } from '../art/sheet';
 import { encodeSheetPng } from '../art/sheetEncode';
 import { confirmDialog } from '../ui/dialog.js';
@@ -1493,20 +1494,20 @@ export class CharacterEditor {
   }
   /** Per-frame duration (ms) for the preview; 0 = static. Other tracks (sit,
    *  sleep, …) animate at a default cadence. */
+  /**
+   * How fast the preview cycles: exactly what the world does.
+   *
+   * This used to be a hand-written table, and it disagreed — walk ran at 150 ms against the game's
+   * 75, so every author judged their walk cycle at half speed. The numbers come from the engine's
+   * constants now (`shared/office/poseCadence.ts`), per kind, because a pet is animated on the
+   * server at its own cadence (120 ms for walk, not 75).
+   *
+   * A pose the world never animates — a character's idle, a pet's sleep — still needs to cycle
+   * here or authored frames could not be seen at all; `previewFrameMs` is where that fallback is
+   * named and kept out of the renderer.
+   */
   private poseDurationMs(pose: PreviewPose): number {
-    switch (pose) {
-      case 'walk':
-        return 150;
-      case 'typing':
-      case 'reading':
-        return 300;
-      case 'coffee':
-        return 500;
-      case 'idle':
-        return 400;
-      default:
-        return 250;
-    }
+    return previewFrameMs(pose, this.cat().spawnConfig ? 'pet' : 'character');
   }
 
   /** Populate the preview pose dropdown from the present tracks (+ idle),

@@ -17,10 +17,8 @@ import {
   TOKEN_DANGER_THRESHOLD,
   TOKEN_WARN_THRESHOLD,
   TOOL_OVERLAY_VERTICAL_OFFSET,
-  WALK_FRAME_DURATION_SEC,
-  TYPE_FRAME_DURATION_SEC,
-  COFFEE_FRAME_DURATION_SEC,
 } from '@pixel/shared/office/constants.js';
+import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
 import {
   CharacterState,
   Direction,
@@ -135,16 +133,6 @@ function syncedDir<T extends number>(value: unknown, where: string): T {
  *  (see DockWindow), not popovers over it, so they neither close the menus nor
  *  are closed by them. */
 type MenuId = 'audio' | 'zone' | 'space' | 'assets' | 'time' | 'more' | 'settings' | 'help' | null;
-
-/** Per-pose animation frame duration (ms), mirroring the engine's constants.
- *  Poses not listed (idle) are static. Drives the client-side animation clock. */
-const POSE_FRAME_MS: Record<string, number> = {
-  walk: WALK_FRAME_DURATION_SEC * 1000,
-  typing: TYPE_FRAME_DURATION_SEC * 1000,
-  reading: TYPE_FRAME_DURATION_SEC * 1000,
-  coffee: COFFEE_FRAME_DURATION_SEC * 1000,
-  sit: TYPE_FRAME_DURATION_SEC * 1000, // static placeholder; animates if a sit track is authored
-};
 
 // Default camera zoom: a character sprite is CHARACTER_BASELINE_HEIGHT (32)
 // world px tall, so at zoom 1.5 it renders ~48 CSS px tall — ~1.3cm at the
@@ -2054,7 +2042,7 @@ export class OfficeScene extends Phaser.Scene {
         ch.frame = 0;
         ch.animTimer = 0;
       } else {
-        const durMs = POSE_FRAME_MS[pose] ?? 0;
+        const durMs = poseFrameMs(pose, 'character');
         if (durMs > 0) {
           ch.animTimer = (ch.animTimer ?? 0) + delta;
           if (ch.animTimer >= durMs) {
@@ -2098,7 +2086,7 @@ export class OfficeScene extends Phaser.Scene {
     for (const ch of this.characters.values()) {
       if (Math.abs((ch.x ?? ch.tx) - ch.tx) > 0.4 || Math.abs((ch.y ?? ch.ty) - ch.ty) > 0.4) return true;
       if (ch.matrixEffect || ch.bubbleType) return true;
-      if ((POSE_FRAME_MS[(ch.pose ?? 'idle') as CharacterPose] ?? 0) > 0) return true; // animating pose
+      if (poseFrameMs(ch.pose ?? 'idle', 'character') > 0) return true; // animating pose
     }
     for (const p of this.pets.values()) {
       if (Math.abs((p.x ?? p.tx) - p.tx) > 0.4 || Math.abs((p.y ?? p.ty) - p.ty) > 0.4) return true;

@@ -275,7 +275,23 @@ check asks: is the release present in the code that acquires?
   right, left), 7 frames/row,
   but frame size is per-character (≤64×64) and per-pose frame counts are
   **track-driven** via `CharacterSpec` (`sprites/characterSpec.ts`). Adding a pose
-  means a new `CharacterPose` + a `spriteForPose` branch + a track name.
+  means a new `CharacterPose` + a `spriteForPose` branch + a track name + **its cadence
+  in `office/poseCadence.ts`**.
+  A track says how many frames a pose has and in what order; it does NOT say how fast, and
+  that last part had three answers that disagreed — the engine's constants (pets, advanced
+  server-side in `advancePetFrame`), a copy in `OfficeScene` whose own comment admitted it
+  was "mirroring the engine's constants" (characters, advanced client-side, because frame
+  phase is presentation timing — invariant 2), and a third hand-written table in the
+  character editor. The editor's walk was 150 ms against the game's 75, so every author
+  judged their walk cycle at **half speed** for as long as that table existed. One derived
+  table now, per kind, since a pet walks at 120 ms and a human at 75.
+  Two rules keep it honest. `poseFrameMs()` returns **0** for a pose the world holds still
+  (a character's idle is the neutral standing frame; the engine has no sleep state at all),
+  and only an editor may fall back to `previewFrameMs()` so authored frames can be seen
+  cycling — that fallback is not a game value and a renderer must never use it. And
+  `poseCadence.int.test.ts` reads `engine/pets.ts` for its `advancePetFrame` call sites, so
+  a new pet state with a cadence and no table entry fails a test instead of quietly
+  previewing at the fallback.
 - **Measuring performance:** judge by **frame/CPU time**, not proxies like
   triangle count (greedy meshing once measured *slower* despite −20 % tris). The
   client has a perf overlay — **F8** or `?perf=1` — showing fps, frame time,
