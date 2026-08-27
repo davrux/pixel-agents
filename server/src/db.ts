@@ -8,6 +8,8 @@ import { existsSync, renameSync } from 'node:fs';
 
 import { bootstrapDataDir } from './dataBootstrap.js';
 import { dataPath } from './paths.js';
+import { USERS_DDL } from './schema/tables.js';
+import { ensureUserForeignKeys } from './schema/userForeignKeys.js';
 import { maybeResetWorld } from './worldReset.js';
 
 // Before the connection exists: creates the data directory and, on a first run,
@@ -38,6 +40,17 @@ db.exec('PRAGMA busy_timeout = 5000');
 db.exec('PRAGMA journal_mode = WAL');
 
 migrateFromSplitDbs();
+
+// The accounts table, before any table that references it: SQLite resolves a foreign key when a
+// row is written, not when the table is created, so a child table whose parent is missing fails on
+// its first INSERT — which is what a test importing a single store would hit. `userStore` still
+// owns the column migrations that grew this table; both read the same DDL.
+db.exec(USERS_DDL);
+// Then the cascade itself, on a database that predates it. Before the stores, because a store's
+// CREATE TABLE IF NOT EXISTS is a no-op over the old unconstrained table and the rebuild would
+// otherwise happen underneath live prepared statements.
+ensureUserForeignKeys(db);
+
 // Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
 // accounts, once per token (see worldReset.ts). The stores then find an empty
 // database and rebuild what they own.

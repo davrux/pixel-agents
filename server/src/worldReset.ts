@@ -38,6 +38,10 @@ const KEEP_TABLES = new Set([
   // migrations against an already-migrated database, and it holds this very
   // reset's token.
   '_migrations',
+  // A user's pinned skin and their viewer settings (sound, labels, volume, camera). Personal,
+  // like the avatar below, and meaningless to the world being wiped. `player_pos` is deliberately
+  // NOT here: where somebody stood is a fact about zones that are about to be gone.
+  'user_prefs',
 ]);
 
 /** Asset rows that survive: a user's own avatar belongs to their account, the

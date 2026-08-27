@@ -188,6 +188,32 @@ check asks: is the release present in the code that acquires?
   had. Rebuilding a collection wholesale counts (`this.points =
   layoutToSitPoints(…)` is bounded by the layout); a `WeakMap` counts by
   construction.
+- **The same rule in the database is a foreign key, not a list of DELETEs.** Rows
+  that belong to an account (`server/src/schema/tables.ts`) declare
+  `ON DELETE CASCADE`, so `DELETE FROM users` takes the sessions, preferences,
+  stored positions, arcade saves, zone grants and meeting rooms with it. It was a
+  hand-maintained list at each call site before, and the two call sites had already
+  drifted: `/delete` forgot the user's meeting rooms where `DELETE
+  /admin/users/:id` removed them. Measured on this repo's dev world 2026-08-27, 22
+  rows belonged to accounts that no longer existed. `node:sqlite` enforces foreign
+  keys by default, so nothing has to be switched on — but no table had declared one,
+  so there was nothing to enforce. Two exceptions, each written down where it lives:
+  a private avatar is one row of the shared `assets` table keyed
+  (type, name) and a constraint cannot be conditional on another column (hence the
+  orphan-avatar task at boot), and `zones.owner_id` must SET NULL rather than
+  cascade — deleting an owner may not delete everyone else's world.
+  **A new table with a `user_id` needs no thought and gets none**:
+  `userDataCascade.int.test.ts` fails until it either cascades or is named there with
+  the reason it must not. That check lives in the suite rather than in
+  `mmo-readiness` deliberately — it reads the live schema through
+  `PRAGMA foreign_key_list`, which is the truth, where a grep over DDL strings would
+  only see one of the two places a table can be created.
+  What a cascade does NOT cover is a per-user blob INSIDE a row: five of those lived
+  in `settings` (keyed by user id inside one JSON object per kind) with no delete site
+  at all, and they are tables now for that reason as much as for speed —
+  `playerPos` cost 0.016 ms per write at thirteen entries and **5.3 ms at ten
+  thousand**, on the thread the simulation ticks on, because every checkpoint parsed
+  and rewrote the whole object. One row by primary key is 0.004 ms at any size.
 - **A subscription on a process-wide emitter is a reference to everything behind
   it.** `controlBus.on` and `director.on` in a room need their `off` in
   `onDispose`, or the emitter retains the room, its state, its clients and its

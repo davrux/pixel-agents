@@ -6,7 +6,6 @@ import { avatarSeedFrom } from '../art/avatarSeed.js';
 
 import {
   conferenceKey,
-  meetingSlug,
   PROTOCOL_VERSION,
   cleanName,
   playerAvatarSkinId,
@@ -18,16 +17,15 @@ import {
 } from '@pixel/shared';
 import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
 import { isWorkStatus } from '@pixel/shared';
-import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions, sanitizeAction } from '../layoutSanitize.js';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
-import { CHAR_FRAME_H, CHAR_FRAME_W, PET_FRAME_H, PET_FRAME_W } from '../core/assets/constants.js';
+import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog, effectiveAction, getCatalogEntry,
+import { buildDynamicCatalog, effectiveAction,
   entryFor,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
@@ -598,7 +596,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // coalesced PRESENCE_EVENT broadcast, so the list is populated even for a
     // viewer who joins while nothing else is moving.
     if (userId) client.send('m', this.onlineUsersMessage());
-    const characterSkin = userId ? (appStore.getCharPrefs()[userId] ?? null) : null;
+    const characterSkin = userId ? appStore.getCharPref(userId) : null;
 
     // Zone-local avatar loading: give the joiner every owned avatar already
     // present in this zone, so it can render the players standing here without
@@ -1625,7 +1623,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       sys,
       hereLabel: this.zone.label,
       hereId: this.zone.id,
-      afterDeleteUser: (loginId) => this.zones.removeUserFromAllZones(loginId),
+      afterDeleteUser: (loginId) => this.zones.disownZonesOf(loginId),
     });
   }
 
@@ -1652,7 +1650,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const existing = appStore.assetRow('playerAvatar', userId);
     if (existing !== undefined) return existing as Record<string, unknown>;
     const chars = this.bundle.raw.characters as Array<{ id: string; data: Record<string, unknown> }>;
-    const oldPin = appStore.getPlayerPrefs()[userId];
+    const oldPin = appStore.getPlayerPref(userId);
     const src = (oldPin ? chars.find((c) => c.id === oldPin) : undefined) ?? chars[0];
     const data = avatarSeedFrom(src.data);
     appStore.setPlayerAvatar(userId, data);

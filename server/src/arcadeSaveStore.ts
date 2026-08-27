@@ -5,8 +5,9 @@
  * Anonymous (no user id) is not persisted.
  */
 import { db } from './db.js';
+import { userChildDdl } from './schema/tables.js';
 
-db.exec('CREATE TABLE IF NOT EXISTS arcade_saves (user_id TEXT, game TEXT, data BLOB NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (user_id, game))');
+db.exec(userChildDdl('arcade_saves'));
 const getStmt = db.prepare('SELECT data FROM arcade_saves WHERE user_id = ? AND game = ?');
 const delStmt = db.prepare('DELETE FROM arcade_saves WHERE user_id = ? AND game = ?');
 const setStmt = db.prepare(

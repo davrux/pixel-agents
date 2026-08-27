@@ -2,8 +2,8 @@
  * A viewer preference is personal, and it has to survive two things that are easy
  * to get wrong when a new one is added.
  *
- * The first is the UPGRADE: every existing world already has a `viewerSettings`
- * blob written before the new key existed, so the row a real user reads back is
+ * The first is the UPGRADE: every existing world already has a stored row written before the
+ * new key existed, so the row a real user reads back is
  * always partial. If a missing key does not fall back to the documented default,
  * the feature arrives switched on (or off) for everybody who ever opened
  * Settings, and only for them — the worst kind of "works on my machine".
@@ -16,11 +16,15 @@
  * immediately visible to the wrong person.
  *
  * TEST BOUNDARIES:
- *   @real-dependency: appStore + SQLite -- Mock? NO. The merge of a stored blob
+ *   @real-dependency: appStore + SQLite -- Mock? NO. The merge of a stored row
  *       over the defaults IS the store, and a stub would only restate my own
  *       assumption about it. A throwaway PIXEL_STREAM_DATA_DIR keeps it away from
  *       a developer's world, which is why appStore is imported dynamically (db.ts
  *       resolves that path at module load).
+ *
+ * The accounts are created for real, because a preference now lives in a table that references
+ * `users` (ON DELETE CASCADE — see schema/tables.ts): a setting for an account that does not
+ * exist is a row the schema refuses, which is the point of it.
  */
 import { strict as assert } from 'node:assert';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -31,7 +35,10 @@ import test from 'node:test';
 const dir = mkdtempSync(join(tmpdir(), 'pixel-viewersettings-'));
 process.env.PIXEL_STREAM_DATA_DIR = dir;
 const { appStore, defaultViewerSettings } = await import('./appStore.js');
+const { userStore } = await import('./userStore.js');
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+
+for (const id of ['ann', 'bo', 'cy', 'dee']) userStore.createUser(id, 'password-123', {});
 
 test('a viewer nobody has ever stored anything for gets the documented defaults', () => {
   const s = appStore.getViewerSettings('never-seen');
@@ -72,9 +79,17 @@ test('one preference does not disturb the others', () => {
 });
 
 test('a row written before this preference existed reads back the default for it', () => {
-  // Exactly what every deployed world holds: the blob as it was written when
-  // `iframeOverlay` was not a key yet.
-  appStore.setSetting('viewerSettings', { dee: { soundEnabled: false, alwaysShowLabels: true, alertVolume: 0.5, cameraFollow: false } });
+  // Exactly what every deployed world holds: the row as it was written when `iframeOverlay` was
+  // not a key yet. Written one key at a time through the store, which is how a client writes it —
+  // four settings stored, the fifth never mentioned.
+  for (const [key, value] of [
+    ['soundEnabled', false],
+    ['alwaysShowLabels', true],
+    ['alertVolume', 0.5],
+    ['cameraFollow', false],
+  ] as const) {
+    appStore.setViewerSetting('dee', key, value);
+  }
   const s = appStore.getViewerSettings('dee');
   assert.equal(s.iframeOverlay, false, 'a key the row predates must not arrive switched on');
   // …and the preferences that row DID carry are untouched by the merge.

@@ -11,6 +11,7 @@ import * as crypto from 'node:crypto';
 import { cleanName } from '@pixel/shared';
 
 import { db } from './db.js';
+import { USERS_DDL } from './schema/tables.js';
 import { hashPassword, verifyHash } from './pwhash.js';
 
 export const MIN_PASSWORD_LEN = 6;
@@ -74,18 +75,9 @@ class UserStore {
   private readonly db = db;
 
   constructor() {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        user_id TEXT PRIMARY KEY,
-        username TEXT,
-        pw_hash TEXT,
-        pw_algo TEXT,
-        is_admin INTEGER NOT NULL DEFAULT 0,
-        agent_token TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS users_agent_token ON users(agent_token);
-    `);
+    // db.ts has already created this (every account-owned table references it), but a store
+    // creates what it owns: the same DDL, once more, is a no-op.
+    this.db.exec(USERS_DDL);
     // Migration: add the role column and backfill from the legacy is_admin flag
     // (admins → 'admin', everyone else → 'user').
     const cols = this.db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
