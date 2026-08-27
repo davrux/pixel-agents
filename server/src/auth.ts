@@ -184,6 +184,36 @@ function loginThrottled(loginId: string): boolean {
   }
   return e.count >= MAX_LOGIN_FAILS;
 }
+/**
+ * Wrong ADMIN TOKEN, counted globally — the guess the per-account throttle cannot see.
+ *
+ * `loginFails` is keyed by login id, which is right for a password: it stops a burst against
+ * one account without letting anybody lock out everyone else. On the register form it is not
+ * enough, and that is the hole this closes: the secret being guessed there is the server's ONE
+ * admin token, and the attacker picks the login id, so `a1`, `a2`, `a3` … each brought a fresh
+ * budget of ten. Whoever guesses the token becomes an admin.
+ *
+ * So token guesses are counted in one place for the whole server. That CAN be used to make the
+ * register form unavailable for a minute — deliberately accepted: nobody needs it to be up at
+ * that moment (signing in is untouched), and an admin token is not something to leave open to
+ * unlimited guessing. The window auto-expires, so it self-heals like the per-account one.
+ */
+const MAX_TOKEN_FAILS = 20;
+const tokenFails = { count: 0, until: 0 };
+function tokenGuessThrottled(): boolean {
+  if (Date.now() > tokenFails.until) {
+    tokenFails.count = 0;
+    return false;
+  }
+  return tokenFails.count >= MAX_TOKEN_FAILS;
+}
+function noteTokenFail(): void {
+  const now = Date.now();
+  if (now > tokenFails.until) tokenFails.count = 0;
+  tokenFails.count += 1;
+  tokenFails.until = now + LOGIN_FAIL_WINDOW_MS; // sliding, like the per-account window
+}
+
 function noteLoginFail(loginId: string): void {
   const now = Date.now();
   if (loginFails.size > 10_000) loginFails.clear(); // bound memory
@@ -239,11 +269,15 @@ function verifyRegistration(body: Record<string, unknown>, adminToken: string): 
 
   if (!loginId) return { error: 'Enter a login id.' };
   if (loginThrottled(loginId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
+  // Both throttles, and this one before the token is even looked at: the per-account one above
+  // is bypassed here by varying the login id, since the id is the attacker's own choice.
+  if (tokenGuessThrottled()) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
   // A blank token is not a guess — say what is missing rather than penalising it.
   if (!token) return { error: 'An admin token is required to create an account.' };
 
   if (!secretEquals(token, adminToken)) {
     noteLoginFail(loginId);
+    noteTokenFail();
     return { error: 'Invalid admin token.' };
   }
   const existing = userStore.get(loginId);
