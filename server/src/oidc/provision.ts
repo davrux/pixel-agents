@@ -53,24 +53,61 @@ const MAX_CLAIM_LEN = 256;
 const asString = (v: unknown): string => (typeof v === 'string' ? v.trim().slice(0, MAX_CLAIM_LEN) : '');
 
 /**
- * Read the claims out of a userinfo (or ID token) payload.
+ * Zitadel's project-roles claim, in every spelling a deployment can produce.
  *
- * Roles arrive in two shapes and both are real: Zitadel's project-roles claim is an OBJECT keyed
- * by role name (`{ "pixel-admin": { "orgid": "domain" } }`), while a plain `groups`/`roles` claim
- * is an array of strings. Anything else yields no roles rather than an error — a login must not
- * fail because a claim has an unexpected shape; it just does not grant admin.
+ * The configured name (`PIXEL_OIDC_ROLES_CLAIM`, default `urn:zitadel:iam:org:project:roles`) is
+ * the one to look at first — but Zitadel also emits the PROJECT-SCOPED form
+ * `urn:zitadel:iam:org:project:<projectId>:roles` when the roles are asserted for a specific
+ * project, and which one a token carries depends on settings nobody reading this file can see. So
+ * any claim matching that URN shape counts, and this is a prefix test rather than a list of names.
+ *
+ * Deliberately NOT extended to `groups` or a bare `roles`: those are claims a directory fills with
+ * things that are not authorization for this world, and quietly treating one of them as the source
+ * of admin is how a group called "admin" somewhere else ends up granting rights here.
  */
-export function readClaims(payload: unknown, cfg: OidcConfig): OidcClaims | { error: string } {
+const ZITADEL_ROLES_URN = /^urn:zitadel:iam:org:project:(?:[^:]+:)?roles$/;
+
+/**
+ * Every role named by one payload, in either shape both are real: Zitadel's project-roles claim is
+ * an OBJECT keyed by role name (`{ "admin": { "orgid": "domain" } }`), a plain roles claim is an
+ * array of strings. Anything else yields nothing rather than an error — a login must not fail
+ * because a claim has an unexpected shape; it just does not grant admin.
+ */
+function rolesIn(p: Record<string, unknown>, cfg: OidcConfig): string[] {
+  const out: string[] = [];
+  for (const [key, raw] of Object.entries(p)) {
+    if (key !== cfg.rolesClaim && !ZITADEL_ROLES_URN.test(key)) continue;
+    if (Array.isArray(raw)) out.push(...raw.filter((r): r is string => typeof r === 'string'));
+    else if (typeof raw === 'object' && raw !== null) out.push(...Object.keys(raw as Record<string, unknown>));
+  }
+  return out;
+}
+
+/**
+ * Read the claims out of a userinfo payload, plus the ID token's if there is one.
+ *
+ * **Both, because Zitadel puts the roles in either.** "Assert Roles on Authentication" writes them
+ * into the ID TOKEN; the userinfo endpoint carries them only when the project also asserts them
+ * there. Reading userinfo alone — which this did at first — therefore made
+ * `PIXEL_OIDC_ADMIN_ROLE` look broken on a perfectly ordinary Zitadel setup: the login worked, the
+ * role was there, and nothing here ever saw it. The two sets are merged and deduped, and both
+ * arrived over TLS from the same exchange (the ID token in the token response, userinfo with its
+ * access token), so neither is more trustworthy than the other.
+ *
+ * Identity still comes from userinfo alone. The ID token is consulted for roles and nothing else;
+ * `routes.ts` separately refuses a login whose ID token names a different subject.
+ */
+export function readClaims(payload: unknown, cfg: OidcConfig, idTokenPayload?: unknown): OidcClaims | { error: string } {
   if (typeof payload !== 'object' || payload === null) return { error: 'The identity provider returned no profile.' };
   const p = payload as Record<string, unknown>;
   const sub = asString(p.sub);
   if (!sub) return { error: 'The identity provider returned no subject for this user.' };
 
-  const raw = p[cfg.rolesClaim];
-  let roles: string[] = [];
-  if (Array.isArray(raw)) roles = raw.filter((r): r is string => typeof r === 'string');
-  else if (typeof raw === 'object' && raw !== null) roles = Object.keys(raw as Record<string, unknown>);
-  roles = roles.map((r) => r.trim().slice(0, MAX_CLAIM_LEN)).filter((r) => r !== '').slice(0, 100);
+  const fromId = typeof idTokenPayload === 'object' && idTokenPayload !== null ? rolesIn(idTokenPayload as Record<string, unknown>, cfg) : [];
+  const roles = [...new Set([...rolesIn(p, cfg), ...fromId])]
+    .map((r) => r.trim().slice(0, MAX_CLAIM_LEN))
+    .filter((r) => r !== '')
+    .slice(0, 100);
 
   const given = asString(p.given_name);
   const family = asString(p.family_name);
@@ -160,9 +197,16 @@ export function resolveOidcUser(claims: OidcClaims, cfg: OidcConfig): ProvisionR
 
 /** Grant or revoke admin from the provider's roles — see the note at the top of this file. */
 function syncAdminRole(userId: string, claims: OidcClaims, cfg: OidcConfig): void {
-  if (!cfg.adminRole) return; // The provider says nothing about roles: leave the local flag alone.
+  if (!cfg.adminRole) return; // No role mapped: leave the local flag alone.
   const shouldBeAdmin = claims.roles.includes(cfg.adminRole);
   const user = userStore.get(userId);
+  // Logged on every login, not only when something changes: "the role is not arriving" and "the
+  // role is arriving and you are already an admin" look identical from the outside, and the first
+  // is the one an operator spends an afternoon on. Bounded, and role names are not secrets.
+  console.log(
+    `[oidc] "${userId}" roles from the provider: ${claims.roles.length ? claims.roles.slice(0, 20).join(', ') : '(none)'}` +
+      ` — "${cfg.adminRole}" ${shouldBeAdmin ? 'present' : 'absent'}`,
+  );
   if (!user || user.isAdmin === shouldBeAdmin) return;
   if (!shouldBeAdmin && userStore.enabledAdminCount() <= 1) {
     console.warn(

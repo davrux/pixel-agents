@@ -439,11 +439,13 @@ async function handleCallback(cfg: OidcConfig, req: Request, res: Response): Pro
     return fail(GENERIC_FAILURE, (err as Error)?.message ?? 'unknown error', 502);
   }
 
-  const claims = readClaims(claimsPayload, cfg);
+  // Parsed before the claims are read, because it is one of the two places the ROLES can be (see
+  // readClaims) as well as what the cross-checks below compare against.
+  const idClaims = idTokenClaims(tokens.idToken);
+
+  const claims = readClaims(claimsPayload, cfg, idClaims);
   if ('error' in claims) return fail(claims.error, `unusable claims: ${claims.error}`);
 
-  // The two cross-checks the ID token is good for (see idTokenClaims).
-  const idClaims = idTokenClaims(tokens.idToken);
   if (idClaims) {
     if (typeof idClaims.nonce === 'string' && idClaims.nonce !== flow.nonce) {
       return fail(GENERIC_FAILURE, 'the ID token nonce does not match the flow');

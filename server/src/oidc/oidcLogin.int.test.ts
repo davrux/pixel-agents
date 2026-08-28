@@ -46,6 +46,8 @@ let oauthIdentityStore: typeof import('./identityStore.js').oauthIdentityStore;
 /** What the fake provider will report for the next login, and what it saw. */
 const idp_ = {
   claims: {} as Record<string, unknown>,
+  /** Extra claims for the ID TOKEN only — Zitadel asserts project roles there by default. */
+  idTokenClaims: {} as Record<string, unknown>,
   nonce: '',
   /** Authorization requests seen, so the test can assert what was sent. */
   lastAuthorize: null as URLSearchParams | null,
@@ -98,7 +100,7 @@ function startIdp(): Promise<void> {
         return json(200, {
           access_token: `at-${code}`,
           token_type: 'Bearer',
-          id_token: fakeIdToken({ sub: String(idp_.claims.sub ?? ''), nonce: idp_.nonce }),
+          id_token: fakeIdToken({ sub: String(idp_.claims.sub ?? ''), nonce: idp_.nonce, ...idp_.idTokenClaims }),
         });
       });
       return;
@@ -164,6 +166,7 @@ beforeEach(async () => {
   clearPending();
   idp_.codes.clear();
   idp_.lastAuthorize = null;
+  idp_.idTokenClaims = {};
 });
 
 /** Start a browser flow: returns the state, the cookie to send back, and the authorize params. */
@@ -399,4 +402,33 @@ test('with no admin token, local account creation is refused but the provider bu
 
   const page = await (await fetch(`${base}/login`)).text();
   assert.match(page, /\/auth\/oauth\/start/, 'the login page offers the provider');
+});
+
+test('a role asserted only in the ID TOKEN grants admin', async () => {
+  // The shape a default Zitadel project produces: "Assert Roles on Authentication" writes the
+  // roles into the ID token, and userinfo carries none. Reading userinfo alone — which this server
+  // did at first — saw an empty role set and revoked admin instead of granting it.
+  idp_.idTokenClaims = { 'urn:zitadel:iam:org:project:roles': { [ADMIN_ROLE]: { orgid: 'corp.example' } } };
+  const f = await startBrowserFlow();
+  await completeCallback(f.state, f.cookie, { sub: 'sub-idrole', preferred_username: 'idrole' }, f.params.get('nonce') ?? '');
+  assert.equal(userStore.get('idrole')?.isAdmin, true, 'the role was in the ID token, so it counts');
+});
+
+test("Zitadel's project-scoped roles claim is read as well", async () => {
+  // The other spelling the same provider emits, depending on how the roles are asserted:
+  // urn:zitadel:iam:org:project:<projectId>:roles. Neither is the configured claim name, and a
+  // deployment cannot tell in advance which one its tokens will carry.
+  idp_.idTokenClaims = { 'urn:zitadel:iam:org:project:298374:roles': { [ADMIN_ROLE]: { orgid: 'corp.example' } } };
+  const f = await startBrowserFlow();
+  await completeCallback(f.state, f.cookie, { sub: 'sub-projrole', preferred_username: 'projrole' }, f.params.get('nonce') ?? '');
+  assert.equal(userStore.get('projrole')?.isAdmin, true);
+});
+
+test('a claim that is not a roles claim never grants admin', async () => {
+  // `groups` is deliberately NOT consulted: a directory fills it with things that are not
+  // authorization for this world, and a group called "admin" elsewhere must not become one here.
+  idp_.idTokenClaims = { groups: [ADMIN_ROLE], roles: [ADMIN_ROLE] };
+  const f = await startBrowserFlow();
+  await completeCallback(f.state, f.cookie, { sub: 'sub-groups', preferred_username: 'groupy' }, f.params.get('nonce') ?? '');
+  assert.equal(userStore.get('groupy')?.isAdmin, false);
 });

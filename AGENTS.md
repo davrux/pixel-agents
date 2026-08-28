@@ -813,7 +813,16 @@ background only.)
   **The provider may own roles, but not the last admin.** With
   `PIXEL_OIDC_ADMIN_ROLE` set the directory grants and revokes admin on every
   login; revoking the last *usable* admin is refused and logged, because the fix
-  for that mistake would need the very admin panel it just closed.
+  for that mistake would need the very admin panel it just closed. **Roles are read
+  from the ID token AND from userinfo**, and from any claim matching Zitadel's
+  project-roles URN as well as the configured name — because which of those a token
+  carries depends on provider settings this server cannot see, and reading userinfo
+  alone (as it did at first) made a correctly configured directory look like it was
+  sending no roles at all. `groups` and a bare `roles` are deliberately NOT
+  consulted: a directory fills those with things that are not authorization for this
+  world. Every login logs the role names it saw, because "the role is not arriving"
+  and "the role arrived and nothing changed" are indistinguishable from the outside
+  and the first is what costs an afternoon.
   **A provisioned account has no password** (`createProvisionedUser`) rather than
   a random one — a credential that exists is a credential that can be attacked,
   and `/login` refuses a row with no hash outright.
