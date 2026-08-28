@@ -17,6 +17,9 @@
  *     here rather than silently previewing at the fallback.
  *  3. The preview fallback is not a game value. A renderer that used it would animate a pose the
  *     world holds still.
+ *  4. The preview's ONE deliberate difference from the world — a moving pose plays at
+ *     `PREVIEW_SLOWDOWN` — is a factor on the world's number, so a stationary pose stays identical
+ *     and the two can never drift apart again.
  *
  * TEST BOUNDARIES:
  *   @real-dependency: the shared constants + the engine source -- Mock? NO. The claim is "these
@@ -42,6 +45,7 @@ import {
   CHARACTER_POSE_FRAME_MS,
   PET_POSE_FRAME_MS,
   PREVIEW_FALLBACK_FRAME_MS,
+  PREVIEW_SLOWDOWN,
   poseFrameMs,
   previewFrameMs,
 } from '@pixel/shared/office/poseCadence';
@@ -65,11 +69,31 @@ test('every cadence is the engine constant, not a number somebody typed', () => 
   assert.equal(poseFrameMs('walk', 'pet'), 120, 'a pet walks at its own cadence, not the human one');
 });
 
-test('a character walks twice as fast as the editor used to show', () => {
-  // The regression in one line: the editor returned 150 for walk. Both the game and the preview
-  // now answer with the engine's number, so the two cannot disagree again by construction.
-  assert.equal(previewFrameMs('walk', 'character'), poseFrameMs('walk', 'character'));
-  assert.equal(previewFrameMs('walk', 'character') * 2, 150, 'the old editor value was exactly double');
+test('a preview slows a MOVING pose and leaves every other one alone', () => {
+  // The one deliberate difference between the preview and the world, and the reason it is a factor
+  // rather than a table: the editor draws a still, magnified sprite, so a walk cycle at the
+  // world's 75 ms reads frantic where the same frames on a character crossing tiles do not. The
+  // stationary poses need no correction because they are stationary in the world as well.
+  assert.equal(previewFrameMs('walk', 'character'), poseFrameMs('walk', 'character') * PREVIEW_SLOWDOWN);
+  assert.equal(previewFrameMs('walk', 'character'), 150, 'which is also what the editor showed before any of this');
+  assert.equal(previewFrameMs('walk', 'pet'), 240, 'a pet slows by the same factor, from its own 120');
+
+  for (const [kind, poses] of [
+    ['character', ['typing', 'reading', 'coffee']],
+    ['pet', ['sit', 'talk']],
+  ] as const) {
+    for (const pose of poses) {
+      assert.equal(
+        previewFrameMs(pose, kind),
+        poseFrameMs(pose, kind),
+        `${kind} ${pose} is stationary in the world too — slowing it would make the preview lie`,
+      );
+    }
+  }
+
+  // And the numbers still come from the engine: the factor multiplies the world's answer, so the
+  // two cannot drift apart the way they had (a hand-written 150 against the game's 75).
+  assert.equal(previewFrameMs('walk', 'character') / PREVIEW_SLOWDOWN, poseFrameMs('walk', 'character'));
 });
 
 test('every pose the pet engine animates has a cadence in the table', () => {

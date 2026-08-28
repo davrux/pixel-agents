@@ -1518,12 +1518,17 @@ export class CharacterEditor {
   /** Per-frame duration (ms) for the preview; 0 = static. Other tracks (sit,
    *  sleep, …) animate at a default cadence. */
   /**
-   * How fast the preview cycles: exactly what the world does.
+   * How fast the preview cycles: the world's cadence, with one deliberate exception.
    *
-   * This used to be a hand-written table, and it disagreed — walk ran at 150 ms against the game's
-   * 75, so every author judged their walk cycle at half speed. The numbers come from the engine's
-   * constants now (`shared/office/poseCadence.ts`), per kind, because a pet is animated on the
-   * server at its own cadence (120 ms for walk, not 75).
+   * The numbers come from the engine's constants (`shared/office/poseCadence.ts`), per kind,
+   * because a pet is animated on the server at its own cadence (120 ms for walk, not 75). This
+   * used to be a hand-written table that disagreed with them, so every author judged their walk
+   * cycle at the wrong speed and nothing could catch it.
+   *
+   * The exception is a MOVING pose, which plays at `PREVIEW_SLOWDOWN`: the editor shows a still,
+   * magnified sprite, and a walk cycle that reads fine on a character crossing tiles reads frantic
+   * standing still. It is a factor on the world's number rather than a table of its own, so the
+   * stationary poses stay identical and the two cannot drift apart again.
    *
    * A pose the world never animates — a character's idle, a pet's sleep — still needs to cycle
    * here or authored frames could not be seen at all; `previewFrameMs` is where that fallback is

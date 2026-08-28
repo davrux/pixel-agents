@@ -66,6 +66,28 @@ export const PET_POSE_FRAME_MS: Readonly<Record<string, number>> = {
  */
 export const PREVIEW_FALLBACK_FRAME_MS = 250;
 
+/**
+ * How much slower a preview plays a MOVING pose than the world does.
+ *
+ * The editor draws one sprite, standing still and magnified. The world draws the same frames on a
+ * character crossing tiles, and the two do not read the same: at the world's 75 ms a walk cycle in
+ * a still preview looks frantic, which is what an author judging a walk cycle actually said. The
+ * stationary poses need no correction, because they are stationary in the world too — a typing
+ * character does not move either, so 300 ms means the same thing in both places.
+ *
+ * This is the one deliberate difference between the preview and the world, and it is a FACTOR on
+ * the world's number rather than a table of its own: the numbers still come from the engine's
+ * constants, so they cannot drift apart again the way they had (the editor's hand-written walk was
+ * 150 ms against the game's 75 for as long as that table existed).
+ */
+export const PREVIEW_SLOWDOWN = 2;
+
+/**
+ * Poses the world plays while the entity is moving, so the ones a still preview has to slow down.
+ * Walk is the only one today; a run or a swim would belong here, a sit or a sip would not.
+ */
+const MOVING_POSES = new Set(['walk']);
+
 /** The world's cadence for a pose, or 0 when the world holds that pose still. */
 export function poseFrameMs(pose: string, kind: PoseKind): number {
   const table = kind === 'pet' ? PET_POSE_FRAME_MS : CHARACTER_POSE_FRAME_MS;
@@ -73,9 +95,12 @@ export function poseFrameMs(pose: string, kind: PoseKind): number {
 }
 
 /**
- * The cadence a preview should use: the world's, and only where the world has none, something
- * visible. Keep the two apart at the call site — a renderer wants {@link poseFrameMs}.
+ * The cadence a preview should use: the world's, slowed for a moving pose ({@link
+ * PREVIEW_SLOWDOWN}), and where the world has none, something visible. Keep the two apart at the
+ * call site — a renderer wants {@link poseFrameMs}, which is the world's answer and nothing else.
  */
 export function previewFrameMs(pose: string, kind: PoseKind): number {
-  return poseFrameMs(pose, kind) || PREVIEW_FALLBACK_FRAME_MS;
+  const world = poseFrameMs(pose, kind);
+  if (!world) return PREVIEW_FALLBACK_FRAME_MS;
+  return MOVING_POSES.has(pose) ? world * PREVIEW_SLOWDOWN : world;
 }

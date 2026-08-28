@@ -311,8 +311,12 @@ check asks: is the release present in the code that acquires?
   table now, per kind, since a pet walks at 120 ms and a human at 75.
   Two rules keep it honest. `poseFrameMs()` returns **0** for a pose the world holds still
   (a character's idle is the neutral standing frame; the engine has no sleep state at all),
-  and only an editor may fall back to `previewFrameMs()` so authored frames can be seen
-  cycling — that fallback is not a game value and a renderer must never use it. And
+  and only an editor may use `previewFrameMs()` — which differs from the world in exactly two
+  named ways: a fallback cadence so authored frames for a static pose can be seen cycling, and
+  `PREVIEW_SLOWDOWN` on a MOVING pose, because the editor shows a still, magnified sprite and a
+  walk cycle that reads fine on a character crossing tiles reads frantic standing still (asked
+  for from use, twice, in both directions). Both are factors or fallbacks ON the world's number,
+  never a second table — a renderer must use `poseFrameMs` and nothing else. And
   `poseCadence.int.test.ts` reads `engine/pets.ts` for its `advancePetFrame` call sites, so
   a new pet state with a cadence and no table entry fails a test instead of quietly
   previewing at the fallback.
