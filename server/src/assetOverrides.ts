@@ -29,12 +29,30 @@ import type { AssetBundle } from './assets.js';
  * `image` went first: a map's pictures are files under assets/tiled that the layout points at
  * (PlacedImage.src), not rows shipped on every join — see tiled/zoneImport.ts. `furniture`
  * followed, because furniture art comes from Tiled tilesets and nothing in the client has sent
- * a furniture save since: the editor offers 'agent' and 'npc' only. What was left was a write
+ * a furniture save since: the editor offers 'agent' and 'pet' only. What was left was a write
  * path with no caller and a merge that let a legacy row shadow the tileset it was replaced by.
  * Remaining rows are retired at boot (see maintenance/startupCleanup.ts).
  */
 export const ASSET_TYPES = ['character', 'pet'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
+
+/**
+ * A stored pet row, with its spawn config under the name this build reads.
+ *
+ * The field was called `npc` until 2026-08-27, when everything the code called an NPC was renamed
+ * to what it actually is — a pet — so that the word NPC is free for the humanoid characters this
+ * world is meant to grow (see AGENTS.md). A row written before that still says `npc`, and this is the one
+ * place a stored row becomes an entry, so this is where the two names meet. Cheap and permanent:
+ * a boot task rewrites the rows once (`schema/renamePetConfigField.ts`), and after that this only
+ * ever sees the new name — but a restored backup is exactly the case it must still survive.
+ */
+function withPetConfig(data: unknown): unknown {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const row = data as Record<string, unknown>;
+  if (row.petConfig !== undefined || row.npc === undefined) return data;
+  const { npc, ...rest } = row;
+  return { ...rest, petConfig: npc };
+}
 
 /**
  * What a "resend this kind of asset" event may name — the overridable types plus `furniture`,
@@ -126,11 +144,11 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     else characters.push({ id: name, data });
   }
 
-  // Pets / NPCs (dogs + cats + ducks)
+  // Pets (dogs + cats + ducks)
   const dogs = [...(raw.dogs as unknown[])];
   const cats = [...(raw.cats as unknown[])];
   const ducks = [...((raw.ducks as unknown[]) ?? [])];
-  for (const { name, data } of orderedAssets('pet')) {
+  for (const { name, data } of orderedAssets('pet').map((a) => ({ ...a, data: withPetConfig(a.data) }))) {
     const di = indexOf(name, 'dog');
     if (di !== null) {
       place(dogs, di, data);
@@ -148,12 +166,12 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // Bundled pets carry a display name for the same reason bundled skins get
   // `Skin N` above: no UI should ever have to show the technical slot id. The id
   // stays `dog_0` — it is the asset key that saveAsset/deleteAsset and a zone's
-  // NPC selection are stored under — so this is a label, not a rename. An
-  // override that brings its own name keeps it (the NPC editor derives one from
+  // pet selection are stored under — so this is a label, not a rename. An
+  // override that brings its own name keeps it (the pet editor derives one from
   // the slot only when the field is empty, so editing Emma's art keeps 'Emma').
   // Every bundled slot is named, for the reason the generic fallback exists at all: a list
   // reading "Duck 2" next to Emma and Daisy tells a user nothing about which duck it is.
-  // Fixed, like CHAR_NAMES above — a pet's name is what a zone's NPC is picked by.
+  // Fixed, like CHAR_NAMES above — a pet's name is what a zone's pet is picked by.
   const PET_NAMES: Record<string, string> = {
     dog_0: 'Emma',
     dog_1: 'Balu',
@@ -164,7 +182,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   };
   const named = (kind: 'dog' | 'cat' | 'duck', arr: unknown[]): unknown[] =>
     arr.map((data, i) => {
-      // A name that merely repeats the slot id carries no information: the NPC editor
+      // A name that merely repeats the slot id carries no information: the pet editor
       // fills the mandatory name field from the slot when it is empty, so an override
       // saved that way says `duck_0`. Treat it as absent — otherwise one old Save
       // pins the technical id into every list forever.

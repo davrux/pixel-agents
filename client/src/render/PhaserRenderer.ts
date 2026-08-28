@@ -49,7 +49,7 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
-import { getNpcSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
+import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
 import { sheetCellFrame, sheetCellPixels, sheetColumns, sheetFrameSize } from '../art/sheetStore';
 import {
   spriteTexture,
@@ -556,7 +556,7 @@ export class PhaserRenderer {
       // Same as characters: a cell of the pet's sheet, resolved by pose (petPose) and
       // direction, never decoded into pixels here.
       const sheetId = `${pet.kind}_${pet.variant}`;
-      const cell = poseFrame(getNpcSpec(pet.kind, pet.variant), petPose(pet), pet.frame, sheetColumns(sheetId));
+      const cell = poseFrame(getPetSpec(pet.kind, pet.variant), petPose(pet), pet.frame, sheetColumns(sheetId));
       const tex = sheetCellFrame(this.scene, sheetId, pet.dir, cell.col, cell.synthSit);
       if (!tex) {
         img.setVisible(false);

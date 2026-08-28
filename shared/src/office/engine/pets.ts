@@ -32,25 +32,25 @@ import type { Pet, PetKind } from '../types.js';
 import { Direction, PetState } from '../types.js';
 
 /**
- * The high-level activity an NPC brain can choose and the actuator can execute.
+ * The high-level activity a pet brain can choose and the actuator can execute.
  * This is the shared vocabulary between the server-only behaviour tree (which
  * decides) and the engine (which executes); the brain imports it rather than
  * defining its own. Extensible — N3.3 adds `drink` (coffee), `talk` (agent),
  * and `chase`/`flee` (shoo-cat) as new affordance-driven actions.
  */
-export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk';
+export type PetAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk';
 
-/** Kinds of interactable the world affords an NPC: claimable seats, adjacent-to
+/** Kinds of interactable the world affords a pet: claimable seats, adjacent-to
  *  furniture (cat on a desk), appliance stations (coffee), and agents (talk). */
 type AffordanceKind = 'seat' | 'furniture' | 'station' | 'agent';
 
 /**
- * What's available in the world for an NPC to interact with right now — a cheap
+ * What's available in the world for a pet to interact with right now — a cheap
  * existence snapshot OfficeState hands the brain so it can pick a sensible
  * action (don't choose "rest" with no free seat). Reachability is confirmed
  * later by `findTarget`; this stays pathfinding-free so it's cheap per decision.
  */
-export interface NpcAffordances {
+export interface PetAffordances {
   /** A seat (or, for cats, a desk) the pet could go rest at exists. */
   canRest: boolean;
   /** A cat is within shoo range to chase (dogs only). */
@@ -67,7 +67,7 @@ export interface NpcAffordances {
 export interface PetTarget {
   kind: AffordanceKind;
   /** What the pet does once it arrives (seat/desk → 'sit', station → 'drink'). */
-  action: NpcAction;
+  action: PetAction;
   seatId: string | null;
   furnitureUid: string | null;
   /** Claimed appliance station uid (for 'station' targets), else null. */
@@ -91,16 +91,16 @@ interface PetUpdateContext {
   walls?: WallEdges;
   /** Find + claim a free interaction target reachable from the pet for the given
    *  action ('sit' → seat/desk, 'drink' → appliance station), or null. */
-  findTarget: (pet: Pet, action: NpcAction) => PetTarget | null;
+  findTarget: (pet: Pet, action: PetAction) => PetTarget | null;
   /** Release the pet's current seat/furniture claim (no-op if none). */
   releaseClaim: (pet: Pet) => void;
-  /** Decide the next idle activity for a pet (injected by the server's NPC brain;
+  /** Decide the next idle activity for a pet (injected by the server's pet brain;
    *  absent → the built-in sit-chance roll). */
-  decideAction?: (pet: Pet) => NpcAction;
+  decideAction?: (pet: Pet) => PetAction;
   /** Resolve a directed move path for a reactive action — toward the nearest cat
    *  ('chase') or away from the nearest dog ('flee'). OfficeState supplies it
    *  (it knows every pet's position); null when no path applies. */
-  navigateReaction?: (pet: Pet, action: NpcAction) => Array<{ col: number; row: number }> | null;
+  navigateReaction?: (pet: Pet, action: PetAction) => Array<{ col: number; row: number }> | null;
   /** Playback length (frame count) of the pet's *current* pose track, used to
    *  advance `frame` spec-driven instead of with hardcoded per-state moduli.
    *  Server resolves it from the pet's sheet; absent → a static single frame. */
@@ -216,7 +216,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       if (pet.wanderTimer > 0) break;
 
       // Decide: go sit at furniture, or wander to a random tile. The server's
-      // NPC brain decides when injected; otherwise fall back to the sit-chance
+      // pet brain decides when injected; otherwise fall back to the sit-chance
       // roll (keeps the engine self-contained for tests/standalone).
       const action = ctx.decideAction ? ctx.decideAction(pet) : Math.random() < PET_SIT_CHANCE ? 'sit' : 'wander';
       if (action === 'sit' || action === 'drink' || action === 'talk') {
@@ -414,10 +414,10 @@ function startSitting(pet: Pet): void {
   pet.frameTimer = 0;
 }
 
-/** Map a pet's FSM state to an animation track name (the unified NPC pipeline
+/** Map a pet's FSM state to an animation track name (the unified pet pipeline
  *  resolves the frame via spriteForPose). wander/chase/flee→walk, sit→sit,
  *  drink→drink, else idle. Tracks that aren't drawn fall back to idle in
- *  spriteForPose, so an NPC without a `drink` sheet just stands there. */
+ *  spriteForPose, so a pet without a `drink` sheet just stands there. */
 export function petPose(pet: Pet): string {
   switch (pet.state) {
     case PetState.WANDER:

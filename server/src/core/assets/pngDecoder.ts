@@ -29,7 +29,6 @@ import {
   FLOOR_TILE_SIZE,
   PET_FRAME_H,
   PET_FRAME_W,
-  PET_FRAMES_PER_ROW,
   PET_DIRECTIONS,
   WALL_BITMASK_COUNT,
   WALL_GRID_COLS,
@@ -208,16 +207,25 @@ export function decodeCharacterPng(
 }
 
 /**
- * Decode a pet sheet (6 frames of 16×16 per row) into direction-keyed frame arrays.
+ * Decode a pet sheet (16×16 frames) into direction-keyed frame arrays.
  *
  * Reference implementation, used by tests only — see this file's header before removing it.
+ *
+ * Frames per row come from the sheet WIDTH, like the character decoder above. It used to be the
+ * fixed `PET_FRAMES_PER_ROW`, which silently cropped anything wider — measured at the time, a
+ * 192×96 sheet decoded "fine", as a quarter of the intended art. That mattered the moment the
+ * bundled sheets grew a `talk` track and became 8 columns: a fixed 6 would have made this
+ * reference blind to exactly the new frames, and the test that measures the frame arithmetic
+ * against it would have compared against art it could not see.
  */
 export function decodePetPng(pngBuffer: Buffer): PetDirectionSprites {
+  const png = PNG.sync.read(pngBuffer);
+  const framesPerRow = Math.max(1, Math.floor(png.width / PET_FRAME_W));
   return decodeDirectionalSheet(
     pngBuffer,
     PET_FRAME_W,
     PET_FRAME_H,
-    PET_FRAMES_PER_ROW,
+    framesPerRow,
     PET_DIRECTIONS,
   ) as unknown as PetDirectionSprites;
 }

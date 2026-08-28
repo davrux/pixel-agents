@@ -279,7 +279,7 @@ export function spriteTexture(scene: Phaser.Scene, sprite: SpriteData): SpriteTe
  * Pack a rectangle of an IMAGE into the atlas — the same shelf, the same page, one
  * `drawImage` instead of a pixel loop.
  *
- * This is how character and NPC art reaches the GPU now: the server sends a PNG sheet,
+ * This is how character and pet art reaches the GPU now: the server sends a PNG sheet,
  * and a cell of it becomes an atlas frame without ever being turned into hex strings.
  * Going through the atlas rather than making a texture per sheet is deliberate — a
  * texture per skin is a bind per skin on screen, which is the batching the atlas exists

@@ -34,8 +34,8 @@ test('a label is not art — renaming an entry keeps its URL', () => {
   const before = artUrl('character', 'char_0', entry());
   const after = artUrl('character', 'char_0', entry({ name: 'Ida' }));
   assert.equal(after, before, 'a rename must not invalidate a year-long immutable cache entry');
-  // Same for anything else that never reaches the encoder.
-  assert.equal(artUrl('character', 'char_0', entry({ npc: { wander: true } })), before);
+  // Same for anything else that never reaches the encoder — the spawn config, say.
+  assert.equal(artUrl('character', 'char_0', entry({ petConfig: { wander: true } })), before);
 });
 
 test('changed pixels change the hash, in every direction row', () => {

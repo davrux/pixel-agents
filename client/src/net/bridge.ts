@@ -38,7 +38,7 @@ onSpriteRefs((refs) => setSpriteRefs(refs));
  *
  * The renderer draws cells of the sheet out of the atlas (art/sheetStore.ts), so nothing
  * here decodes pixels any more — that decode was the last place hex strings existed
- * outside the editor. An entry keeps its name, spec and NPC config, because a sheet
+ * outside the editor. An entry keeps its name, spec and pet config, because a sheet
  * cannot carry them and a pose cannot be resolved to a column without the spec.
  *
  * A fetch that fails leaves the entry without art: the renderer then skips that
@@ -88,7 +88,7 @@ export function createAssetBridge(
         })();
       case 'playerAvatar':
         return (async () => {
-          // With a url the message IS the entry (url + name/spec/npc); without one it
+          // With a url the message IS the entry (url + name/spec/petConfig); without one it
           // carries the pixels in `data`, as it always did.
           const { type: _t, id: _i, data: legacy, ...entry } = msg;
           const data = (await withSheet(msg.id, msg.url ? entry : legacy)) as LoadedCharacterData;

@@ -136,8 +136,8 @@ export interface Pet {
   wanderTimer: number;
   // Interaction target / claim
   targetKind: 'seat' | 'furniture' | 'station' | 'agent' | null;
-  /** What the pet will do on reaching its target (null when none); see NpcAction.
-   *  Kept as a literal union (mirrors NpcAction) to avoid an engine→types cycle. */
+  /** What the pet will do on reaching its target (null when none); see PetAction.
+   *  Kept as a literal union (mirrors PetAction) to avoid an engine→types cycle. */
   targetAction: 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk' | null;
   targetSeatId: string | null;
   /** Claimed appliance station uid (coffee), or null. */
@@ -246,7 +246,7 @@ export interface FurnitureInstance {
 }
 
 /** A furniture item's interaction affordance: marks it as an appliance station
- *  an NPC (or agent) walks up to and uses. Coffee for now; extensible (fridge,
+ *  a pet (or agent) walks up to and uses. Coffee for now; extensible (fridge,
  *  water cooler, …). Empty/undefined = ordinary furniture. */
 export type ApplianceKind = 'coffee';
 
@@ -255,7 +255,7 @@ export type ApplianceKind = 'coffee';
  * (`PlacedFurniture.action`) or any tile (`OfficeLayout.tileActions`) —
  * replaces the old per-feature furniture-catalog flags (conference/arcade/
  * meetingRoom/appliance) and the tile-only `tilePrivateArea` boolean with one
- * model. Player-triggered ones are player-only: NPCs/agents never trigger any
+ * model. Player-triggered ones are player-only: pets/agents never trigger any
  * of those (enforced once, server-side, in OfficeState.walkPlayerToAction's
  * `ch.isPlayer` check).
  *

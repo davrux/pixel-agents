@@ -2,7 +2,7 @@
  * Templates WITH pixels, for the surfaces that need them: the character editor and the
  * thumbnails in the menus.
  *
- * The sprite store holds only metadata now — name, spec, NPC config — because the art is
+ * The sprite store holds only metadata now — name, spec, pet config — because the art is
  * a PNG the renderer draws cells of (see sheetStore.ts). Everything that paints or
  * previews pixels goes through here, which keeps "who still needs pixels" to a list one
  * can read: the editor, a gallery thumbnail, the avatar preview. Nothing on the drawing
@@ -10,7 +10,7 @@
  */
 import {
   getCharacterTemplates,
-  getNpcRoster,
+  getPetRoster,
   type CharacterTemplate,
   type LoadedCharacterData,
 } from '@pixel/shared/office/sprites/spriteData.js';
@@ -34,10 +34,10 @@ export function characterTemplatesWithArt(): CharacterTemplate[] {
     .filter((c): c is CharacterTemplate => c.data !== null);
 }
 
-/** The NPC roster, with pixels — same shape the editor's category expects. */
-export function npcRosterWithArt(): Array<{ kind: string; variant: number; data: LoadedCharacterData }> {
+/** The pet roster, with pixels — same shape the editor's category expects. */
+export function petRosterWithArt(): Array<{ kind: string; variant: number; data: LoadedCharacterData }> {
   const out: Array<{ kind: string; variant: number; data: LoadedCharacterData }> = [];
-  for (const r of getNpcRoster()) {
+  for (const r of getPetRoster()) {
     const data = templateWithArt(`${r.kind}_${r.variant}`, r.data);
     if (data) out.push({ kind: r.kind, variant: r.variant, data });
   }

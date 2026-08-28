@@ -56,7 +56,7 @@ function sheetRowFrom(
 ): { ok: true; row: Record<string, unknown> } | { ok: false; reason: string } {
   if (typeof metaRaw !== 'string' || metaRaw.length === 0) return { ok: false, reason: 'missing sheet metadata' };
   if (Buffer.byteLength(metaRaw) > MAX_META_BYTES) return { ok: false, reason: 'sheet metadata too long' };
-  let meta: { name?: unknown; spec?: unknown; npc?: unknown };
+  let meta: { name?: unknown; spec?: unknown; petConfig?: unknown };
   try {
     meta = JSON.parse(metaRaw) as typeof meta;
   } catch {
@@ -75,9 +75,9 @@ function sheetRowFrom(
   const kept = {
     name: meta.name,
     ...(meta.spec !== undefined ? { spec: meta.spec } : {}),
-    ...(meta.npc !== undefined ? { npc: meta.npc } : {}),
+    ...(meta.petConfig !== undefined ? { petConfig: meta.petConfig } : {}),
   };
-  if (!validSheetMeta(kept, sheet.frames)) return { ok: false, reason: 'invalid name, spec or npc config' };
+  if (!validSheetMeta(kept, sheet.frames)) return { ok: false, reason: 'invalid name, spec or pet config' };
   return { ok: true, row: { ...kept, png: sheet.png, frame, dirs: sheet.dirs } };
 }
 
@@ -104,7 +104,7 @@ export function registerArtSaveApi(app: Express): void {
     res.json({ ok: true });
   });
 
-  /** A gallery skin or an NPC. Admin only — that is what `gallery.edit` resolves to. */
+  /** A gallery skin or a pet. Admin only — that is what `gallery.edit` resolves to. */
   app.post('/art/asset/:type/:name', rawPng, (req: Request, res: Response) => {
     const userId = reqUserId(req);
     if (!userId) return void res.status(401).json({ error: 'unauthorized' });

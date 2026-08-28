@@ -1,5 +1,5 @@
 /**
- * The client's character and NPC art: one PNG sheet per skin, kept as an image.
+ * The client's character and pet art: one PNG sheet per skin, kept as an image.
  *
  * This is what replaced decoding every sheet into SpriteData. The renderer asks for a
  * cell and gets an atlas frame (`atlasFromImage` — one `drawImage`, packed lazily on

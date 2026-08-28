@@ -23,10 +23,10 @@ export interface Principal {
 
 /** A privileged action. `zone.edit` is scoped to a specific zone (pass ctx.zoneId). */
 export type Capability =
-  | 'gallery.edit' // shared avatar/NPC/furniture galleries
+  | 'gallery.edit' // shared avatar/pet/furniture galleries
   | 'zone.delete'
   | 'zone.grantAdmin' // assign per-zone admins
-  | 'zone.edit' // layout / arrival / rename / NPC spawn set of one zone
+  | 'zone.edit' // layout / arrival / rename / pet spawn set of one zone
   | 'zone.managePrivacy' // toggle private + manage its ACL/invites — OWNER only, not zone-admins
   | 'zone.managePassword' // set/clear the zone's entry password — OWNER only, not zone-admins
   | 'zone.setOwner'; // take/transfer/clear ownership — GLOBAL ADMIN only, not even the current owner

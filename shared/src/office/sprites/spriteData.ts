@@ -2,19 +2,18 @@ import { PALETTE_COUNT } from '../constants.js';
 import { posePlaybackLength } from './poseFrames.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
-import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, resolveNpcConfig } from './characterSpec.js';
-import type { CharacterSpec, NpcConfig } from './characterSpec.js';
+import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, resolvePetConfig } from './characterSpec.js';
+import type { CharacterSpec, PetConfig } from './characterSpec.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubbleWaitingData from './bubble-waiting.json';
 
-export type { CharacterSpec, CharacterTrack, TrackPlay, NpcConfig } from './characterSpec.js';
+export type { CharacterSpec, CharacterTrack, TrackPlay, PetConfig } from './characterSpec.js';
 export {
   DEFAULT_CHARACTER_SPEC,
-  DEFAULT_NPC_CONFIG,
+  DEFAULT_PET_CONFIG,
   PET_SPRITE_SPEC,
-  NPC_TRACK_NAMES,
   resolveCharacterSpec,
-  resolveNpcConfig,
+  resolvePetConfig,
   specFrameCount,
   MAX_CHAR_DIM,
   MAX_SHEET_CELLS,
@@ -54,8 +53,8 @@ export interface LoadedCharacterData {
   /** Optional animation spec (frame size + per-pose tracks). Absent → the
    *  DEFAULT_CHARACTER_SPEC (historical 16×32, walk3/type2/read2 layout). */
   spec?: CharacterSpec;
-  /** Optional NPC spawn config (NPCs only; agents ignore it). */
-  npc?: NpcConfig;
+  /** Optional pet spawn config (pets only; agents ignore it). */
+  petConfig?: PetConfig;
 }
 
 /** A loaded character skin with its stable string id (e.g. `char_3`). */
@@ -154,7 +153,7 @@ interface LoadedPetData {
   left?: SpriteData[];
   name?: string;
   spec?: CharacterSpec;
-  npc?: NpcConfig;
+  petConfig?: PetConfig;
 }
 
 let loadedDogs: LoadedPetData[] | null = null;
@@ -167,13 +166,13 @@ function petArr(kind: PetKindName): LoadedPetData[] | null {
 }
 
 /** Set pet sprites loaded from PNG assets. Call this when petSpritesLoaded arrives.
- *  Also populates the unified NPC sprite store (same frames + PET_SPRITE_SPEC),
- *  so NPCs can be resolved through the character pipeline (getNpcSprites). */
+ *  Also populates the unified pet sprite store (same frames + PET_SPRITE_SPEC),
+ *  so pets can be resolved through the character pipeline (getPetSprites). */
 export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], ducks: LoadedPetData[] = []): void {
   loadedDogs = dogs;
   loadedCats = cats;
   loadedDucks = ducks;
-  const toNpc = (raw: LoadedPetData): LoadedCharacterData => {
+  const toPet = (raw: LoadedPetData): LoadedCharacterData => {
     const p = withLeftRow(raw);
     return {
     down: p.down,
@@ -184,11 +183,11 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
     // Editor overrides carry their own spec (e.g. an added sleep track); bundled
     // sheets fall back to the default pet layout (walk/sit/idle).
       spec: p.spec ?? PET_SPRITE_SPEC,
-      npc: p.npc,
+      petConfig: p.petConfig,
     };
   };
-  loadedNpcs = { dog: dogs.map(toNpc), cat: cats.map(toNpc), duck: ducks.map(toNpc) };
-  npcSpriteCache.clear();
+  loadedPets = { dog: dogs.map(toPet), cat: cats.map(toPet), duck: ducks.map(toPet) };
+  petSpriteCache.clear();
 }
 
 
@@ -198,9 +197,9 @@ export function getSkinSpec(skin: string): CharacterSpec {
   return charById.get(skin)?.spec ?? DEFAULT_CHARACTER_SPEC;
 }
 
-/** The animation spec of an NPC variant. Bundled sheets carry the pet layout. */
-export function getNpcSpec(kind: PetKindName, variant: number): CharacterSpec {
-  const arr = loadedNpcs[kind];
+/** The animation spec of a pet variant. Bundled sheets carry the pet layout. */
+export function getPetSpec(kind: PetKindName, variant: number): CharacterSpec {
+  const arr = loadedPets[kind];
   return arr?.[variant % (arr.length || 1)]?.spec ?? PET_SPRITE_SPEC;
 }
 
@@ -210,7 +209,7 @@ export function getLoadedPetVariantCount(kind: PetKindName): number {
   return arr ? arr.length : 0;
 }
 
-// Pet sprites are resolved through the unified NPC pipeline (getNpcSprites);
+// Pet sprites are resolved through the unified pet pipeline (getPetSprites);
 // the old PetSprites builder was removed in N1.3.
 
 // ════════════════════════════════════════════════════════════════
@@ -220,7 +219,7 @@ export function getLoadedPetVariantCount(kind: PetKindName): number {
 export interface CharacterSprites {
   /** Track name → ready-to-play per-direction frame *sequences* (the ping-pong
    *  expansion is baked in, e.g. walk = [0,1,2,1]). Track names are arbitrary —
-   *  agents use walk/typing/reading/coffee, NPCs use walk/sit/idle/sleep, … —
+   *  agents use walk/typing/reading/coffee, pets use walk/sit/idle/sleep, … —
    *  and a pose maps to a track by name. Lengths come from the CharacterSpec, so
    *  they vary per entity. A track with no art falls back to the stand frame. */
   byTrack: Record<string, Record<Direction, SpriteData[]>>;
@@ -344,7 +343,7 @@ function synthesizeSitFrame(frame: SpriteData): SpriteData {
  */
 function withLeftRow<T extends { right?: SpriteData[]; left?: SpriteData[] }>(data: T): T {
   // No pixels at all is the normal case now: the client keeps art as a PNG sheet and
-  // this store holds only metadata (name, spec, NPC config). Nothing to complete then —
+  // this store holds only metadata (name, spec, pet config). Nothing to complete then —
   // the sheet's own rows decide, and a three-row sheet is mirrored where it is drawn.
   if (!data?.right || data.right.length === 0) return data;
   if (data.left && data.left.length > 0) return data;
@@ -352,9 +351,9 @@ function withLeftRow<T extends { right?: SpriteData[]; left?: SpriteData[] }>(da
 }
 
 /**
- * Build track-driven sprite sequences from one entity template (agent or NPC). Track
+ * Build track-driven sprite sequences from one entity template (agent or pet). Track
  * layout/lengths come from the template's spec; frames missing from the sheet fall back
- * to a stand frame. Shared by characters and NPCs.
+ * to a stand frame. Shared by characters and pets.
  *
  * NOT on the drawing path any more: the renderer points the GPU at a cell of the PNG
  * sheet (`poseFrames.ts` decides which one, `art/sheetStore.ts` packs it). This pixel
@@ -435,60 +434,60 @@ export function getCharacterSprites(skin: string): CharacterSprites {
   return sprites;
 }
 
-// ── NPC sprites (dogs/cats/ducks, via the unified character pipeline) ──
-const npcSpriteCache = new Map<string, CharacterSprites>();
-let loadedNpcs: Record<PetKindName, LoadedCharacterData[]> = { dog: [], cat: [], duck: [] };
+// ── pet sprites (dogs/cats/ducks, via the unified character pipeline) ──
+const petSpriteCache = new Map<string, CharacterSprites>();
+let loadedPets: Record<PetKindName, LoadedCharacterData[]> = { dog: [], cat: [], duck: [] };
 
-/** Resolve animated sprites for an NPC kind/variant through the same track-based
+/** Resolve animated sprites for a pet kind/variant through the same track-based
  *  pipeline as agent characters. Fed from the loaded pet sheets (see
  *  setPetTemplates), tagged with PET_SPRITE_SPEC (walk/sit/idle). */
-export function getNpcSprites(kind: PetKindName, variant: number): CharacterSprites {
-  const arr = loadedNpcs[kind];
+export function getPetSprites(kind: PetKindName, variant: number): CharacterSprites {
+  const arr = loadedPets[kind];
   if (!arr || arr.length === 0) return emptyCharacterSprites(16, 16);
   const key = `${kind}:${variant}`;
-  const cached = npcSpriteCache.get(key);
+  const cached = petSpriteCache.get(key);
   if (cached) return cached;
   const sprites = buildCharacterSprites(arr[variant % arr.length]);
-  npcSpriteCache.set(key, sprites);
+  petSpriteCache.set(key, sprites);
   return sprites;
 }
 
 /**
- * Playback length of an NPC pose/track — for the server's frame advance, and computed
+ * Playback length of a pet pose/track — for the server's frame advance, and computed
  * from the SPEC, not from built sprites.
  *
  * It used to build the whole sprite set just to read an array length, which meant the
- * server held pixels for every NPC variant purely to count them. `posePlaybackLength`
+ * server held pixels for every pet variant purely to count them. `posePlaybackLength`
  * answers the same question as arithmetic, and it is the same function the client times
  * its animation with, so the two cannot drift.
  */
-export function getNpcPosePlaybackLength(kind: PetKindName, variant: number, pose: string): number {
-  return posePlaybackLength(getNpcSpec(kind, variant), pose, npcSheetColumns(kind, variant));
+export function getPetPosePlaybackLength(kind: PetKindName, variant: number, pose: string): number {
+  return posePlaybackLength(getPetSpec(kind, variant), pose, petSheetColumns(kind, variant));
 }
 
-/** Columns in an NPC's sheet: from its art when this side has it (the server decodes the
+/** Columns in a pet's sheet: from its art when this side has it (the server decodes the
  *  files), else what the spec's tracks add up to. */
-function npcSheetColumns(kind: PetKindName, variant: number): number {
-  const arr = loadedNpcs[kind];
+function petSheetColumns(kind: PetKindName, variant: number): number {
+  const arr = loadedPets[kind];
   const data = arr?.[variant % (arr.length || 1)];
   if (data && Array.isArray(data.down) && data.down.length > 0) return data.down.length;
-  const spec = getNpcSpec(kind, variant);
+  const spec = getPetSpec(kind, variant);
   return spec.tracks.reduce((n, t) => n + t.frames, 0);
 }
 
-/** Flat NPC roster (dog/cat/duck × variants), in stable order, for the editor. */
-export function getNpcRoster(): Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> {
+/** Flat pet roster (dog/cat/duck × variants), in stable order, for the editor. */
+export function getPetRoster(): Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> {
   const out: Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> = [];
   for (const kind of ['dog', 'cat', 'duck'] as PetKindName[]) {
-    loadedNpcs[kind].forEach((data, variant) => out.push({ kind, variant, data }));
+    loadedPets[kind].forEach((data, variant) => out.push({ kind, variant, data }));
   }
   return out;
 }
 
-/** Spawn + behaviour config of an NPC variant, normalised (fills defaults,
+/** Spawn + behaviour config of a pet variant, normalised (fills defaults,
  *  clamps, and back-fills `behaviors` for configs saved before they existed). */
-export function getNpcConfig(kind: PetKindName, variant: number): NpcConfig {
-  const arr = loadedNpcs[kind];
-  return resolveNpcConfig(arr?.[variant % (arr.length || 1)]?.npc);
+export function getPetConfig(kind: PetKindName, variant: number): PetConfig {
+  const arr = loadedPets[kind];
+  return resolvePetConfig(arr?.[variant % (arr.length || 1)]?.petConfig);
 }
 

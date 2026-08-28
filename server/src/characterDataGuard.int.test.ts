@@ -19,7 +19,7 @@ import test from 'node:test';
 
 import { MAX_NAME_LEN } from '@pixel/shared';
 
-import { validCharacterData, validCharacterSpec, validNpcConfig } from './art/characterDataGuard.js';
+import { validCharacterData, validCharacterSpec, validPetConfig } from './art/characterDataGuard.js';
 
 /** A frame of w×h opaque pixels. */
 const frame = (w: number, h: number, colour = '#a1b2c3'): string[][] =>
@@ -141,27 +141,35 @@ test('a spec must describe the sheet it comes with', () => {
   assert.equal(validCharacterSpec({ tracks: [{ name: 'w', frames: 1, play: 'loop' }] }, 1), false, 'no frame at all');
 });
 
-test('an NPC config is bounded, and a reversed interval is refused', () => {
-  const npc = (over: Record<string, unknown> = {}): unknown => ({
+test('a pet config is bounded, and a reversed interval is refused', () => {
+  const cfg = (over: Record<string, unknown> = {}): unknown => ({
     active: true,
     minSec: 30,
     maxSec: 90,
     maxConcurrent: 2,
     ...over,
   });
-  assert.equal(validNpcConfig(npc()), true);
-  assert.equal(validNpcConfig(npc({ minSec: 91 })), false, 'min above max would make a spawn window impossible');
-  assert.equal(validNpcConfig(npc({ minSec: 4 })), false);
-  assert.equal(validNpcConfig(npc({ maxSec: 3601 })), false);
-  assert.equal(validNpcConfig(npc({ maxConcurrent: 0 })), false);
-  assert.equal(validNpcConfig(npc({ maxConcurrent: 9 })), false);
-  assert.equal(validNpcConfig(npc({ active: 'yes' })), false);
-  assert.equal(validNpcConfig(npc({ behaviors: { talk: true, rest: false } })), true);
-  assert.equal(validNpcConfig(npc({ behaviors: { talk: 'sometimes' } })), false);
-  assert.equal(validNpcConfig(npc({ behaviors: null })), false);
+  assert.equal(validPetConfig(cfg()), true);
+  assert.equal(validPetConfig(cfg({ minSec: 91 })), false, 'min above max would make a spawn window impossible');
+  assert.equal(validPetConfig(cfg({ minSec: 4 })), false);
+  assert.equal(validPetConfig(cfg({ maxSec: 3601 })), false);
+  assert.equal(validPetConfig(cfg({ maxConcurrent: 0 })), false);
+  assert.equal(validPetConfig(cfg({ maxConcurrent: 9 })), false);
+  assert.equal(validPetConfig(cfg({ active: 'yes' })), false);
+  assert.equal(validPetConfig(cfg({ behaviors: { talk: true, rest: false } })), true);
+  assert.equal(validPetConfig(cfg({ behaviors: { talk: 'sometimes' } })), false);
+  assert.equal(validPetConfig(cfg({ behaviors: null })), false);
   // Reached through the whole gate too, since that is how it arrives.
-  assert.equal(validCharacterData(sheet({ npc: npc() })), true);
-  assert.equal(validCharacterData(sheet({ npc: npc({ maxSec: 4 }) })), false);
+  assert.equal(validCharacterData(sheet({ petConfig: cfg() })), true);
+  assert.equal(validCharacterData(sheet({ petConfig: cfg({ maxSec: 4 }) })), false);
+
+  // The field was called `npc` until protocol 9. The guard deliberately does NOT validate that
+  // name any more, and the reason it does not have to is worth pinning: a save keeps only the
+  // fields it names (`artSaveApi.sheetRowFrom` builds the row from name/spec/petConfig), so a
+  // legacy key in a payload is dropped rather than stored — there is nothing for a guard to
+  // guard. Reading the old name is a separate concern and lives where stored rows are read
+  // (`assetOverrides.withPetConfig`), not here.
+  assert.equal(validCharacterData(sheet({ npc: cfg({ maxSec: 4 }) })), true, 'an unstored field is not the guard\'s business');
 });
 
 test('junk instead of an object is refused rather than throwing', () => {

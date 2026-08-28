@@ -21,7 +21,7 @@ export const WORLD_ROOM = 'world';
  * 5 — FurnitureSync.angle: a placement can be turned a quarter of the way round, and the
  *     client needs it to draw the piece and to agree about which cells it occupies.
  * 6 — saving art goes UP as a PNG too: `saveAvatar`/`saveAsset` carry
- *     `sheet: { png, name, spec?, npc? }` instead of SpriteData. The old shape is gone rather
+ *     `sheet: { png, name, spec?, petConfig? }` instead of SpriteData. The old shape is gone rather
  *     than tolerated, so an older build gets the update prompt instead of a save that is
  *     silently refused — which is the only failure it could otherwise show, since the server
  *     cannot answer a message it does not understand.
@@ -38,8 +38,17 @@ export const WORLD_ROOM = 'world';
  *     `saveAvatar` and `saveAsset` are gone. An older build would send a message nobody handles
  *     and never learn that its save vanished, which is precisely the failure the version gate
  *     exists to replace with "please update".
+ * 9 — everything the code called an NPC was a pet, so it says pet now, and three of those names
+ *     were on the wire: the message `setZoneNpc` became `setZonePets`, its payload field and
+ *     `ZoneConfig.npc` became `pets`, and a saved sheet's spawn config travels as `petConfig`
+ *     instead of `npc`. Each is a rename, which is the worst kind of wire change to leave
+ *     ungated — an older build would send `setZoneNpc` to a handler that no longer exists and
+ *     silently fail to change a zone's pets, and would read `zone.npc` as undefined and show
+ *     every zone as "all". The reason for the rename is that the word was needed: this world is
+ *     meant to grow humanoid NPCs beside the agents (AGENTS.md), and the name was taken by
+ *     dogs, cats and ducks.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct
@@ -86,10 +95,14 @@ export interface ZoneConfig {
    *  Once a map arrives, the map's own size is what counts. */
   cols?: number;
   rows?: number;
-  /** Which NPC variants spawn here, as `"<kind>_<variant>"` keys (e.g. `cat_0`).
+  /** Which PET variants spawn here, as `"<kind>_<variant>"` keys (e.g. `cat_0`).
    *  Absent/null = all active variants (the office default); an array (possibly
-   *  empty) = exactly those. New zones default to none. */
-  npc?: string[] | null;
+   *  empty) = exactly those. New zones default to none.
+   *
+   *  Called `npc` until protocol 9. The rename is the point of that bump: everything the code
+   *  called an NPC was a pet (dog/cat/duck), which left no name for the humanoid NPCs the world
+   *  is meant to grow — see AGENTS.md. */
+  pets?: string[] | null;
   /** True if the zone is password-protected (a hash is stored server-side). The
    *  actual password never leaves the server; clients only learn it's locked so
    *  they can prompt. */

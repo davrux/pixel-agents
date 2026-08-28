@@ -52,8 +52,8 @@ import {
   firstSkinId,
   getSkinIds,
   getLoadedPetVariantCount,
-  getNpcConfig,
-  getNpcPosePlaybackLength,
+  getPetConfig,
+  getPetPosePlaybackLength,
 } from '../sprites/spriteData.js';
 import type {
   Action,
@@ -81,7 +81,7 @@ import { claimPoint, createCharacter, releasePoint, updateCharacter } from './ch
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import { announceDue, hourChimes, QuoteSchedule, talkingObjects, type SpokenLine } from './talkingObjects.js';
-import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
+import type { PetAction, PetAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
 /** Union of every source of non-walkable tiles: furniture footprints and
@@ -132,7 +132,7 @@ export class OfficeState {
   private reachThroughTiles: Set<string>;
   /** "col,row" of every tile carrying a tile action — see computeActionTileKeys.
    *  Only walkPlayer's plain click-to-move consults this (a soft detour cost
-   *  in findPath, not a hard block); NPC wandering, seats, and appliance/
+   *  in findPath, not a hard block); pet wandering, seats, and appliance/
    *  action approach paths ignore it entirely. */
   private actionTileKeys: Set<string>;
   /** Flood-filled meeting-room tile actions (see computeActionAreas) — read
@@ -184,11 +184,11 @@ export class OfficeState {
   private petStationClaims: Set<string> = new Set();
   /** Agent ids a pet is currently talking to (one pet per agent at a time). */
   private petTalkClaims: Set<number> = new Set();
-  /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
+  /** Per-pet-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
   private petSpawnTimers = new Map<string, number>();
-  /** Which NPC variants may spawn in this room/zone (per-zone config). Default:
-   *  all. Set by the room from the zone's `npc` setting. */
-  private npcSpawnFilter: (kind: PetKind, variant: number) => boolean = () => true;
+  /** Which pet variants may spawn in this room/zone (per-zone config). Default:
+   *  all. Set by the room from the zone's `pets` setting. */
+  private petSpawnFilter: (kind: PetKind, variant: number) => boolean = () => true;
   private nextPetId = 1_000_000;
   /** Player avatar ids live in their own band (agents use Claude ids, subagents
    *  negative, pets 1_000_000+). */
@@ -219,9 +219,9 @@ export class OfficeState {
   /** When each talking object says its next quote (see QuoteSchedule). Empty of
    *  quotes until the server hands the pool over — setQuotes. */
   private readonly quoteSchedule = new QuoteSchedule();
-  /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
+  /** Optional server-injected pet decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
-  private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
+  private petDecide?: (pet: Pet, affordances: PetAffordances) => PetAction;
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
@@ -986,7 +986,7 @@ export class OfficeState {
       ch.dir = point.facingDir;
       claimPoint(ch, this.points, point.uid);
       // Players hold a pose until they move — no countdown, exactly as
-      // useAppliance/sitPlayerAt leave it (an NPC's coffee break is the timed one).
+      // useAppliance/sitPlayerAt leave it (a pet's coffee break is the timed one).
       ch.atPointTimer = 0;
       ch.state = point.posture === 'sit' ? CharacterState.SIT : CharacterState.IDLE;
       return;
@@ -1330,7 +1330,7 @@ export class OfficeState {
   }
 
   /** Install the quotes talking objects say (see QuoteSchedule). Server-injected
-   *  like setNpcDecider, and for the same reason: the pool is a file in the repo
+   *  like setPetDecider, and for the same reason: the pool is a file in the repo
    *  and the engine has no business reading one. */
   setQuotes(quotes: readonly string[], rnd?: () => number): void {
     this.quoteSchedule.setQuotes(quotes, rnd);
@@ -1418,9 +1418,9 @@ export class OfficeState {
 
   /** Walk a player to one of an appliance's stand tiles (e.g. coffee machine),
    *  facing it, then hold the cosmetic "using it" pose (COFFEE) on arrival —
-   *  same atPointId/occupantId claim the agent FSM already uses for NPC coffee
+   *  same atPointId/occupantId claim the agent FSM already uses for pet coffee
    *  breaks (see characters.ts), just started by a click instead of AI. Unlike
-   *  an NPC's timed break, a player holds the pose indefinitely (stationTimer
+   *  a pet's timed break, a player holds the pose indefinitely (stationTimer
    *  stays 0 and never counts down) until they walk away or sit down — see
    *  updatePlayerMovement. Triggers immediately if already standing at ANY of
    *  the appliance's stand tiles; otherwise picks randomly among the free
@@ -1484,7 +1484,7 @@ export class OfficeState {
 
     if (ch.path.length === 0) {
       // Standing still keeps any appliance pose (☕ over the avatar) — unlike an
-      // NPC's timed coffee break (updateCharacter's IDLE case), a player's claim
+      // pet's timed coffee break (updateCharacter's IDLE case), a player's claim
       // has no timeout: it's released when they walk away (above) or sit down
       // (sitPlayerAt / setPlayerSit).
       if (ch.state !== CharacterState.IDLE) ch.state = CharacterState.IDLE;
@@ -2156,19 +2156,19 @@ export class OfficeState {
     return Array.from(this.pets.values());
   }
 
-  /** Inject the NPC decision fn (server's mistreevous brain). It receives the
+  /** Inject the pet decision fn (server's mistreevous brain). It receives the
    *  pet and a cheap world-affordance snapshot. Clears with null. */
-  setNpcDecider(fn: ((pet: Pet, affordances: NpcAffordances) => NpcAction) | null): void {
-    this.npcDecide = fn ?? undefined;
+  setPetDecider(fn: ((pet: Pet, affordances: PetAffordances) => PetAction) | null): void {
+    this.petDecide = fn ?? undefined;
   }
 
   /** Cheap, pathfinding-free snapshot of what a pet could interact with now, fed
    *  to the brain so it picks a sensible action. Reachability is confirmed later
    *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
-  private computePetAffordances(pet: Pet): NpcAffordances {
+  private computePetAffordances(pet: Pet): PetAffordances {
     // Per-variant behaviour switches (editable; default all-on). The kind guards
     // below keep flags that don't apply to a kind inert (e.g. a duck's chaseCats).
-    const b = getNpcConfig(pet.kind, pet.variant).behaviors;
+    const b = getPetConfig(pet.kind, pet.variant).behaviors;
     return {
       canRest: b.rest && this.hasRestAffordance(pet),
       // Shoo-cat: a dog chases a nearby cat; a cat flees a nearby dog.
@@ -2307,7 +2307,7 @@ export class OfficeState {
   /** Reactive movement path for shoo-cat: a dog paths toward the nearest cat
    *  ('chase'); a cat paths to a reachable tile that increases its distance from
    *  the nearest dog ('flee'). Returns null when no useful path exists. */
-  private navigatePetReaction(pet: Pet, action: NpcAction): Array<{ col: number; row: number }> | null {
+  private navigatePetReaction(pet: Pet, action: PetAction): Array<{ col: number; row: number }> | null {
     if (action === 'chase') {
       const cat = this.nearestLivingPetOfKind(pet, PetKindEnum.CAT);
       if (!cat) return null;
@@ -2356,18 +2356,18 @@ export class OfficeState {
       tileMap: this.tileMap,
       blockedTiles: this.blockedTiles,
       walls: this.walls,
-      findTarget: (pet: Pet, action: NpcAction) => this.findFreePetTarget(pet, action),
+      findTarget: (pet: Pet, action: PetAction) => this.findFreePetTarget(pet, action),
       releaseClaim: (pet: Pet) => this.releasePetClaim(pet),
       // Wrap the injected brain so it receives a fresh affordance snapshot; left
       // undefined when no brain is set so the actuator uses its sit-chance roll.
-      decideAction: this.npcDecide
-        ? (pet: Pet) => this.npcDecide!(pet, this.computePetAffordances(pet))
+      decideAction: this.petDecide
+        ? (pet: Pet) => this.petDecide!(pet, this.computePetAffordances(pet))
         : undefined,
-      navigateReaction: (pet: Pet, action: NpcAction) => this.navigatePetReaction(pet, action),
+      navigateReaction: (pet: Pet, action: PetAction) => this.navigatePetReaction(pet, action),
       // Spec-driven frame advance: cycle within the current pose track's real
       // length (resolved from the pet's sheet), so server and client agree and
       // longer custom tracks aren't truncated by a hardcoded modulo.
-      posePlaybackLength: (pet: Pet) => getNpcPosePlaybackLength(pet.kind, pet.variant, petPose(pet)),
+      posePlaybackLength: (pet: Pet) => getPetPosePlaybackLength(pet.kind, pet.variant, petPose(pet)),
     };
 
     const toDelete: number[] = [];
@@ -2383,13 +2383,13 @@ export class OfficeState {
       this.pets.delete(id);
     }
 
-    // Per-NPC-variant spawning (lifespan despawn frees slots).
-    this.tickNpcSpawns(dt);
+    // Per-pet-variant spawning (lifespan despawn frees slots).
+    this.tickPetSpawns(dt);
   }
 
-  /** Each active NPC variant spawns up to its `maxConcurrent` on its own random
+  /** Each active pet variant spawns up to its `maxConcurrent` on its own random
    *  interval [minSec, maxSec]. Independent of agent count (config-driven). */
-  private tickNpcSpawns(dt: number): void {
+  private tickPetSpawns(dt: number): void {
     if (this.walkableTiles.length === 0) return;
     // Living instances per `${kind}_${variant}`.
     const living = new Map<string, number>();
@@ -2402,9 +2402,9 @@ export class OfficeState {
       const count = getLoadedPetVariantCount(name);
       for (let v = 0; v < count; v++) {
         const key = `${name}_${v}`;
-        const cfg = getNpcConfig(name, v);
-        // Globally active AND enabled for this zone (per-zone NPC config).
-        if (!cfg.active || !this.npcSpawnFilter(name as PetKind, v)) {
+        const cfg = getPetConfig(name, v);
+        // Globally active AND enabled for this zone (per-zone pet config).
+        if (!cfg.active || !this.petSpawnFilter(name as PetKind, v)) {
           this.petSpawnTimers.delete(key); // re-staggers when reactivated
           continue;
         }
@@ -2423,7 +2423,7 @@ export class OfficeState {
     }
   }
 
-  /** Spawn a specific NPC variant at a free walkable tile. */
+  /** Spawn a specific pet variant at a free walkable tile. */
   private spawnPetVariant(kind: PetKind, variant: number): void {
     if (this.walkableTiles.length === 0) return;
     const occupied = new Set<string>();
@@ -2443,11 +2443,11 @@ export class OfficeState {
     if (pet) beginPetDespawn(pet, { releaseClaim: (p) => this.releasePetClaim(p) });
   }
 
-  /** Restrict which NPC variants spawn in this zone (per-zone config). Also
+  /** Restrict which pet variants spawn in this zone (per-zone config). Also
    *  despawns any currently-living pets that the new filter disallows, so a
    *  change takes effect immediately. */
-  setNpcSpawnFilter(fn: (kind: PetKind, variant: number) => boolean): void {
-    this.npcSpawnFilter = fn;
+  setPetSpawnFilter(fn: (kind: PetKind, variant: number) => boolean): void {
+    this.petSpawnFilter = fn;
     for (const p of this.pets.values()) {
       if (p.state !== PetState.DESPAWN && !fn(p.kind as PetKind, p.variant)) this.despawnPet(p.id);
     }
@@ -2508,7 +2508,7 @@ export class OfficeState {
    *  - 'drink' → a free appliance station (coffee), any kind
    * Returns the claimed target (with a path), or null.
    */
-  private findFreePetTarget(pet: Pet, action: NpcAction): PetTarget | null {
+  private findFreePetTarget(pet: Pet, action: PetAction): PetTarget | null {
     const candidates: PetTarget[] = [];
 
     // Appliance stations (coffee) — stand on the station tile.

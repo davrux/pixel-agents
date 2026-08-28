@@ -10,7 +10,7 @@
  *
  * Why the SERVER reads it: the engine that speaks (shared/office/engine/
  * talkingObjects.ts) is headless and has no file paths in it, so the pool is
- * handed in — `OfficeState.setQuotes`, the same shape as `setNpcDecider`. The
+ * handed in — `OfficeState.setQuotes`, the same shape as `setPetDecider`. The
  * lines never come from a client, so this is not an untrusted path; it is still
  * bounded, because the failure mode of an unbounded one is a 4 KB speech bubble
  * that nobody can dismiss.

@@ -258,8 +258,17 @@ export interface BundledPetSheet {
 
 /**
  * Load the bundled pet sheets from assets/pets/ — as files, not as pixels (see
- * BundledPetSheet). A sheet is 96×64: four direction rows × 6 frames of 16×16, and the
- * geometry is not negotiable, which is why nothing here has to read it.
+ * BundledPetSheet). A sheet is 96×64 today: four direction rows × 6 frames of 16×16.
+ *
+ * Nothing here reads that geometry because nothing here decodes — and it is worth being precise
+ * about what follows, because the comment that used to sit here said the geometry "is not
+ * negotiable". It was, while a fixed-constant decoder sliced these files at boot. Since art travels
+ * as a PNG, the column count is derived from the image WIDTH at every step that matters (the
+ * client's sheet store, and `posePlaybackLength` through the spec), so a wider sheet works: what a
+ * new column needs is a track appended to `PET_SPRITE_SPEC`, not a change here. Appending is the
+ * safe direction — a track claims the next free columns, so walk/sit/idle keep 0-5 — and the two
+ * halves may land in either order, since a spec claiming art the file lacks falls back to the idle
+ * frame instead of drawing a gap (`poseFrames.int.test.ts` pins both).
  */
 export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprites | null> {
   try {

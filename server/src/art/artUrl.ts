@@ -25,7 +25,7 @@ const ART_ROWS = ['down', 'up', 'right', 'left'] as const;
  * skin's and pet's URL and ETag changed while the images stayed byte-identical, because a
  * label was part of the hash. Hashing the rows ALONE would be wrong the other way round: the
  * encoder is handed the frame size, so an entry whose spec changed is a different image even
- * with the same pixels. Everything else an entry carries — name, NPC config — never reaches
+ * with the same pixels. Everything else an entry carries — name, pet config — never reaches
  * the encoder, so it must not reach this.
  */
 /**
@@ -79,7 +79,7 @@ export function artUrl(kind: 'character' | 'pet', id: string, entry: unknown): s
 /**
  * The same entry with its pixels replaced by a URL to fetch them as PNG.
  *
- * Name, spec and NPC config stay in the message: they are a few dozen bytes and a sheet
+ * Name, spec and pet config stay in the message: they are a few dozen bytes and a sheet
  * is not decodable without the spec (columns per track vary). Only the pixel arrays
  * move — that is the 24× (measured: 831 KB of a 1527 KB join).
  *

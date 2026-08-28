@@ -47,14 +47,14 @@ import { MeetingAreaUI } from '../ui/meetingArea.js';
 import { openActionIframe, reopenActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
-import { getCharacterSize, getCharacterTemplates, getNpcRoster, getSkinSpec, upsertCharacterTemplate,
+import { getCharacterSize, getCharacterTemplates, getPetRoster, getSkinSpec, upsertCharacterTemplate,
   type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { posePlaybackLength } from '@pixel/shared/office/sprites/poseFrames.js';
 import { sheetColumns } from '../art/sheetStore';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { frameFailures } from '../render/frameGuard.js';
-import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
+import { CharacterEditor, AGENT_TRACKS, PET_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { spriteThumbCanvas, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
@@ -72,7 +72,7 @@ import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
 import { encodeSheetPng } from '../art/sheetEncode';
 import type { SaveResult, SheetSave } from '../editor/CharacterEditor.js';
-import { characterTemplatesWithArt, npcRosterWithArt, thumbFrame } from '../art/templates';
+import { characterTemplatesWithArt, petRosterWithArt, thumbFrame } from '../art/templates';
 import { checkProtocol, createUpdateIndicator, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
@@ -351,7 +351,7 @@ export class OfficeScene extends Phaser.Scene {
   private currentMenu: MenuId = null;
   /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
   private collapsed = false;
-  private charTab: 'agent' | 'npc' = 'agent';
+  private charTab: 'agent' | 'pet' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
   /** Set before our own navigation (zone switch / portal) so the resulting room
@@ -502,14 +502,14 @@ export class OfficeScene extends Phaser.Scene {
           canCreate: true,
         },
         {
-          key: 'npc',
-          label: 'NPCs',
-          getTemplates: () => npcRosterWithArt().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
-          newId: () => 'npc_0', // unused (canCreate=false)
+          key: 'pet',
+          label: 'Pets',
+          getTemplates: () => petRosterWithArt().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
+          newId: () => 'pet_0', // unused (canCreate=false)
           save: (name, sheet) => this.saveSheetHttp(`/art/asset/pet/${encodeURIComponent(name)}`, sheet),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'pet', name }),
-          isBundled: () => true, // all NPCs are bundled (no new NPCs yet)
-          tracks: NPC_TRACKS,
+          isBundled: () => true, // all pets are bundled (no new pets yet)
+          tracks: PET_TRACKS,
           blankFrames: 6,
           canCreate: false,
           spawnConfig: true,
@@ -2677,10 +2677,10 @@ export class OfficeScene extends Phaser.Scene {
           ['Walk onto a door / beam pad', 'Choose a destination zone'],
           ['🚪 zone name (top bar)', 'Jump straight to any zone'],
           ['🌐 Space → Zones', 'Create a zone, or travel to any of them'],
-          ['✎ / 🐾 / ✕ (zone admin)', 'Rename, pick which NPCs spawn, or delete a zone'],
+          ['✎ / 🐾 / ✕ (zone admin)', 'Rename, pick which pets spawn, or delete a zone'],
           ['📍 Set arrival point', 'Where new arrivals land in this zone (zone admin)'],
           ['⚙ next to your zone', 'Privacy, access list, invites, entry password'],
-          ['👤 next to your zone', 'Grant or revoke zone-admins (its map, arrival point and NPCs)'],
+          ['👤 next to your zone', 'Grant or revoke zone-admins (its map, arrival point and pets)'],
           ['A zone\'s map', 'Drawn in Tiled and pushed to the server — there is no in-game editor'],
         ],
       },
@@ -2734,7 +2734,7 @@ export class OfficeScene extends Phaser.Scene {
       .join('');
   }
 
-  // ── Assets browser (Characters / NPCs) ───────────────────────────
+  // ── Assets browser (Characters / Pets) ───────────────────────────
 
   /**
    * Save one sheet — over HTTP, not through the room.
@@ -2756,7 +2756,7 @@ export class OfficeScene extends Phaser.Scene {
           'x-pixel-sheet': JSON.stringify({
             name: sheet.name,
             ...(sheet.spec ? { spec: sheet.spec } : {}),
-            ...(sheet.npc ? { npc: sheet.npc } : {}),
+            ...(sheet.petConfig ? { petConfig: sheet.petConfig } : {}),
           }),
         },
         body: sheet.png as unknown as BodyInit,
@@ -2779,7 +2779,7 @@ export class OfficeScene extends Phaser.Scene {
         png,
         name: data.name ?? '',
         ...(data.spec ? { spec: data.spec } : {}),
-        ...(data.npc ? { npc: data.npc } : {}),
+        ...(data.petConfig ? { petConfig: data.petConfig } : {}),
       });
       if (!out.ok) console.warn(`[assets] saving ${path} failed: ${out.error}`);
     } catch (err) {
@@ -2792,7 +2792,7 @@ export class OfficeScene extends Phaser.Scene {
     if (!body) return;
     body.replaceChildren();
     // No segmented control: uploaded background images used to be the second
-    // tab here, and characters/NPCs are the only editable assets left.
+    // tab here, and characters/pets are the only editable assets left.
     this.renderCharAssets(body);
   }
 
@@ -2807,7 +2807,7 @@ export class OfficeScene extends Phaser.Scene {
   private renderCharAssets(body: HTMLElement): void {
     const chips = document.createElement('div');
     chips.className = 'pa-chips';
-    const mkChip = (label: string, tab: 'agent' | 'npc'): HTMLElement => {
+    const mkChip = (label: string, tab: 'agent' | 'pet'): HTMLElement => {
       const c = document.createElement('div');
       c.className = 'pa-chip' + (this.charTab === tab ? ' on' : '');
       c.textContent = label;
@@ -2817,24 +2817,24 @@ export class OfficeScene extends Phaser.Scene {
       };
       return c;
     };
-    // Assets manages only the shared (not-yet-user-specific) avatars + NPCs.
+    // Assets manages only the shared (not-yet-user-specific) avatars + pets.
     // A player's own avatar is created/edited from Settings, not here.
-    chips.append(mkChip('Avatars', 'agent'), mkChip('NPCs', 'npc'));
+    chips.append(mkChip('Avatars', 'agent'), mkChip('Pets', 'pet'));
     body.appendChild(chips);
 
-    type Item = { id: string; name: string; frame?: SpriteData; kind: 'agent' | 'npc' };
+    type Item = { id: string; name: string; frame?: SpriteData; kind: 'agent' | 'pet' };
     let items: Item[] = [];
     if (this.charTab === 'agent') {
       items = (getCharacterTemplates() ?? [])
         .filter((c) => !isPlayerAvatarSkin(c.id))
         .map((c) => ({ id: c.id, name: c.id, frame: thumbFrame(c.id), kind: 'agent' as const }));
     } else {
-      items = getNpcRoster().map((r) => ({
+      items = getPetRoster().map((r) => ({
         id: `${r.kind}_${r.variant}`,
         // The pet's own display name (Emma, Loui, …); the slot id stays the key.
         name: r.data.name || `${r.kind} ${r.variant}`,
         frame: thumbFrame(`${r.kind}_${r.variant}`),
-        kind: 'npc' as const,
+        kind: 'pet' as const,
       }));
     }
 
@@ -2895,7 +2895,7 @@ export class OfficeScene extends Phaser.Scene {
         del.onclick = async () => {
           if (!(await confirmDialog(`${isUser ? 'Delete' : 'Reset'} “${it.name}”?`, { danger: isUser, confirmLabel: isUser ? 'Delete' : 'Reset' })))
             return;
-          this.room?.send('deleteAsset', { assetType: it.kind === 'npc' ? 'pet' : 'character', name: it.id });
+          this.room?.send('deleteAsset', { assetType: it.kind === 'pet' ? 'pet' : 'character', name: it.id });
           window.setTimeout(() => this.renderAssetsPanel(), 250);
         };
         row.appendChild(del);
@@ -2950,7 +2950,7 @@ export class OfficeScene extends Phaser.Scene {
     // Travelling is open to all. Creating a zone is open to any signed-in user
     // (they own what they create — see zoneStore.ts); granting zone admins is
     // that zone's owner's call (plus global admins, everywhere). Editing a zone
-    // (layout/rename/NPCs/arrival) is open to that zone's admin too — but the
+    // (layout/rename/pets/arrival) is open to that zone's admin too — but the
     // client only knows its OWN zone-admin status for the CURRENT zone, so
     // per-row edit beyond the current zone needs global admin. (open dev mode
     // without accounts → everyone edits.)
@@ -2964,10 +2964,10 @@ export class OfficeScene extends Phaser.Scene {
         const isOwner = !!this.myUserId && z.ownerId === this.myUserId;
         const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
         const lock = z.private ? ' 🔐' : '';
-        const npcN = z.npc == null ? 'all' : String(z.npc.length);
+        const petN = z.pets == null ? 'all' : String(z.pets.length);
         let ctrls = '';
         if (rowEdit)
-          ctrls += `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
+          ctrls += `<button data-pets="${esc(z.id)}" title="Pets in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
         // The default zone can't be deleted (the server refuses) — no ✕ for it.
         if (rowDelete && z.id !== DEFAULT_ZONE) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
         if (assetsAdmin || isOwner) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
@@ -2976,7 +2976,7 @@ export class OfficeScene extends Phaser.Scene {
         // or lost its owner when that account was deleted) — no need to leave
         // the game for the admin site just to claim it.
         if (assetsAdmin && !z.ownerId) ctrls += `<button data-take="${esc(z.id)}" title="Take ownership">👑</button>`;
-        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${ctrls}</div>`;
+        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${petN}</small></span>${tag}${ctrls}</div>`;
       })
       .join('');
 
@@ -2998,8 +2998,8 @@ export class OfficeScene extends Phaser.Scene {
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-edit]').forEach((b) => {
       b.onclick = () => void this.editZoneDialog(b.dataset.edit!);
     });
-    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-npc]').forEach((b) => {
-      b.onclick = () => this.showZoneNpcEditor(b.dataset.npc!);
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-pets]').forEach((b) => {
+      b.onclick = () => this.showZonePetEditor(b.dataset.pets!);
     });
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) => {
       b.onclick = async () => {
@@ -3607,18 +3607,18 @@ export class OfficeScene extends Phaser.Scene {
     };
   }
 
-  /** Per-zone NPC editor: which pet variants spawn in this zone. Checkboxes come
-   *  from the loaded roster; toggling one sends setZoneNpc immediately. Sends
+  /** Per-zone pet editor: which pet variants spawn in this zone. Checkboxes come
+   *  from the loaded roster; toggling one sends setZonePets immediately. Sends
    *  null ("all, incl. future variants") when every box is checked. */
-  private showZoneNpcEditor(id: string): void {
+  private showZonePetEditor(id: string): void {
     const zone = this.zoneList.find((z) => z.id === id);
     if (!zone) return;
-    const roster = getNpcRoster().map((r) => ({ key: `${r.kind}_${r.variant}`, label: r.data.name || `${r.kind} ${r.variant}` }));
-    const enabled = new Set(zone.npc == null ? roster.map((r) => r.key) : zone.npc);
+    const roster = getPetRoster().map((r) => ({ key: `${r.kind}_${r.variant}`, label: r.data.name || `${r.kind} ${r.variant}` }));
+    const enabled = new Set(zone.pets == null ? roster.map((r) => r.key) : zone.pets);
 
-    document.getElementById('pa-znpc')?.remove();
+    document.getElementById('pa-zpets')?.remove();
     const el = document.createElement('div');
-    el.id = 'pa-znpc';
+    el.id = 'pa-zpets';
     el.className = 'pa-ui';
     el.style.cssText =
       'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:85;background:#1c1a19;' +
@@ -3627,18 +3627,18 @@ export class OfficeScene extends Phaser.Scene {
 
     const send = (): void => {
       const keys = roster.map((r) => r.key).filter((k) => enabled.has(k));
-      const npc = keys.length === roster.length ? null : keys; // all → null (future-proof)
-      this.room?.send('setZoneNpc', { id, npc });
+      const pets = keys.length === roster.length ? null : keys; // all → null (future-proof)
+      this.room?.send('setZonePets', { id, pets });
     };
 
     const head = document.createElement('div');
-    head.textContent = `🐾 NPCs — ${zone.label}`;
+    head.textContent = `🐾 pets — ${zone.label}`;
     head.style.cssText = 'font-size:1.15rem;margin-bottom:0.6rem;color:#f5f3f0;';
     el.appendChild(head);
 
     if (!roster.length) {
       const none = document.createElement('div');
-      none.textContent = 'No NPC variants loaded.';
+      none.textContent = 'No pet variants loaded.';
       none.style.cssText = 'color:#adb0b2;margin-bottom:0.6rem;';
       el.appendChild(none);
     }
@@ -3673,12 +3673,12 @@ export class OfficeScene extends Phaser.Scene {
       mk('All', () => {
         roster.forEach((r) => enabled.add(r.key));
         send();
-        this.showZoneNpcEditor(id); // re-render checkboxes
+        this.showZonePetEditor(id); // re-render checkboxes
       }),
       mk('None', () => {
         enabled.clear();
         send();
-        this.showZoneNpcEditor(id);
+        this.showZonePetEditor(id);
       }),
       mk('Close', () => el.remove()),
     );
@@ -3810,7 +3810,7 @@ export class OfficeScene extends Phaser.Scene {
       const t = e.target as Node | null;
       if (!t) return;
       // Clicks inside the bar, any grouped popover, an open asset editor, its
-      // PNG-import panel, the zone-NPC editor, or an in-game dialog keep the menu.
+      // PNG-import panel, the zone-pet editor, or an in-game dialog keep the menu.
       // The two docked windows are in this list only so a click inside one
       // doesn't count as "outside": they are never closed by this handler.
       const panels = [
@@ -3825,7 +3825,7 @@ export class OfficeScene extends Phaser.Scene {
         this.settingsPanel,
         this.helpPanel,
       ];
-      const byId = ['pa-chars', 'pa-furn', 'pa-floor-ed', 'pa-c-import', 'pa-modal', 'pa-dialog-back', 'pa-znpc', 'pa-cc'];
+      const byId = ['pa-chars', 'pa-furn', 'pa-floor-ed', 'pa-c-import', 'pa-modal', 'pa-dialog-back', 'pa-zpets', 'pa-cc'];
       if (
         this.menubar?.contains(t) ||
         panels.some((p) => p?.contains(t)) ||

@@ -1,5 +1,5 @@
 /**
- * The gate on character, avatar and NPC art a client sends — the one place that decides
+ * The gate on character, avatar and pet art a client sends — the one place that decides
  * whether a save is allowed to reach the store.
  *
  * It lived as three private methods on `SimRoom`, where nothing could test it: it is the
@@ -58,8 +58,8 @@ export function validCharacterSpec(spec: unknown, n: number): boolean {
   return sum === n;
 }
 
-/** Validate an optional NPC spawn config (active flag + sane interval/cap). */
-export function validNpcConfig(c: unknown): boolean {
+/** Validate an optional pet spawn config (active flag + sane interval/cap). */
+export function validPetConfig(c: unknown): boolean {
   const o = c as {
     active?: unknown;
     minSec?: unknown;
@@ -75,7 +75,7 @@ export function validNpcConfig(c: unknown): boolean {
   if ((o.minSec as number) > (o.maxSec as number)) return false;
   if (!int(o.maxConcurrent, 1, 8)) return false;
   // Optional behaviour switches: each, if present, must be a boolean. Missing
-  // flags are back-filled (default true) by resolveNpcConfig downstream.
+  // flags are back-filled (default true) by resolvePetConfig downstream.
   if (o.behaviors !== undefined) {
     if (typeof o.behaviors !== 'object' || o.behaviors === null) return false;
     const b = o.behaviors as Record<string, unknown>;
@@ -96,7 +96,7 @@ export function validNpcConfig(c: unknown): boolean {
  * actually arrived. Same rules, same cleaning, same rewrite of `name` in place.
  */
 export function validSheetMeta(meta: unknown, frames: number): boolean {
-  const m = meta as { name?: unknown; spec?: unknown; npc?: unknown };
+  const m = meta as { name?: unknown; spec?: unknown; petConfig?: unknown };
   if (!m || typeof m !== 'object') return false;
   if (typeof m.name !== 'string') return false;
   const name = cleanName(m.name);
@@ -105,7 +105,7 @@ export function validSheetMeta(meta: unknown, frames: number): boolean {
   // The sum rule is the load-bearing one: a track list that claims more or fewer frames than
   // the sheet has makes the renderer read a column that is not there.
   if (m.spec !== undefined && !validCharacterSpec(m.spec, frames)) return false;
-  if (m.npc !== undefined && !validNpcConfig(m.npc)) return false;
+  if (m.petConfig !== undefined && !validPetConfig(m.petConfig)) return false;
   return true;
 }
 
@@ -128,7 +128,7 @@ export function validCharacterData(data: unknown): boolean {
     right?: unknown;
     left?: unknown;
     spec?: unknown;
-    npc?: unknown;
+    petConfig?: unknown;
   };
   if (!d || typeof d !== 'object') return false;
   if (typeof d.name !== 'string') return false;
@@ -167,7 +167,7 @@ export function validCharacterData(data: unknown): boolean {
   if (d.left !== undefined && !validFrames(d.left)) return false;
   // Optional animation spec: track frame counts must sum to the frame count.
   if (d.spec !== undefined && !validCharacterSpec(d.spec, (d.down as unknown[]).length)) return false;
-  // Optional NPC spawn config.
-  if (d.npc !== undefined && !validNpcConfig(d.npc)) return false;
+  // Optional pet spawn config.
+  if (d.petConfig !== undefined && !validPetConfig(d.petConfig)) return false;
   return true;
 }

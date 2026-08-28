@@ -1,5 +1,5 @@
 /**
- * Character, NPC and avatar art as PNG over HTTP, instead of pixels over the wire.
+ * Character, pet and avatar art as PNG over HTTP, instead of pixels over the wire.
  *
  * Why: the art the client needs is images — bundled skins and pets already ARE PNG
  * files on disk — but a join used to ship them as SpriteData, one hex string per pixel.

@@ -2,7 +2,7 @@
  * SQLite-backed persistence for the zone registry (Node's built-in `node:sqlite`).
  *
  * A zone row is everything about a zone that is NOT its map: label, arrival tile,
- * owner, privacy/ACL, password, NPC set. The map itself lives one-per-zone in
+ * owner, privacy/ACL, password, pet set. The map itself lives one-per-zone in
  * zoneMapStore.ts and arrives by being pushed from Tiled, which is also what
  * brings a new zone into existence (see tiled/zoneImport.ts) — there is no
  * builtin table of zones any more, and nothing creates one from in-game.
@@ -31,7 +31,7 @@ interface ZoneRow {
   cols: number | null;
   rows: number | null;
   created_at: number;
-  npc: string | null;
+  pets: string | null;
   pw_hash: string | null;
   owner_id: string | null;
   is_private: number;
@@ -53,7 +53,7 @@ export class ZoneStore {
         arrive_col INTEGER, arrive_row INTEGER,
         cols INTEGER, rows INTEGER,
         created_at INTEGER NOT NULL DEFAULT 0,
-        npc TEXT
+        pets TEXT
       );
       -- Per-arcade-cabinet game allow-list override, keyed by anchor tile "col,row".
       -- A cabinet with no row here just follows the global default (see
@@ -233,15 +233,22 @@ export class ZoneStore {
     return this.isAclMember(zoneId, userId);
   }
 
-  /** Add columns introduced after the table first shipped. The `npc` per-zone
-   *  spawn set is new: existing non-office zones predate it, so default them to
-   *  "no NPCs" (the office keeps null = all). Runs once (only when the column is
-   *  actually missing). */
+  /** Add columns introduced after the table first shipped. The `pets` per-zone
+   *  spawn set is one: existing non-office zones predate it, so default them to
+   *  "no pets" (the office keeps null = all). Runs once (only when the column is
+   *  actually missing).
+   *
+   *  That column was called `npc` until 2026-08-27 and is RENAMED here rather than added again,
+   *  because it holds a zone's authored pet selection — adding a fresh one would silently reset
+   *  every zone to "no pets". The rename is why protocol 9 exists; see ZoneConfig.pets. */
   private migrateColumns(): void {
     const cols = this.db.prepare('PRAGMA table_info(zones)').all() as Array<{ name: string }>;
-    if (!cols.some((c) => c.name === 'npc')) {
-      this.db.exec('ALTER TABLE zones ADD COLUMN npc TEXT');
-      this.db.prepare('UPDATE zones SET npc = ? WHERE id != ?').run('[]', DEFAULT_ZONE);
+    const has = (name: string): boolean => cols.some((c) => c.name === name);
+    if (has('npc') && !has('pets')) {
+      this.db.exec('ALTER TABLE zones RENAME COLUMN npc TO pets');
+    } else if (!has('pets')) {
+      this.db.exec('ALTER TABLE zones ADD COLUMN pets TEXT');
+      this.db.prepare('UPDATE zones SET pets = ? WHERE id != ?').run('[]', DEFAULT_ZONE);
     }
     if (!cols.some((c) => c.name === 'pw_hash')) {
       this.db.exec('ALTER TABLE zones ADD COLUMN pw_hash TEXT');
@@ -294,10 +301,10 @@ export class ZoneStore {
     const r = this.clampSize(rows);
     const id = this.uniqueId(ZoneStore.slugify(clean));
     const arrive = { col: Math.floor(c / 2), row: Math.floor(r / 2) };
-    // New zones start with no NPCs (empty set) — you enable variants per zone.
+    // New zones start with no pets (empty set) — you enable variants per zone.
     this.db
       .prepare(
-        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,created_at,npc,owner_id)
+        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,created_at,pets,owner_id)
          VALUES(?,?,?,?,?,?,?,'[]',?)`,
       )
       .run(id, clean, arrive.col, arrive.row, c, r, now, ownerId || null);
@@ -310,11 +317,11 @@ export class ZoneStore {
     return r.c;
   }
 
-  /** Set which NPC variants spawn in a zone. null = all active variants. */
-  setNpc(id: string, variants: string[] | null): boolean {
+  /** Set which pet variants spawn in a zone. null = all active variants. */
+  setPet(id: string, variants: string[] | null): boolean {
     if (!this.has(id)) return false;
     const value = variants === null ? null : JSON.stringify(variants.filter((v) => typeof v === 'string'));
-    this.db.prepare('UPDATE zones SET npc = ? WHERE id = ?').run(value, id);
+    this.db.prepare('UPDATE zones SET pets = ? WHERE id = ?').run(value, id);
     return true;
   }
 
@@ -353,11 +360,11 @@ export class ZoneStore {
 
   // ── internals ───────────────────────────────────────────────────
   private toConfig(r: ZoneRow): ZoneConfig {
-    let npc: string[] | null = null; // null = all active variants
-    if (r.npc != null) {
+    let pets: string[] | null = null; // null = all active variants
+    if (r.pets != null) {
       try {
-        const p = JSON.parse(r.npc);
-        if (Array.isArray(p)) npc = p.filter((x): x is string => typeof x === 'string');
+        const p = JSON.parse(r.pets);
+        if (Array.isArray(p)) pets = p.filter((x): x is string => typeof x === 'string');
       } catch {
         /* corrupt → treat as all */
       }
@@ -368,7 +375,7 @@ export class ZoneStore {
       arrive: r.arrive_col != null && r.arrive_row != null ? { col: r.arrive_col, row: r.arrive_row } : undefined,
       cols: r.cols ?? undefined,
       rows: r.rows ?? undefined,
-      npc,
+      pets,
       locked: !!r.pw_hash,
       ownerId: r.owner_id ?? undefined,
       private: !!r.is_private,
@@ -402,7 +409,7 @@ export class ZoneStore {
     // display name here would put content back into code, and the id is the only
     // thing this function actually knows.
     this.db
-      .prepare("INSERT INTO zones(id,label,created_at,npc) VALUES(?,?,?,'[]')")
+      .prepare("INSERT INTO zones(id,label,created_at,pets) VALUES(?,?,?,'[]')")
       .run(DEFAULT_ZONE, DEFAULT_ZONE, Date.now());
   }
 

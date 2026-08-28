@@ -1,6 +1,6 @@
 /**
- * Server-only NPC "brain": a mistreevous behaviour tree + blackboard that decides
- * an NPC's next high-level action. The shared engine stays the actuator (executes
+ * Server-only pet "brain": a mistreevous behaviour tree + blackboard that decides
+ * a pet's next high-level action. The shared engine stays the actuator (executes
  * movement/animation from synced state); only this decision logic lives here, so
  * the BT library never enters the client bundle.
  *
@@ -9,11 +9,11 @@
  * tree with affordances (coffee / agent / cat) and richer actions.
  */
 import { BehaviourTree, State } from 'mistreevous';
-import type { NpcAction, NpcAffordances } from '@pixel/shared/office/engine/pets.js';
+import type { PetAction, PetAffordances } from '@pixel/shared/office/engine/pets.js';
 
-/** Inputs the brain reads to decide what to do after an idle pause: the NPC's
+/** Inputs the brain reads to decide what to do after an idle pause: the pet's
  *  drives plus the world affordances OfficeState reports. */
-export interface NpcBlackboard extends NpcAffordances {
+export interface PetBlackboard extends PetAffordances {
   /** Would rather rest now (computed by the caller, e.g. a sit-chance roll). */
   wantsToRest: boolean;
   /** Fancies a coffee now (computed by the caller, e.g. a drink-chance roll). */
@@ -27,7 +27,7 @@ export interface NpcBlackboard extends NpcAffordances {
  * cat (dogs), else go for coffee, else go chat with an agent, else rest, else
  * wander — each "want" gated by its matching affordance. The affordances are
  * already kind-gated by OfficeState (only cats are ever `threatened`, only dogs
- * `canChase`), so one tree covers every NPC.
+ * `canChase`), so one tree covers every pet.
  */
 const TREE_DEFINITION = `root {
   selector {
@@ -58,8 +58,8 @@ const TREE_DEFINITION = `root {
   }
 }`;
 
-export class NpcBrain {
-  private readonly bb: NpcBlackboard & { action: NpcAction } = {
+export class PetBrain {
+  private readonly bb: PetBlackboard & { action: PetAction } = {
     wantsToRest: false,
     wantsCoffee: false,
     wantsTalk: false,
@@ -92,13 +92,13 @@ export class NpcBrain {
     this.tree = new BehaviourTree(TREE_DEFINITION, agent);
   }
 
-  private set(action: NpcAction): State {
+  private set(action: PetAction): State {
     this.bb.action = action;
     return State.SUCCEEDED;
   }
 
   /** Evaluate the tree against the given situation and return the chosen action. */
-  decide(input: NpcBlackboard): NpcAction {
+  decide(input: PetBlackboard): PetAction {
     this.tree.reset(); // re-evaluate from the root every tick
     this.bb.wantsToRest = input.wantsToRest;
     this.bb.wantsCoffee = input.wantsCoffee;

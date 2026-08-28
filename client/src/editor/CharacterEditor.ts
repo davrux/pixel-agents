@@ -2,13 +2,13 @@ import {
   DEFAULT_CHARACTER_SPEC,
   MAX_SHEET_CELLS,
   resolveCharacterSpec,
-  resolveNpcConfig,
+  resolvePetConfig,
   specFrameCount,
   type CharacterSpec,
   type CharacterTemplate,
   type CharacterTrack,
   type LoadedCharacterData,
-  type NpcConfig,
+  type PetConfig,
   type TrackPlay,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
@@ -23,7 +23,7 @@ type Dir = 'down' | 'up' | 'right' | 'left';
 type PreviewPose = string;
 
 export interface CharacterEditorOpts {
-  /** Editable categories (Agents, NPCs); the gallery toggles between them. */
+  /** Editable categories (Agents, pets); the gallery toggles between them. */
   categories: EditorCategory[];
   /** Shared top-bar to host the button in (matches Edit/Layouts/Settings). */
   topbar?: HTMLElement;
@@ -70,7 +70,7 @@ export interface TrackDef {
   def: number;
 }
 
-/** An editable entity category (Agents, NPCs). Provides its roster, naming,
+/** An editable entity category (Agents, pets). Provides its roster, naming,
  *  persistence and animation-track preset. */
 /**
  * What one save sends: the art as a PNG, plus the metadata an image cannot carry.
@@ -85,7 +85,7 @@ export interface SheetSave {
   png: Uint8Array<ArrayBuffer>;
   name: string;
   spec?: CharacterSpec;
-  npc?: NpcConfig;
+  petConfig?: PetConfig;
 }
 
 export interface EditorCategory {
@@ -104,7 +104,7 @@ export interface EditorCategory {
   blankFrames: number;
   /** Whether the user may create new entities (New / Copy). */
   canCreate: boolean;
-  /** Whether entities carry an NPC spawn config (shows the config row). */
+  /** Whether entities carry a pet spawn config (shows the config row). */
   spawnConfig?: boolean;
   /** Name is derived from the roster slot (e.g. `dog_0`) rather than typed by
    *  the user: hide the name field and auto-fill it so the server-mandatory
@@ -123,16 +123,38 @@ export const AGENT_TRACKS: TrackDef[] = [
   { name: 'idle', label: 'Idle', min: 0, play: 'loop', def: 1 },
   { name: 'sit', label: 'Sit', min: 0, play: 'loop', def: 2 },
 ];
-/** NPC animation tracks (walk/sit/idle + optional sleep/drink). Idle is the
- *  universal fallback (see AGENT_TRACKS). */
-export const NPC_TRACKS: TrackDef[] = [
+/**
+ * Pet animation tracks. Idle is the universal fallback (see AGENT_TRACKS).
+ *
+ * **The ORDER is the sheet's column layout**, not a menu order: `deriveSpecTracks` hands each
+ * track the next columns in this sequence, so this list has to read like the art —
+ * walk 0-2, sit 3-4, idle 5, talk 6-7 (`PET_SPRITE_SPEC`). It did not, and the consequence was
+ * waiting to happen: `sleep` sat fourth with a default of 2 frames, so deriving a spec for an
+ * 8-column sheet gave columns 6-7 to SLEEP and nothing to talk. Nothing had noticed because the
+ * sheets were six columns wide until the talk track was drawn.
+ *
+ * `sleep` is gone from this list on purpose: there is no sleep state anywhere in
+ * `engine/pets.ts`, so frames drawn into it could never appear in the world — the editor was
+ * inviting work that had no effect. `TOLERATED_TRACK_NAMES` still recognises the name so art
+ * saved before this is not re-derived underneath its author.
+ */
+export const PET_TRACKS: TrackDef[] = [
   { name: 'walk', label: 'Walk', min: 1, play: 'pingpong', def: 3 },
   { name: 'sit', label: 'Sit', min: 1, play: 'loop', def: 2 },
   { name: 'idle', label: 'Idle', min: 1, play: 'loop', def: 1 },
-  { name: 'sleep', label: 'Sleep', min: 0, play: 'loop', def: 2 },
-  { name: 'drink', label: 'Drink', min: 0, play: 'loop', def: 2 },
   { name: 'talk', label: 'Talk', min: 0, play: 'loop', def: 2 },
+  { name: 'drink', label: 'Drink', min: 0, play: 'loop', def: 2 },
 ];
+
+/**
+ * Track names the editor no longer offers but stored art may still carry.
+ *
+ * `ensureSpec` replaces a spec wholesale when it names a track it does not know, which re-derives
+ * every column meaning — so simply dropping a name would silently renumber the frames of any sheet
+ * that used it, and saving would persist that. Recognising the name costs nothing and keeps such a
+ * sheet readable; it just cannot be added any more, and the world never animated it anyway.
+ */
+const TOLERATED_TRACK_NAMES = new Set(['sleep']);
 
 interface EditorTrackSlot {
   name: string;
@@ -164,7 +186,7 @@ function frameLabelFor(spec: CharacterSpec, i: number, defs: TrackDef[]): string
 
 /** Best-effort track split for a flat frame list lacking a usable spec: assign
  *  each track its `def` in order; the last (optional) track absorbs any
- *  remainder. Category-specific (agent walk/type/read/coffee, NPC walk/sit/…). */
+ *  remainder. Category-specific (agent walk/type/read/coffee, pet walk/sit/…). */
 function deriveSpecTracks(frameCount: number, defs: TrackDef[]): CharacterTrack[] {
   const tracks: CharacterTrack[] = [];
   let rest = frameCount;
@@ -229,7 +251,7 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
   if (c.left) out.left = c.left.map(cloneFrame);
   if (c.name) out.name = c.name;
   if (c.spec) out.spec = { frame: { ...c.spec.frame }, tracks: c.spec.tracks.map((t) => ({ ...t })) };
-  if (c.npc) out.npc = { ...c.npc, behaviors: { ...c.npc.behaviors } };
+  if (c.petConfig) out.petConfig = { ...c.petConfig, behaviors: { ...c.petConfig.behaviors } };
   return out;
 }
 
@@ -487,13 +509,13 @@ export class CharacterEditor {
           <input id="pa-c-w" type="number" min="1" max="64"><span class="sizelabel">×</span>
           <input id="pa-c-h" type="number" min="1" max="64">
           <span class="sizelabel" style="font-size:0.8rem">px · max 64×64</span></div>
-        <div class="row" id="pa-c-npccfg" style="display:none">
+        <div class="row" id="pa-c-petcfg" style="display:none">
           <label class="sizelabel"><input id="pa-c-active" type="checkbox"> Active</label>
           <span class="sizelabel">every</span>
           <input id="pa-c-spmin" type="number" min="5" max="3600"><span class="sizelabel">–</span>
           <input id="pa-c-spmax" type="number" min="5" max="3600"><span class="sizelabel">s · max</span>
           <input id="pa-c-spconc" type="number" min="1" max="8"></div>
-        <div class="row" id="pa-c-npcbehav" style="display:none">
+        <div class="row" id="pa-c-petbehav" style="display:none">
           <span class="sizelabel">Behavior</span>
           <label class="sizelabel" id="pa-c-brest-l"><input id="pa-c-brest" type="checkbox"> Rest</label>
           <label class="sizelabel" id="pa-c-bdrink-l"><input id="pa-c-bdrink" type="checkbox"> Coffee</label>
@@ -627,7 +649,7 @@ export class CharacterEditor {
     };
     wEl.onchange = onSize;
     hEl.onchange = onSize;
-    // NPC spawn config inputs (active / interval / max concurrent).
+    // Pet spawn config inputs (active / interval / max concurrent).
     const activeEl = panel.querySelector<HTMLInputElement>('#pa-c-active')!;
     const spMin = panel.querySelector<HTMLInputElement>('#pa-c-spmin')!;
     const spMax = panel.querySelector<HTMLInputElement>('#pa-c-spmax')!;
@@ -641,19 +663,19 @@ export class CharacterEditor {
     const bChase = panel.querySelector<HTMLInputElement>('#pa-c-bchase')!;
     const bFlee = panel.querySelector<HTMLInputElement>('#pa-c-bflee')!;
     const onConfig = (): void => {
-      if (!this.work.npc) return;
+      if (!this.work.petConfig) return;
       const clamp = (v: string, lo: number, hi: number, d: number): number => {
         const n = Math.round(Number(v));
         return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
       };
-      let min = clamp(spMin.value, 5, 3600, this.work.npc.minSec);
-      let max = clamp(spMax.value, 5, 3600, this.work.npc.maxSec);
+      let min = clamp(spMin.value, 5, 3600, this.work.petConfig.minSec);
+      let max = clamp(spMax.value, 5, 3600, this.work.petConfig.maxSec);
       if (min > max) [min, max] = [max, min];
-      this.work.npc = {
+      this.work.petConfig = {
         active: activeEl.checked,
         minSec: min,
         maxSec: max,
-        maxConcurrent: clamp(spConc.value, 1, 8, this.work.npc.maxConcurrent),
+        maxConcurrent: clamp(spConc.value, 1, 8, this.work.petConfig.maxConcurrent),
         behaviors: {
           rest: bRest.checked,
           chaseCats: bChase.checked,
@@ -843,11 +865,11 @@ export class CharacterEditor {
       this.W = f0[0]?.length ?? 16;
     }
     this.ensureSpec(); // normalise work.spec against the frame arrays
-    // NPC categories carry a spawn config; others must not. Normalise so every
+    // Pet categories carry a spawn config; others must not. Normalise so every
     // field (incl. behaviours back-filled for older saves) is present + clamped.
-    if (this.cat().spawnConfig) this.work.npc = resolveNpcConfig(this.work.npc);
-    else this.work.npc = undefined;
-    // NPCs have no typed display name — derive it from the roster slot so the
+    if (this.cat().spawnConfig) this.work.petConfig = resolvePetConfig(this.work.petConfig);
+    else this.work.petConfig = undefined;
+    // Pets have no typed display name — derive it from the roster slot so the
     // server-mandatory name is present and Save isn't wrongly disabled.
     if (this.cat().derivedName) this.work.name = this.work.name?.trim() || this.charName();
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
@@ -858,19 +880,19 @@ export class CharacterEditor {
     if (this.view === 'edit') this.render();
   }
 
-  /** NPC kind ('dog'/'cat'/'duck') parsed from the roster slot (`dog_0`), or
-   *  null for non-NPC categories. Used to show only kind-relevant behaviours. */
-  private npcKind(): string | null {
+  /** pet kind ('dog'/'cat'/'duck') parsed from the roster slot (`dog_0`), or
+   *  null for non-pet categories. Used to show only kind-relevant behaviours. */
+  private petKind(): string | null {
     if (!this.cat().spawnConfig) return null;
     return this.charName().split('_')[0] || null;
   }
 
-  /** Show + populate the NPC spawn-config + behaviour rows (hidden for agents). */
+  /** Show + populate the pet spawn-config + behaviour rows (hidden for agents). */
   private renderConfigRow(): void {
-    const row = this.panel.querySelector<HTMLDivElement>('#pa-c-npccfg');
-    const behavRow = this.panel.querySelector<HTMLDivElement>('#pa-c-npcbehav');
+    const row = this.panel.querySelector<HTMLDivElement>('#pa-c-petcfg');
+    const behavRow = this.panel.querySelector<HTMLDivElement>('#pa-c-petbehav');
     if (!row) return;
-    const cfg = this.work.npc;
+    const cfg = this.work.petConfig;
     row.style.display = cfg ? 'flex' : 'none';
     if (behavRow) behavRow.style.display = cfg ? 'flex' : 'none';
     if (!cfg) return;
@@ -890,7 +912,7 @@ export class CharacterEditor {
     set('#pa-c-btalk', cfg.behaviors.talk);
     set('#pa-c-bchase', cfg.behaviors.chaseCats);
     set('#pa-c-bflee', cfg.behaviors.fleeDogs);
-    const kind = this.npcKind();
+    const kind = this.petKind();
     const showLabel = (id: string, show: boolean): void => {
       const el = this.panel.querySelector<HTMLLabelElement>(id);
       if (el) el.style.display = show ? '' : 'none';
@@ -963,7 +985,8 @@ export class CharacterEditor {
   private ensureSpec(): void {
     const fc = this.work.down.length;
     const sp = this.work.spec;
-    const knownNames = (t: CharacterTrack): boolean => this.trackDefs().some((d) => d.name === t.name);
+    const knownNames = (t: CharacterTrack): boolean =>
+      this.trackDefs().some((d) => d.name === t.name) || TOLERATED_TRACK_NAMES.has(t.name);
     const usable = sp && specFrameCount(sp) === fc && sp.tracks.every(knownNames) && sp.tracks.length > 0;
     const tracks = usable ? sp!.tracks.map((t) => ({ ...t })) : deriveSpecTracks(fc, this.trackDefs());
     this.work.spec = { frame: { w: this.W, h: this.H }, tracks };
@@ -1201,7 +1224,7 @@ export class CharacterEditor {
         png,
         name: this.work.name!,
         ...(this.work.spec ? { spec: this.work.spec } : {}),
-        ...(this.work.npc ? { npc: this.work.npc } : {}),
+        ...(this.work.petConfig ? { petConfig: this.work.petConfig } : {}),
       });
       if (!out.ok) {
         // The whole point of saving over HTTP: a refusal has a reason and it belongs on screen.
@@ -1358,7 +1381,7 @@ export class CharacterEditor {
     });
     // Per-track frame controls (add/remove frames, play mode).
     this.renderTracks();
-    // A name is mandatory to save (mirrors the server-side check). NPCs derive
+    // A name is mandatory to save (mirrors the server-side check). Pets derive
     // theirs from the roster slot, so their name field is hidden and the gate
     // always passes.
     const derivedName = !!this.cat().derivedName;
@@ -1481,7 +1504,7 @@ export class CharacterEditor {
     const slots = specSlots(this.spec(), this.trackDefs());
     const walk = slots.find((s) => s.name === 'walk');
     const stand = walk ? walk.start + Math.min(1, walk.count - 1) : 0;
-    // A pose uses its same-named track if present (incl. NPC `idle`), else the
+    // A pose uses its same-named track if present (incl. pet `idle`), else the
     // neutral stand frame (e.g. an agent's idle has no track).
     const slot = slots.find((s) => s.name === pose);
     if (!slot) return [stand];

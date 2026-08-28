@@ -125,7 +125,7 @@ export function poseFrame(
 /**
  * How many steps a pose's animation has — the length of the sequence `poseFrame` walks.
  *
- * The client times the animation with this (and the server advances NPC frames with it),
+ * The client times the animation with this (and the server advances pet frames with it),
  * so it must agree with `poseFrame` exactly: one number too many and the last step
  * repeats, one too few and a step is skipped. Same arithmetic, same fallbacks, and no
  * pixels involved — which is the point, since the client no longer holds any.

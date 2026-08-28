@@ -21,6 +21,30 @@ survives: authoritative server state plus client interpolation, never client-sid
 truth. When you add something, ask "does this still hold with N players moving and
 interacting?"
 
+### Three kinds of character, and the words for them
+
+The vocabulary is load-bearing, so it is fixed here:
+
+- **Agents** — the AI participants. Art `assets/characters/char_*.png` (16×32, 7 columns:
+  walk 0-2, typing 3-4, reading 5-6), driven by the feed and the character FSM. `coffee` is
+  declared in `DEFAULT_CHARACTER_SPEC` but **has no art**, so an agent at the machine draws its
+  stand frame; `sit` uses a synthesized seated frame. Both are documented placeholders, not bugs.
+- **Players** — a viewer's own avatar. The same art and the same poses; driven by input instead of
+  the FSM (`addPlayer` marks `isPlayer` so the agent FSM skips it).
+- **Pets** — dogs, cats and ducks. Art `assets/pets/*.png` (16×16, 8 columns: walk 0-2, sit 3-4,
+  idle 5, talk 6-7), their own cadences (`poseCadence.ts`), and their frames are advanced
+  **server-side** (`advancePetFrame`, synced as `PetSync.frame`) because their behaviour is the
+  server's. `drink` is the pose still without art.
+
+**"NPC" means a humanoid non-player character, and there are none yet.** Until 2026-08-27 the code
+called every pet an NPC — 250 identifiers, a database column, and three names on the wire — which
+left no word for the thing the Direction above actually promises. It says pet now. When humanoid
+NPCs arrive they should reuse the agent pose set exactly as it stands: the render path resolves
+poses from a **spec**, not from what drives the entity, and `createCharacter(id, skin, null, null)`
+already builds a Character with no agent behind it (that is how a player avatar is made). What
+would be new is only the driver — the equivalent of `engine/pets.ts` for pets. So do not reintroduce
+"npc" as a synonym for pet; the name is spoken for.
+
 ## Architecture invariants
 
 1. **The server simulates.** Movement, seating, stations, the FSM, poses — all of
@@ -116,7 +140,7 @@ Security is a first-class requirement, not a later pass.
   preferences, viewer settings, password and agent token.
 - **Shared and admin actions go through `permissions.ts`** — `may(client,
   capability, zoneId?)`. Gallery/asset edits, zone create/delete, user management
-  and granting zone-admins need global admin; a zone's map, arrival point and NPCs
+  and granting zone-admins need global admin; a zone's map, arrival point and pets
   need that zone's admin. Slash commands are gated by their registry group
   (`mayRunCommand`). **Default to deny.**
 - **The GET gate is an allow-list, and world data is not on it.** `isPublicGet`
@@ -312,13 +336,13 @@ check asks: is the release present in the code that acquires?
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
   `spriteTexture()` packs each SpriteData into shared canvas pages and returns
   `{key, frame}`, and `atlasFromImage()` packs a rectangle of an IMAGE into the same
-  pages with one `drawImage` — which is how character and NPC art gets there, since it
+  pages with one `drawImage` — which is how character and pet art gets there, since it
   arrives as a PNG sheet. A texture per sprite (or per skin) is what breaks batching — a
   painted decal field is hundreds of distinct 16×16 pieces, i.e. hundreds of binds per
   frame — so anything that draws a sprite goes through one of those two functions, never
   `createCanvas` of its own. Two exceptions, both deliberate: the Matrix effect
   (fresh pixels every frame) and uploaded background images (real PNGs).
-- **Characters and NPCs are drawn from their sheet, not from pixels.** `poseFrames.ts`
+- **Characters and pets are drawn from their sheet, not from pixels.** `poseFrames.ts`
   (shared) turns a pose into a COLUMN — same rule as `spriteForPose`, arithmetic instead
   of arrays — and `client/src/art/sheetStore.ts` hands the renderer that cell out of the
   atlas. So the client holds no hex for art at all; pixels are read from a sheet only by
@@ -328,11 +352,11 @@ check asks: is the release present in the code that acquires?
   REFERENCE `poseFrames.int.test.ts` measures the arithmetic against, across every
   bundled sheet, pose, direction and frame — keep the two independent, because that test
   is the only reason "the index picks the same picture" is a fact.
-- **Character, NPC and avatar art travels as a PNG, not as pixels.** The bundled
+- **Character, pet and avatar art travels as a PNG, not as pixels.** The bundled
   sheets already ARE images (`assets/characters/char_*.png`, `assets/pets/*.png`);
   what a join used to ship was one hex string per pixel. Entries now carry a URL into
   `/art/<kind>/<id>?v=<hash>` (`server/src/artApi.ts`) plus the metadata a sheet cannot
-  hold — name, `CharacterSpec`, NPC config, and the frame size, without which a client
+  hold — name, `CharacterSpec`, pet config, and the frame size, without which a client
   would slice a 16×16 pet on the 16×32 character default. Measured: `characterSpritesLoaded`
   668 → 2.9 KB, `petSpritesLoaded` 163 → 1.4 KB, a player avatar 77 → 0.2 KB, and the
   sheets themselves are 20.5 KB for the whole roster (PNG written with
@@ -375,7 +399,7 @@ check asks: is the release present in the code that acquires?
   rows as failures), and `length(data)` stops being the row's size — the orphan-avatar
   prune reported every avatar as a few hundred bytes until it summed both columns.
   **Saving art is a PNG over HTTP** (protocol 8), not a room message: `POST /art/avatar` for
-  your own avatar and `POST /art/asset/:type/:name` for a gallery skin or an NPC
+  your own avatar and `POST /art/asset/:type/:name` for a gallery skin or a pet
   (`artSaveApi.ts`), with the sheet as the BODY and its metadata in an `X-Pixel-Sheet` header —
   base64 in a JSON body would add a third to every save. One hex string per pixel was 95.3 KB
   where the image is 2.8 KB, a factor of 34 on a real sheet (measured on char_0).
@@ -718,7 +742,7 @@ background only.)
   were 1.33 MB of a 1.79 MB message). The boot pruned those, and kept the rows a
   tileset still carried, because those were live overrides.
   That whole shape is gone: `furniture` is **not an ASSET_TYPE**, no client can write
-  one (the editor offers characters and NPCs only), and nothing merges one over a
+  one (the editor offers characters and pets only), and nothing merges one over a
   tileset entry. What is left of it is one boot task that retires the remaining rows
   (`maintenance/retireFurniture.ts`) — unreachable by construction rather than by
   inference, so it needs no grace period, but it writes a copy beside the database

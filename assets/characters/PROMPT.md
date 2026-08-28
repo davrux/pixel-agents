@@ -259,7 +259,10 @@ the 9 x 3 arrangement above, all of the same person, in one consistent palette.
 
 ## Verifying what comes back
 
-1. **The size is exact.** 144×96 (or 112×96). A short sheet is fatal for every skin
+1. **The size is exact.** 144×128 (or 112×128) — four rows of 32, since `left` is real art
+   rather than a mirror of `right` (this step said `×96`, three rows, until 2026-08-27; a sheet
+   accepted on that basis arrives with no left row and gets one by mirroring, which is the thing
+   the fourth row exists to stop). A short sheet is fatal for every skin
    in the directory and a wrong width silently changes an animation — see the format
    section. Check this first; it is the cheapest check and the most damaging miss.
 2. **It really is 16×32 art.** Collect the alpha-edge positions and score how

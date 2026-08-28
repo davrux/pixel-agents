@@ -115,7 +115,7 @@ test('a player at the coffee machine comes back holding the cup', () => {
   assert.ok(ch);
   assert.equal(ch.atPointId, spot.pointId);
   assert.equal(getCharacterPose(ch), CharacterPose.COFFEE, 'the ☕ pose is what the player sees restored');
-  // Held indefinitely, exactly as a click-started pose is (an NPC's break is the
+  // Held indefinitely, exactly as a click-started pose is (a pet's break is the
   // timed one) — a resumed cup must not vanish a second later.
   assert.equal(ch.atPointTimer, 0);
   for (let i = 0; i < 40; i++) os.update(0.05);

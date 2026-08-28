@@ -103,7 +103,7 @@ const DIRS_4 = [
 ];
 
 /** BFS pathfinding on 4-connected grid (no diagonals), uniform cost. Returns
- *  path excluding start, including end. The hot path — NPC wandering, seats,
+ *  path excluding start, including end. The hot path — pet wandering, seats,
  *  appliance approach, etc. — none of which need to avoid anything. */
 function bfsPath(
   startCol: number,

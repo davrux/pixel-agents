@@ -68,7 +68,7 @@ import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
 import { loadQuotes } from '../quotes.js';
-import { NpcBrain } from '../npc/npcBrain.js';
+import { PetBrain } from '../pet/petBrain.js';
 import type { AssetBundle } from '../assets.js';
 
 const TICK_HZ = 20;
@@ -229,8 +229,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private version = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
-  /** Server-only NPC behaviour tree (decides pet activity; not in client bundle). */
-  private readonly npcBrain = new NpcBrain();
+  /** Server-only pet behaviour tree (decides pet activity; not in client bundle). */
+  private readonly petBrain = new PetBrain();
 
   /** Agents currently materialised in this room → their owner (label). An agent
    *  lives only in the zone its owner is viewing, so it follows them on a switch. */
@@ -515,10 +515,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // What the talking objects say between the hours — a file in the repo, read
     // and bounded on the server (see quotes.ts), never by the engine.
     this.os.setQuotes(loadQuotes());
-    // NPC decisions run through the server-only mistreevous brain (kept out of
+    // Pet decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
-    this.os.setNpcDecider((_pet, aff) =>
-      this.npcBrain.decide({
+    this.os.setPetDecider((_pet, aff) =>
+      this.petBrain.decide({
         wantsToRest: Math.random() < PET_SIT_CHANCE,
         wantsCoffee: Math.random() < PET_DRINK_CHANCE,
         wantsTalk: Math.random() < PET_TALK_CHANCE,
@@ -529,7 +529,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         canTalk: aff.canTalk,
       }),
     );
-    this.applyZoneNpcFilter(); // which NPC variants spawn in this zone (per-zone)
+    this.applyZonePetFilter(); // which pet variants spawn in this zone (per-zone)
 
     // Restore per-user pinned character skins (so a user's skin stays stable).
     for (const [name, skin] of Object.entries(appStore.getCharPrefs())) {
@@ -630,7 +630,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // question as "where were they" — a chair IS a furniture tile. See resumePlayer.
     if (resume) this.os.resumePlayer(playerId, resume);
     this.players.set(client.sessionId, playerId);
-    // Announce a real user's arrival to everyone in the zone. Agents/NPCs are
+    // Announce a real user's arrival to everyone in the zone. Agents/pets are
     // engine entities, never Colyseus clients, so they never reach here. Deduped
     // so a second tab of the same user in this zone doesn't re-announce.
     if (userId && !this.hasOtherSession(client)) {
@@ -907,15 +907,15 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return emptyZoneMap(this.zone.cols ?? DEFAULT_COLS, this.zone.rows ?? DEFAULT_ROWS);
   }
 
-  /** Apply this zone's NPC spawn set to the engine. null/undefined = all active
+  /** Apply this zone's pet spawn set to the engine. null/undefined = all active
    *  variants; an array = only those `"<kind>_<variant>"` keys. */
-  private applyZoneNpcFilter(): void {
-    const npc = this.zone.npc;
-    if (npc == null) {
-      this.os.setNpcSpawnFilter(() => true);
+  private applyZonePetFilter(): void {
+    const pets = this.zone.pets;
+    if (pets == null) {
+      this.os.setPetSpawnFilter(() => true);
     } else {
-      const set = new Set(npc);
-      this.os.setNpcSpawnFilter((kind, variant) => set.has(`${kind}_${variant}`));
+      const set = new Set(pets);
+      this.os.setPetSpawnFilter((kind, variant) => set.has(`${kind}_${variant}`));
     }
   }
 
@@ -936,7 +936,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   /**
    * Everyone logged in right now, world-wide — the HUD's online list. Only real
-   * accounts appear: agents and NPCs are engine entities, never sessions, so
+   * accounts appear: agents and pets are engine entities, never sessions, so
    * they never reach presence.ts in the first place.
    *
    * The same facts `/users online` prints (name, id, ★ admin, zone), plus the
@@ -1024,7 +1024,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Appliances (coffee machine, …): click → walk the avatar to its stand
     // tile, then hold a cosmetic "using it" pose (☕ over the avatar) until the
     // player walks away or sits down (no game effect — see
-    // officeState.useAppliance/stationId, the same mechanism NPCs use for
+    // officeState.useAppliance/stationId, the same mechanism pets use for
     // coffee breaks, minus their break timer). Kept separate from
     // actionApproach — appliances use the pre-built station/occupancy
     // system, not computeApproachTiles, and have no client notification.
@@ -1347,20 +1347,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // website's identical control (client/src/shared/zoneAdminsWidget.ts). No
     // room-message path for this exists anymore.
 
-    // Per-zone NPC spawn set: which variants appear in a zone (null = all).
-    this.onMessage('setZoneNpc', (client, msg: { id?: string; npc?: string[] | null }) => {
+    // Per-zone pet spawn set: which variants appear in a zone (null = all).
+    this.onMessage('setZonePets', (client, msg: { id?: string; pets?: string[] | null }) => {
       if (typeof msg?.id !== 'string' || !this.may(client, 'zone.edit', msg.id)) return;
-      const npc =
-        msg.npc === null || msg.npc === undefined
+      const pets =
+        msg.pets === null || msg.pets === undefined
           ? null
-          : Array.isArray(msg.npc)
-            ? msg.npc.filter((x): x is string => typeof x === 'string').slice(0, 256)
+          : Array.isArray(msg.pets)
+            ? msg.pets.filter((x): x is string => typeof x === 'string').slice(0, 256)
             : undefined;
-      if (npc === undefined) return; // malformed
-      if (this.zones.setNpc(msg.id, npc)) {
+      if (pets === undefined) return; // malformed
+      if (this.zones.setPet(msg.id, pets)) {
         if (msg.id === this.zone.id) {
           this.zone = this.zones.get(msg.id) ?? this.zone;
-          this.applyZoneNpcFilter(); // takes effect now (despawns disallowed pets)
+          this.applyZonePetFilter(); // takes effect now (despawns disallowed pets)
         }
         this.broadcastZoneList();
       }
@@ -1732,7 +1732,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private tick(dt: number): void {
     // Don't simulate a zone no human is watching. The room disposes when empty
     // (autoDispose), so this normally won't fire with zero clients — but guard the
-    // transient tick as the last client leaves so we never spawn/pathfind NPCs or
+    // transient tick as the last client leaves so we never spawn/pathfind pets or
     // run syncs for nobody. Agents' *logical* state is driven by feed events
     // (applyEvent, via onEvent — independent of this tick), so skipping only drops
     // movement/animation + client syncs; a joining client gets the full state on
@@ -1910,7 +1910,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.isPlayer = ch.isPlayer;
       cs.afk = ch.afk ?? false;
       // Working status, as last reported by this player's own desktop app
-      // (agents and NPCs have none, hence the isPlayer guard). Synced from here
+      // (agents and pets have none, hence the isPlayer guard). Synced from here
       // rather than fetched per client so the hover overlay shows everyone the
       // same thing, and so nobody's client learns anything about anyone else's
       // TimeTracking beyond the glyph.

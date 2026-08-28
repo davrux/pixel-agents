@@ -117,7 +117,7 @@ test('an avatar save needs a session, and writes the CALLER — there is no id t
   assert.equal(appStore.assetRow('playerAvatar', 'routeadmin'), undefined, 'the admin has no avatar');
 });
 
-test('a gallery or NPC save needs an admin', async () => {
+test('a gallery or pet save needs an admin', async () => {
   assert.equal((await post('/art/asset/character/char_9', sheet(), { name: 'X' })).status, 401);
   assert.equal((await post('/art/asset/character/char_9', sheet(), { name: 'X' }, userBearer)).status, 403);
   const ok = await post('/art/asset/character/char_9', sheet(), { name: 'Nine' }, adminBearer);

@@ -206,7 +206,7 @@ authorization outcome, that is a bug.
 - **Shared and admin actions go through `permissions.ts`** — `may(client,
   capability, zoneId?)`. Gallery and asset edits, zone creation and deletion,
   user management and granting zone-admins need global admin; a zone's map,
-  arrival point and NPCs need that zone's admin. Default to deny.
+  arrival point and pets need that zone's admin. Default to deny.
 - **Secrets stay on the server**: LiveKit's key and secret, the admin token and
   scrypt password hashes never reach a client. A viewer receives only its own
   agent token, and short-lived room-scoped LiveKit JWTs whose identity is its own

@@ -26,7 +26,7 @@ import {
   WALK_FRAME_DURATION_SEC,
 } from './constants.js';
 
-/** What the two kinds of art are animated as. A pet/NPC is the server-driven one. */
+/** What the two kinds of art are animated as. The pet one is server-driven. */
 export type PoseKind = 'character' | 'pet';
 
 /**

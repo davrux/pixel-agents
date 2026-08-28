@@ -1,15 +1,15 @@
-# Pet / NPC sprite sheets
+# Pet sprite sheets
 
 `cat_0.png`, `cat_1.png` — and identically `dog_*.png`, `duck_*.png`. One file is
-one NPC variant, and every bundled one has a name: `dog_0` **Emma** (beagle),
+one pet variant, and every bundled one has a name: `dog_0` **Emma** (beagle),
 `dog_1` **Balu**, `cat_0` **Loui** (tuxedo), `cat_1` **Daisy** (tabby), `duck_0`
 **Rudi** (the green-headed drake), `duck_1` **Frieda**. The display names live in
 `PET_NAMES` (`server/src/assetOverrides.ts`), which fills them in the same place
 bundled skins get theirs from `CHAR_NAMES`, so no UI shows the slot id; they are
-fixed rather than generated, because a name is what a zone's NPC is picked by and
+fixed rather than generated, because a name is what a zone's pet is picked by and
 one that changed between restarts would make every list disagree with yesterday's.
 A slot with no entry falls back to the generic `Duck 3`. The **id stays `dog_0`**: it is the key
-`saveAsset`/`deleteAsset` and a zone's NPC selection are stored under, so a rename
+`saveAsset`/`deleteAsset` and a zone's pet selection are stored under, so a rename
 is a label change and never a file rename. How
 many variants load is capped by `CAT_COUNT` in
 `server/src/core/assets/constants.ts:28`, and loading stops at the first missing
@@ -17,16 +17,25 @@ number, so variants must stay contiguous from `_0`.
 
 ## File format
 
-**96×64 RGBA PNG — a 6 × 4 grid of 16×16 frames.** No margin, no extrusion, no
-padding: frame `(col, row)` is exactly the rect at `(col*16, row*16)`. Nothing in
-the file carries its own dimensions, so the size is not negotiable — `decodePetPng`
-(`server/src/core/assets/pngDecoder.ts:188`) slices on those constants with no
-bounds check, and gets it wrong in two different ways: a **wider** sheet is
-silently cropped (measured: a 192×96 sheet decodes "fine", as a quarter of the intended
-art), while a **narrower** one throws and is swallowed by `loadPetSprites`, which returns
-null for the whole load — one short cat sheet and the dogs and ducks disappear too. A
-sheet that is only three rows tall still decodes: the row count comes from the image
-height, and the missing left row is filled by mirroring at the sprite store's door.
+**128×64 RGBA PNG — an 8 × 4 grid of 16×16 frames.** No margin, no extrusion, no
+padding: frame `(col, row)` is exactly the rect at `(col*16, row*16)`. It was 96×64 (six
+columns) until a `talk` track was added 2026-08-27.
+
+**The WIDTH is negotiable now; it was not when this file was written.** The paragraph here used to
+say the size was fixed, because `decodePetPng` sliced these files at boot on the constants
+`PET_FRAMES_PER_ROW` × `PET_FRAME_W` with no bounds check, and got a wider sheet wrong silently
+(measured: a 192×96 sheet decoded "fine", as a quarter of the intended art). That decoder is no
+longer in the path — art travels as a PNG, `loadPetSprites` reads the bytes without decoding, and
+the column count is derived from the image width by the client's sheet store and by
+`posePlaybackLength` through the spec. So a 7- or 8-column sheet is drawable; what it needs is a
+matching track in `PET_SPRITE_SPEC` (see *Closing an art gap* below). `decodePetPng` still exists
+as the reference implementation the frame-index test measures against, and still crops — do not
+reintroduce it into a load path.
+
+The **height** is still four rows of 16 (a three-row sheet decodes too: the row count comes from
+the image height, and the missing left row is filled by mirroring at the sprite store's door), and
+the frame SIZE is still 16×16 — that one really is fixed, since the bundled sheets carry no spec
+and `PET_SPRITE_SPEC` supplies `frame: {w:16,h:16}`.
 
 Alpha is per-pixel, not a hard mask: `a < 2` becomes transparent (`''`), and
 anything above that is kept, semi-transparent values included (they survive as
@@ -71,6 +80,7 @@ Each track claims the next N columns (`trackSlots`, `spriteData.ts:277`):
 | 0,1,2 | `walk` | ping-pong | `0 → 1 → 2 → 1`, looping (4 steps) |
 | 3,4 | `sit` | loop | `3 → 4` |
 | 5 | `idle` | loop | `5` — a single static frame |
+| 6,7 | `talk` | loop | `6 → 7` — the stand frame and the same pixels 1 px higher |
 
 Consequences of that layout:
 
@@ -81,8 +91,11 @@ Consequences of that layout:
 - **Columns 3 and 4 must read as a two-frame loop, not a progression** — a
   settled animal with one thing moving (tail, ear, a blink). They are also the
   only pair, so a resting pose that needs three frames does not fit.
-- **Column 5 does four jobs at once** (see below). It is the most-seen frame in
-  the sheet.
+- **Column 5 does three jobs at once** (see below) — idle, spawn/despawn and `drink`. It is
+  still the most-seen frame in the sheet. It used to do five: `talk` has its own columns now.
+- **Columns 6 and 7 are a bounce, not a drawn talk pose.** They were derived from column 1 by
+  `scripts/add-talk-track.sh`, which is honest but plain; redraw them (head up, muzzle open)
+  whenever somebody wants to, the format does not care where the pixels came from.
 
 ## Which pose the engine asks for
 
@@ -95,13 +108,48 @@ columns, **falling back to the `idle` track when no track of that name exists**:
 | `wander` | `walk` | 0,1,2,1 |
 | `sit` (resting at a seat or desk) | `sit` | 3,4 |
 | `drink` (standing at a coffee station) | `drink` | **5** — no `drink` track in the bundled spec |
-| `talk` (standing beside an agent) | `talk` | **5** — no `talk` track either |
+| `talk` (standing beside an agent) | `talk` | 6,7 |
 | `spawn`, `idle`, `despawn` | `idle` | 5 |
 
-So the bundled sheets have three tracks but five behaviours, and column 5 covers
-standing around, fading in, fading out, drinking and chatting. `sleep`, `drink`
-and `talk` are real track names (`NPC_TRACK_NAMES`) that the NPC editor can add
-frames for per variant — a sheet on disk simply never has them.
+So the sheets have four tracks and column 5 still covers standing around, fading in, fading out
+and drinking. `drink` is the one pose the engine asks for that nothing answers; the pet editor can
+add a track for it per variant, and the sheets on disk have none.
+
+`sleep` used to be on that list and is not any more: there is no sleep state anywhere in
+`engine/pets.ts`, so frames drawn into a sleep track could never appear in the world. The editor
+stopped offering it 2026-08-27 (it still RECOGNISES the name, so a sheet saved with one is not
+re-derived underneath its author — see `TOLERATED_TRACK_NAMES`).
+
+Two footnotes on that list, both measured 2026-08-27. `talk` and `drink` are poses the ENGINE
+really asks for (`petPose`), so art drawn for them animates: at
+`PET_TALK_FRAME_DURATION_SEC`/`PET_DRINK_FRAME_DURATION_SEC`, both 0.4 s. **`sleep` is not** —
+there is no sleep state anywhere in `engine/pets.ts`, so frames drawn into a sleep track can never
+appear in the world, however correct the sheet is.
+
+### Closing an art gap
+
+`talk` was closed this way on 2026-08-27 and `drink` is still open; the recipe is the same, and it
+is two commits in either order, neither of which breaks the world on its own:
+
+1. **Widen the sheets** and draw the frames. Every variant of every kind, or the ones without it
+   keep falling back to column 5.
+2. **Append a track** to `PET_SPRITE_SPEC` (`shared/src/office/sprites/characterSpec.ts`):
+   `{ name: 'drink', frames: 2, play: 'loop' }` — and **append it to `PET_TRACKS` in the editor at
+   the same position**, because that list's ORDER is what `deriveSpecTracks` hands the columns to.
+   Getting those two out of step is not theoretical: `sleep` sat fourth in `PET_TRACKS` with two
+   default frames, so the first 8-column sheet would have had columns 6-7 derived as SLEEP and
+   talk left with nothing. `poseFrames.int.test.ts` compares the two lists now.
+
+**Append, never insert.** A track claims the next free columns, so appending leaves walk 0-2,
+sit 3-4 and idle 5 exactly where they are; inserting one renumbers every column after it and every
+sheet already drawn animates the wrong pictures. And the order does not matter because a spec that
+claims art the file does not have yet falls back to the idle frame rather than drawing a gap. Both
+properties are pinned by `server/src/poseFrames.int.test.ts` ("a pet track can be APPENDED…").
+
+A saved override is the other route and needs no format change at all: the pet editor's
+`＋ Talk track` button adds the frames for one variant, and a stored sheet carries its own spec and
+frame count, so it may be any width (`encodeDirectionalSheet` treats the pet column count as a
+minimum, not a cap).
 
 Chasing and fleeing (dogs chase cats, cats flee dogs) are not poses: they are
 directed movement inside `wander`, so they animate as `walk`.
@@ -119,6 +167,7 @@ tail tip. Column by column, as the contract requires:
 | 3 | sitting upright | sitting, seen from behind | sitting, facing right |
 | 4 | sitting, eyes closed | sitting, tail to the side | sitting, eyes closed |
 | 5 | standing | standing away | **standing** — not the `cat_1` gap |
+| 6,7 | derived from col 1 | derived from col 1 | derived from col 1 |
 
 Row 2 mirrors safely: the saddle and the white legs are symmetric, and nothing on the
 flank marks one side.
@@ -152,6 +201,7 @@ Both cats follow the contract above; described down each column:
 | 3 | sitting upright | sitting, seen from behind | sitting, facing right |
 | 4 | sitting, eyes closed | sitting, seen from behind | sitting, eyes closed |
 | 5 | standing, tail raised | standing away, tail raised | Loui standing; **Daisy sitting** |
+| 6,7 | derived from col 1 | derived from col 1 | derived from col 1 |
 
 Note that the cats' `walk` frames for rows 0 and 1 are near-static — a
 front-facing walk barely moves at 16×16 — while row 2 carries the real gait. Every
@@ -167,19 +217,19 @@ has no other frame to ask for.
 
 ## Editing
 
-Regenerate or repaint at **96×64**, keep the grid, keep the column meanings, and
+Regenerate or repaint at **128×64**, keep the grid, keep the column meanings, and
 keep left/right symmetry in mind for row 2. The art must be **drawn at 16×16**, not
 drawn larger and scaled down — art composed at ~24–26 px loses an eye off every
 front-facing face when it is reduced, and the loss is invisible until you compare
 frames side by side. For generating a sheet from photos of a real animal, see
 [PROMPT.md](PROMPT.md), which also lists how to verify one before committing it.
 
-**A saved override shadows the file.** An NPC edited in the in-game editor is stored
+**A saved override shadows the file.** An pet edited in the in-game editor is stored
 in the database (`assets`, type `pet`, keyed `dog_0`) and `buildMerged`
 (`server/src/assetOverrides.ts`) puts that row in place of the whole bundled entry —
 art, spec and spawn config. So in any world where somebody once pressed Save on a
 variant, dropping a new PNG here changes **nothing** until that override is reset
-(NPC editor → Reset, i.e. `deleteAsset`), and the symptom is silent: the file is
+(pet editor → Reset, i.e. `deleteAsset`), and the symptom is silent: the file is
 correct, the sheet decodes, and the old animal still walks around. Emma hit exactly
 this on the dev world. Note that a reset also drops that variant's spawn config back
 to the default (60–180 s, max 1) — re-set it in the editor if it was tuned.

@@ -307,7 +307,7 @@ async function main(): Promise<void> {
       );
     }
   }
-  // Character/NPC/avatar art as PNG. AFTER registerAuth on purpose: it carries no
+  // Character/pet/avatar art as PNG. AFTER registerAuth on purpose: it carries no
   // file extension, so the session gate covers it — which is the whole point, since
   // avatars are personal art and /assets/*.png is served openly (see artApi.ts).
   registerArtApi(app);

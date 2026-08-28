@@ -11,6 +11,7 @@ import { dataPath } from './paths.js';
 import { USERS_DDL } from './schema/tables.js';
 import { dropRetiredTables } from './schema/dropRetiredTables.js';
 import { movePngToBlob } from './schema/movePngToBlob.js';
+import { renamePetConfigField } from './schema/renamePetConfigField.js';
 import { ensureUserForeignKeys } from './schema/userForeignKeys.js';
 import { maybeResetWorld } from './worldReset.js';
 
@@ -57,6 +58,8 @@ ensureUserForeignKeys(db);
 dropRetiredTables(db);
 // And the sheets that are still base64 inside a JSON row: they become the assets.png BLOB.
 movePngToBlob(db);
+// And the spawn config that was stored under the name this code no longer uses.
+renamePetConfigField(db);
 
 // Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
 // accounts, once per token (see worldReset.ts). The stores then find an empty

@@ -71,40 +71,52 @@ export const DEFAULT_CHARACTER_SPEC: CharacterSpec = {
   ],
 };
 
-/** The bundled pet/NPC sheet layout (16×16, 3 direction rows × 6 frames):
+/** The bundled pet sheet layout (16×16, 3 direction rows × 6 frames):
  *  walk 0-2 (ping-pong), sit 3-4, idle 5. `sleep` is optional and added in the
  *  editor when art exists (the bundled sheets have none). */
+/**
+ * The bundled pet sheets' layout: columns claimed in track order, walk 0-2, sit 3-4, idle 5,
+ * talk 6-7.
+ *
+ * **Append, never insert.** A track takes the next free columns, so adding one at the end leaves
+ * every drawn frame where it is; inserting renumbers everything after it and every sheet already
+ * drawn animates the wrong pictures (`poseFrames.int.test.ts` pins this). `talk` was appended
+ * 2026-08-27, when the sheets went from 6 to 8 columns — before that a chatting pet resolved to
+ * column 5 and stood still, since `petPose` asks for `talk` and no track answered.
+ *
+ * `drink` is still unanswered and deliberately so: the engine asks for it at a coffee station and
+ * it falls back to the idle frame, which reads as a pet standing at the machine. Draw columns for
+ * it and append it here the same way.
+ */
 export const PET_SPRITE_SPEC: CharacterSpec = {
   frame: { w: 16, h: 16 },
   tracks: [
     { name: 'walk', frames: 3, play: 'pingpong' },
     { name: 'sit', frames: 2, play: 'loop' },
     { name: 'idle', frames: 1, play: 'loop' },
+    { name: 'talk', frames: 2, play: 'loop' },
   ],
 };
 
-/** Track names the NPC editor offers (`sleep`/`drink` optional, like coffee for agents). */
-export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep', 'drink', 'talk'] as const;
-
-// ── NPC spawn config ────────────────────────────────────────────
-/** Per-NPC spawn behaviour: whether it spawns at all, and (when it does) a
+// ── pet spawn config ────────────────────────────────────────────
+/** Per-pet spawn behaviour: whether it spawns at all, and (when it does) a
  *  random interval between spawns + a concurrency cap. Real-time schedules
  *  (fixed clock times) come later; for now it's "every X seconds, randomised". */
-export interface NpcConfig {
+export interface PetConfig {
   active: boolean;
   /** Random seconds between spawns: uniform in [minSec, maxSec]. */
   minSec: number;
   maxSec: number;
-  /** Max simultaneous instances of this NPC variant. */
+  /** Max simultaneous instances of this pet variant. */
   maxConcurrent: number;
-  /** Per-variant behaviour switches (kind-gated by the engine; see NpcBehaviors). */
-  behaviors: NpcBehaviors;
+  /** Per-variant behaviour switches (kind-gated by the engine; see PetBehaviors). */
+  behaviors: PetBehaviors;
 }
 
-/** Per-NPC behaviour switches. All default true; the engine kind-gates them
+/** Per-pet behaviour switches. All default true; the engine kind-gates them
  *  (only dogs chase, only cats flee), so a flag that doesn't apply to a kind is
  *  simply inert. The editor shows only the kind-relevant switches. */
-interface NpcBehaviors {
+interface PetBehaviors {
   /** May rest (sit) at a seat / desk. */
   rest: boolean;
   /** Dogs: chase a nearby cat (shoo-cat). */
@@ -117,7 +129,7 @@ interface NpcBehaviors {
   talk: boolean;
 }
 
-const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = {
+const DEFAULT_PET_BEHAVIORS: PetBehaviors = {
   rest: true,
   chaseCats: true,
   fleeDogs: true,
@@ -125,27 +137,27 @@ const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = {
   talk: true,
 };
 
-export const DEFAULT_NPC_CONFIG: NpcConfig = {
+export const DEFAULT_PET_CONFIG: PetConfig = {
   active: true,
   minSec: 60,
   maxSec: 180,
   maxConcurrent: 1,
-  behaviors: { ...DEFAULT_NPC_BEHAVIORS },
+  behaviors: { ...DEFAULT_PET_BEHAVIORS },
 };
 
-const NPC_MIN_INTERVAL = 5; // floor (seconds) to avoid spawn storms
-const NPC_MAX_INTERVAL = 3600; // 1 hour ceiling
-const NPC_MAX_CONCURRENT = 8;
+const PET_MIN_INTERVAL = 5; // floor (seconds) to avoid spawn storms
+const PET_MAX_INTERVAL = 3600; // 1 hour ceiling
+const PET_MAX_CONCURRENT = 8;
 
-/** Validate/normalise an NPC config, filling defaults and clamping. Never throws. */
-export function resolveNpcConfig(input: unknown): NpcConfig {
+/** Validate/normalise a pet config, filling defaults and clamping. Never throws. */
+export function resolvePetConfig(input: unknown): PetConfig {
   const o = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   const clampSec = (v: unknown, d: number): number => {
     const n = Math.round(Number(v));
-    return Number.isFinite(n) ? Math.max(NPC_MIN_INTERVAL, Math.min(NPC_MAX_INTERVAL, n)) : d;
+    return Number.isFinite(n) ? Math.max(PET_MIN_INTERVAL, Math.min(PET_MAX_INTERVAL, n)) : d;
   };
-  let minSec = clampSec(o.minSec, DEFAULT_NPC_CONFIG.minSec);
-  let maxSec = clampSec(o.maxSec, DEFAULT_NPC_CONFIG.maxSec);
+  let minSec = clampSec(o.minSec, DEFAULT_PET_CONFIG.minSec);
+  let maxSec = clampSec(o.maxSec, DEFAULT_PET_CONFIG.maxSec);
   if (minSec > maxSec) [minSec, maxSec] = [maxSec, minSec];
   const mc = Math.round(Number(o.maxConcurrent));
   const b = o.behaviors && typeof o.behaviors === 'object' ? (o.behaviors as Record<string, unknown>) : {};
@@ -154,7 +166,7 @@ export function resolveNpcConfig(input: unknown): NpcConfig {
     active: o.active !== false, // default true
     minSec,
     maxSec,
-    maxConcurrent: Number.isFinite(mc) ? Math.max(1, Math.min(NPC_MAX_CONCURRENT, mc)) : DEFAULT_NPC_CONFIG.maxConcurrent,
+    maxConcurrent: Number.isFinite(mc) ? Math.max(1, Math.min(PET_MAX_CONCURRENT, mc)) : DEFAULT_PET_CONFIG.maxConcurrent,
     behaviors: {
       rest: bool(b.rest, true),
       chaseCats: bool(b.chaseCats, true),

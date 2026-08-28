@@ -211,7 +211,7 @@ export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): 
  *   - The POOL is injected, not read from disk here. This module runs in the
  *     engine, which is headless and has no business owning a file path; the
  *     server loads and validates the file (server/src/quotes.ts) and hands the
- *     lines in through OfficeState.setQuotes, the same shape as setNpcDecider.
+ *     lines in through OfficeState.setQuotes, the same shape as setPetDecider.
  */
 
 /** The window a quote waits in. A talking object picks a moment uniformly

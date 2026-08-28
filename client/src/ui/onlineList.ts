@@ -8,7 +8,7 @@
  *
  * It renders and nothing else. The roster is authoritative server state pushed
  * as `onlineUsers` (SimRoom.onlineUsersMessage) — cross-zone, so it cannot be
- * derived from the synced characters standing in this room. Agents and NPCs are
+ * derived from the synced characters standing in this room. Agents and pets are
  * engine entities rather than sessions, so they are absent by construction, not
  * by a filter here.
  */

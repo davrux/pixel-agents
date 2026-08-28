@@ -3,7 +3,7 @@
  * asset type.
  *
  * Furniture art comes from Tiled tilesets. Nothing in the client has sent a furniture save
- * since the editor was cut down to characters and NPCs, and the merge that let a stored row
+ * since the editor was cut down to characters and pets, and the merge that let a stored row
  * replace a tileset's entry is gone with the type (`assetOverrides.ts`). So every remaining row
  * is inert: not "probably unused", but unreachable by construction, because no code path reads
  * that type any more.

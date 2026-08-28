@@ -444,7 +444,7 @@ export const appStore = new AppStore();
  * of 4 KB. None of those paths is hot — the merged bundle is cached process-wide and `/art/...` is
  * served with an immutable ETag — so this is a storage and data-model change, not a speed fix.
  *
- * Everything else (`gallery`, NPC config, anything a future type stores) has no `png` and travels
+ * Everything else (`gallery`, pet config, anything a future type stores) has no `png` and travels
  * exactly as before, which is why this lives here rather than in a branch per asset type.
  */
 function splitArt(stored: unknown): { meta: unknown; png: Uint8Array | null } {

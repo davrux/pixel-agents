@@ -1,6 +1,6 @@
 /**
  * Shared entity core — the transform + tile-movement primitives every moving
- * entity uses (agents, NPCs, and later players & monsters). The per-kind engines
+ * entity uses (agents, pets, and later players & monsters). The per-kind engines
  * (characters.ts, pets.ts, …) layer their own decision/animation logic on top;
  * this is the common substrate so movement isn't reimplemented per kind.
  *
