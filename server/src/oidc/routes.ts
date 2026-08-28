@@ -149,16 +149,34 @@ function idTokenClaims(idToken: string | null): Record<string, unknown> | null {
   }
 }
 
-/** Register the routes. Called only when {@link oidcConfig} is configured. */
+/**
+ * Register the routes.
+ *
+ * Registered whenever there is any way to log in, NOT only when a provider is configured — and the
+ * configuration is resolved per request instead of being captured here. That is what lets an admin
+ * complete or change the connection from the panel and have it work on the next request, with
+ * nothing to restart (`adminSettings.ts`). With no provider configured, each route answers 404:
+ * the surface exists, but it has nothing to talk to.
+ */
 export function registerOidcAuth(app: Express): void {
-  const cfg = oidcConfig();
-  if (!cfg) return;
+  /** The provider in force right now, or null. Every handler starts here. */
+  const configured = (res: Response): OidcConfig | null => {
+    const cfg = oidcConfig();
+    if (!cfg) {
+      res.status(404).json({ error: 'no identity provider is configured' });
+      return null;
+    }
+    return cfg;
+  };
 
   // What the sign-in surfaces need to know before anybody is signed in: whether to show the
   // button and what to call it. Public, and deliberately nothing else — no issuer, no client id,
   // no endpoint: a client never talks to the provider directly, so it needs none of them.
   // `enabled` is "offer the button", not "the routes exist": an admin can hide the button while
   // the flow keeps working for anybody holding the URL (see presentation.ts).
+  // Answers even with nothing configured (enabled:false) — this is the route a sign-in screen asks
+  // before it knows whether there is a provider at all, so a 404 here would be an error to handle
+  // rather than an answer.
   app.get('/auth/oauth/config', (_req: Request, res: Response) => {
     res.json({ enabled: oidcButtonVisible(), label: oidcLabel() });
   });
@@ -167,6 +185,8 @@ export function registerOidcAuth(app: Express): void {
   // creates nothing but a short-lived flow record.
   app.get('/auth/oauth/start', (req: Request, res: Response) => {
     void (async () => {
+      const cfg = configured(res);
+      if (!cfg) return;
       try {
         const endpoints = await discover(cfg);
         const flow = createFlow(null);
@@ -181,7 +201,8 @@ export function registerOidcAuth(app: Express): void {
 
   // The login itself. See the file header for why this is reachable without a session.
   app.get('/auth/oauth/callback', (req: Request, res: Response) => {
-    void handleCallback(cfg, req, res);
+    const cfg = configured(res);
+    if (cfg) void handleCallback(cfg, req, res);
   });
 
   // Begin a desktop pairing: the app gets a URL to open in the real browser and a one-time code
@@ -189,6 +210,8 @@ export function registerOidcAuth(app: Express): void {
   // hands out nothing: the code is worthless until somebody completes a login at the provider.
   app.post('/desktop/oauth/start', express.json({ limit: '1kb' }), (_req: Request, res: Response) => {
     void (async () => {
+      const cfg = configured(res);
+      if (!cfg) return;
       try {
         const endpoints = await discover(cfg);
         const pairing = createPairing();

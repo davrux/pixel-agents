@@ -821,25 +821,46 @@ background only.)
   (`oidc/pending.ts`): the desktop app cannot follow a redirect (no cookie jar,
   and an embedded webview is the wrong place for MFA), so it opens the system
   browser and polls for a bearer that is handed over exactly once.
-- **Only the PRESENTATION of single sign-on is configurable at runtime**
-  (`oidc/presentation.ts`, admin panel → Sign-in, `GET`/`PUT /admin/oidc`). The
-  line is a security boundary and a new setting has to be placed on the right
-  side of it: **environment-only** are issuer, client id, client secret, redirect
-  URI, scopes, roles claim, admin role, `CLAIM_EXISTING` and `END_SESSION` — every
-  one of them decides who gets in or who becomes an admin, so a stolen admin
-  session must not be able to repoint the world at another provider, widen the
-  scopes or rename the claim that grants admin. **Writable** are the button's
-  label, whether the button is shown, and whether an ungated navigation goes
-  straight to the provider — none of which can grant access, because the routes
-  are open either way (hiding a button is not a gate). The admin API *reads* the
-  environment half so an operator can check it, minus the secret, which is
-  reported as `hasClientSecret` and never as a value. Two invariants keep it
-  honest: `setOidcPresentation` reads its three fields BY NAME, so an unknown key
-  has nowhere to go rather than being validated against a list somebody has to
-  maintain; and `/login` keeps rendering the password form even with the redirect
-  on, so the break-glass path stays one URL away rather than one deployment away.
-  `oidcAdminSettings.int.test.ts` fails if a PUT carrying `issuer`, `adminRole` or
-  `claimExisting` ever changes anything.
+- **Single sign-on is configured in two halves, and where a field lives is a
+  security decision** (`oidc/adminSettings.ts`, admin panel → Sign-in,
+  `GET`/`PUT /admin/oidc`). A new field goes on one side or the other; adding one
+  without deciding which is the mistake this bullet exists to prevent.
+  **Writable from the panel** are the presentation (button label, whether the
+  button is offered, whether an ungated navigation goes straight to the provider)
+  and — asked for explicitly, so the deployment is not the only way to point this
+  world at a directory — the **connection**: issuer, client id, redirect URI. A
+  server whose environment names no provider can therefore be switched on entirely
+  from the panel, which is why `registerOidcAuth` mounts the routes whenever login
+  is possible and they answer 404 until a connection exists, and why the effective
+  config is merged per request (`oidcConfig()`) instead of memoized.
+  **Environment-only** are the client secret, the scopes, the roles claim, the
+  admin role, `CLAIM_EXISTING` and `END_SESSION` — those decide who becomes an
+  admin and whose existing local account a directory username may take over.
+  Three rules make the editable connection safe enough to ship, and all three are
+  tested rather than described:
+  **An overridden issuer or client id withholds the secret.** `oidcConfig()` drops
+  `PIXEL_OIDC_CLIENT_SECRET` the moment either half of the identity it was issued
+  for is overridden, so pointing the issuer at a server you control and waiting for
+  the next login cannot POST the deployment's secret to it. An overridden
+  connection is a public client (PKCE only) and the panel says so on the page.
+  **Every value is validated where it is stored, on write AND on read.** https
+  unless the host is loopback, no query or fragment (the discovery URL is built by
+  appending), the redirect URI's path exactly `/auth/oauth/callback` (the route this
+  server actually serves — the HOST is deliberately not checked, because behind a
+  proxy this process cannot know it, and it need not be: a provider only redirects
+  to a URI registered with it). A refusal refuses the WHOLE patch, so half a
+  connection — a new issuer with the old client id — is never what a mistake leaves
+  behind. Re-validating on read is not belt-and-braces: the row is a JSON blob a
+  restore or a hand-edit can reach, and it ends up in a URL credentials travel to.
+  **A connection change is logged with the account that made it.** Which directory
+  the world trusts is now something a session can change, so it is auditable; the
+  line carries the issuer and client id (a browser sees both in the authorize URL)
+  and never the secret.
+  Two older invariants still hold: each setter reads its fields BY NAME, so an
+  unknown key has nowhere to go rather than being checked against a deny-list
+  somebody has to maintain; and `/login` keeps rendering the password form even
+  with the redirect on, so the break-glass path stays one URL away rather than one
+  deployment away.
 - **Shell scripts are the front door.** Anything a human runs is a `.sh` in
   `scripts/`, and *what* it starts — node, tsx, anything — is the wrapper's
   business, not the caller's. Never put `node --import tsx scripts/….mts` in docs,

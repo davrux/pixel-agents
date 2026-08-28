@@ -2,17 +2,25 @@
  * The admin panel's single-sign-on settings: what an admin may change, and — the half that
  * matters — what they may not.
  *
- * The claim this file exists to keep true is the split in `presentation.ts`. Presentation is
- * writable over HTTP; everything that decides who gets in and who becomes an admin is not. A
- * plausible-looking PUT carrying `issuer`, `adminRole` or `claimExisting` has to be a no-op, or a
- * stolen admin session becomes a way to repoint this world at an identity provider the attacker
- * controls — which is a permanent compromise, not a session-long one. Beside that:
+ * The claim this file keeps true is the split in `adminSettings.ts`. Writable: the presentation
+ * fields, and — by explicit request — the connection (issuer, client id, redirect URI). NOT
+ * writable: the client secret, the scopes, the roles claim, the admin role, `CLAIM_EXISTING` and
+ * `END_SESSION`, because those decide who becomes an admin and whose existing account a directory
+ * username may take over.
  *
- *  • only an admin can read or write these settings at all;
- *  • the client secret never reaches the page, not even as a masked value;
- *  • the three settings that ARE writable really take effect (label, button, auto-redirect), and
- *    a label somebody typed is escaped where it lands in HTML;
- *  • with the redirect on, `/login` still renders the password form — the break-glass path.
+ * The connection being editable is what makes the rest of this file load-bearing rather than
+ * pedantic:
+ *
+ *  • the client secret is withheld the moment the issuer or the client id is overridden, so the
+ *    deployment's secret can never be POSTed to a directory the deployment did not name — the one
+ *    thing an editable issuer would otherwise buy an attacker with an admin session;
+ *  • every connection value is validated (https unless loopback, no query or fragment, the
+ *    callback path exact), and a refusal refuses the WHOLE patch, so a mistake cannot leave half a
+ *    connection behind;
+ *  • the secret never reaches the page, not even as a masked value;
+ *  • only an admin can read or write any of it;
+ *  • the presentation fields still take effect, a typed label is escaped where it lands in HTML,
+ *    and with the redirect on `/login` still renders the password form — the break-glass path.
  *
  * TEST BOUNDARIES:
  *   @real-dependency: express + the real routes + SQLite -- Mock? NO. Every claim here is about
@@ -36,12 +44,21 @@ let app: HttpServer;
 let base: string;
 let adminBearer: string;
 let userBearer: string;
-let setOidcPresentation: typeof import('./presentation.js').setOidcPresentation;
+let setOidcPresentation: typeof import('./adminSettings.js').setOidcPresentation;
 
+interface ConnField {
+  value: string;
+  override: string;
+  env: string;
+  source: 'admin' | 'env' | 'unset';
+}
 interface Settings {
   configured: boolean;
   presentation: { label: string | null; showButton: boolean; autoRedirect: boolean };
   maxLabelLength: number;
+  callbackPath: string;
+  connection: { issuer: ConnField; clientId: ConnField; redirectUri: ConnField };
+  secret: { configured: boolean; active: boolean };
   environment: Record<string, unknown> | null;
 }
 
@@ -76,7 +93,7 @@ before(async () => {
   const express = (await import('express')).default;
   const { resetOidcConfig } = await import('./config.js');
   resetOidcConfig();
-  ({ setOidcPresentation } = await import('./presentation.js'));
+  ({ setOidcPresentation } = await import('./adminSettings.js'));
   const { userStore } = await import('../userStore.js');
   const { appStore } = await import('../appStore.js');
   const { registerOidcAuth } = await import('./routes.js');
@@ -117,35 +134,117 @@ test('the client secret never reaches the page — only whether one is set', asy
   const res = await fetch(`${base}/admin/oidc`, { headers: authed(adminBearer) });
   const text = await res.text();
   assert.equal(text.includes(CLIENT_SECRET), false, 'the secret must not appear in the response at all');
+  assert.equal(text.includes('clientSecret'), false, 'not even as a key');
   const data = JSON.parse(text) as Settings;
   assert.equal(data.configured, true);
-  assert.equal(data.environment?.hasClientSecret, true);
-  assert.equal('clientSecret' in (data.environment ?? {}), false, 'not even as a key');
-  assert.equal(data.environment?.issuer, 'https://idp.invalid');
+  assert.equal(data.secret.configured, true, 'the deployment holds one');
+  assert.equal(data.secret.active, true, 'and nothing is overridden yet, so it is in use');
+  assert.equal(data.connection.issuer.value, 'https://idp.invalid');
+  assert.equal(data.connection.issuer.source, 'env');
   assert.equal(data.environment?.adminRole, 'pixel-admin');
 });
 
-test('a PUT carrying the security-relevant fields changes none of them', async () => {
+test('a PUT cannot write the fields that decide who becomes an admin', async () => {
   const before = await getSettings();
   const res = await putSettings({
-    // Everything an attacker with an admin session would want to move:
-    issuer: 'https://evil.example',
-    clientId: 'attacker-client',
     clientSecret: 'attacker-secret',
-    redirectUri: 'https://evil.example/callback',
     scopes: 'openid profile email offline_access',
     adminRole: 'everyone',
     rolesClaim: 'groups',
-    claimExisting: true,
+    claimExisting: false,
     endSession: true,
     configured: false,
-    // …plus one field that IS writable, so the request is not rejected wholesale.
+    // …plus one field that IS writable, so the request is not rejected wholesale and the test
+    // cannot pass just because nothing was applied at all.
     label: 'Still Fine',
   });
   assert.equal(res.status, 200);
   const after = await getSettings();
-  assert.deepEqual(after.environment, before.environment, 'the environment half must be untouched');
+  assert.deepEqual(after.environment, before.environment, 'the deployment half must be untouched');
+  assert.deepEqual(after.secret, before.secret, 'and the secret cannot be set from a request');
   assert.equal(after.presentation.label, 'Still Fine', 'the writable field still applies');
+  await putSettings({ label: null });
+});
+
+test('the connection is editable, says where each value comes from, and clears back to the deployment', async () => {
+  const res = await putSettings({
+    issuer: 'https://panel.example/realms/pixel/',
+    clientId: 'panel-client',
+    redirectUri: 'https://panel.example/auth/oauth/callback',
+  });
+  assert.equal(res.status, 200);
+  const set = await getSettings();
+  assert.equal(set.connection.issuer.value, 'https://panel.example/realms/pixel', 'a trailing slash is dropped');
+  assert.equal(set.connection.issuer.source, 'admin');
+  assert.equal(set.connection.issuer.env, 'https://idp.invalid', 'what clearing it would fall back to');
+  assert.equal(set.connection.clientId.value, 'panel-client');
+  assert.equal(set.connection.redirectUri.value, 'https://panel.example/auth/oauth/callback');
+  assert.equal(set.configured, true);
+
+  // Empty string = clear the override.
+  await putSettings({ issuer: '', clientId: '', redirectUri: '' });
+  const cleared = await getSettings();
+  assert.equal(cleared.connection.issuer.value, 'https://idp.invalid');
+  assert.equal(cleared.connection.issuer.source, 'env');
+  assert.equal(cleared.connection.clientId.value, 'client-42');
+});
+
+test('overriding the connection withholds the deployment\'s client secret', async () => {
+  const { oidcConfig } = await import('./config.js');
+  assert.equal(oidcConfig()?.clientSecret, CLIENT_SECRET, 'in use while nothing is overridden');
+
+  // Only the client id — the other half of the identity the secret belongs to.
+  await putSettings({ clientId: 'somebody-elses-client' });
+  assert.equal(oidcConfig()?.clientSecret, null, 'a secret must never reach a client it was not issued for');
+  assert.equal((await getSettings()).secret.active, false, 'and the panel says so');
+
+  // The issuer alone does it too — that is the case that would otherwise exfiltrate the secret.
+  await putSettings({ clientId: '', issuer: 'https://somebody-elses-idp.example' });
+  assert.equal(oidcConfig()?.clientSecret, null);
+
+  await putSettings({ issuer: '' });
+  assert.equal(oidcConfig()?.clientSecret, CLIENT_SECRET, 'back in use once the connection is the deployment\'s again');
+  assert.equal((await getSettings()).secret.active, true);
+});
+
+test('a connection value that cannot be trusted is refused, with the field and the reason', async () => {
+  const before = await getSettings();
+  const cases: Array<[Record<string, unknown>, string, RegExp]> = [
+    [{ issuer: 'http://idp.example' }, 'issuer', /https/],
+    [{ issuer: 'not-a-url' }, 'issuer', /absolute URL/],
+    [{ issuer: 'https://idp.example/?next=x' }, 'issuer', /query string/],
+    [{ issuer: `https://idp.example/${'x'.repeat(600)}` }, 'issuer', /at most/],
+    [{ clientId: 'has spaces' }, 'clientId', /printable ASCII/],
+    [{ redirectUri: 'https://host.example/somewhere-else' }, 'redirectUri', /\/auth\/oauth\/callback/],
+    [{ redirectUri: 'http://host.example/auth/oauth/callback' }, 'redirectUri', /https/],
+    [{ redirectUri: 'https://host.example/auth/oauth/callback?x=1' }, 'redirectUri', /query string/],
+  ];
+  for (const [patch, field, reason] of cases) {
+    const res = await putSettings(patch);
+    assert.equal(res.status, 400, `${JSON.stringify(patch)} should be refused`);
+    const body = (await res.json()) as { error: string; field: string };
+    assert.equal(body.field, field);
+    assert.match(body.error, reason);
+  }
+  assert.deepEqual(await getSettings(), before, 'a refused patch stores nothing');
+});
+
+test('a patch is refused whole, so half a connection is never what a mistake leaves behind', async () => {
+  const res = await putSettings({
+    issuer: 'https://good.example',
+    clientId: 'good-client',
+    redirectUri: 'https://good.example/wrong-path',
+  });
+  assert.equal(res.status, 400);
+  const after = await getSettings();
+  assert.equal(after.connection.issuer.source, 'env', 'the valid half of the patch was not applied either');
+  assert.equal(after.connection.clientId.value, 'client-42');
+});
+
+test('plain http and a loopback host: allowed for localhost, refused anywhere else', async () => {
+  const ok = await putSettings({ issuer: 'http://localhost:8080', redirectUri: 'http://127.0.0.1:2567/auth/oauth/callback' });
+  assert.equal(ok.status, 200, 'a development provider on this machine is a legitimate setup');
+  await putSettings({ issuer: '', redirectUri: '' });
 });
 
 test('the label is trimmed, stripped of control characters and capped', async () => {
@@ -213,12 +312,18 @@ test('auto-redirect sends a navigation to the provider but leaves /login as the 
 });
 
 test('a stored blob with junk in it reads back as the defaults, not as a crash', async () => {
-  // The row is written by this server, but it is a JSON blob in a table a restore or a hand-edit
-  // can reach — so the reader has to be total.
+  // These rows are written by this server, but they are JSON blobs in a table a restore or a
+  // hand-edit can reach — so both readers have to be total, and the connection one has to
+  // RE-VALIDATE rather than trust what it finds: a bad value there would end up in a URL that
+  // credentials travel to.
   const { appStore } = await import('../appStore.js');
   appStore.setSetting('oidcPresentation', { label: 42, showButton: 'yes', autoRedirect: null, issuer: 'https://evil' });
-  const { presentation, environment } = await getSettings();
+  appStore.setSetting('oidcConnection', { issuer: 'http://evil.example', clientId: { nested: 1 }, redirectUri: 'javascript:alert(1)' });
+  const { presentation, connection } = await getSettings();
   assert.deepEqual(presentation, { label: null, showButton: true, autoRedirect: false });
-  assert.equal(environment?.issuer, 'https://idp.invalid', 'a junk row cannot smuggle in configuration');
+  assert.equal(connection.issuer.value, 'https://idp.invalid', 'a plain-http issuer in the row is ignored, not used');
+  assert.equal(connection.clientId.value, 'client-42');
+  assert.equal(connection.redirectUri.value, 'https://pixel.invalid/auth/oauth/callback');
   setOidcPresentation({});
+  appStore.setSetting('oidcConnection', { issuer: '', clientId: '', redirectUri: '' });
 });

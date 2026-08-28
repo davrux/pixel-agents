@@ -62,14 +62,18 @@ export interface AdminOidcPresentation {
   autoRedirect: boolean;
 }
 
-/** What the provider is pointed at. Read-only here: every field decides who gets in, so it is
- *  set in the environment and shown only so an admin can check it. The client secret is never
- *  sent — only whether one is set. */
+/** One connection field: what is in force, what an admin has overridden, and what the deployment
+ *  would say if that override were cleared. */
+export interface AdminOidcField {
+  value: string;
+  override: string;
+  env: string;
+  source: 'admin' | 'env' | 'unset';
+}
+
+/** The rest of the provider setup: environment-only, because each field decides who becomes an
+ *  admin or whose local account a directory username may adopt. Shown to check against. */
 export interface AdminOidcEnvironment {
-  issuer: string;
-  clientId: string;
-  hasClientSecret: boolean;
-  redirectUri: string;
   scopes: string;
   envLabel: string;
   adminRole: string | null;
@@ -82,7 +86,24 @@ export interface AdminOidcSettings {
   configured: boolean;
   presentation: AdminOidcPresentation;
   maxLabelLength: number;
+  /** The path a redirect URI must end with — the route this server serves the callback on. */
+  callbackPath: string;
+  connection: { issuer: AdminOidcField; clientId: AdminOidcField; redirectUri: AdminOidcField };
+  /** Whether the deployment holds a client secret, and whether it is actually in use: overriding
+   *  the issuer or the client id withholds it, and the flow becomes a public (PKCE) client. */
+  secret: { configured: boolean; active: boolean };
   environment: AdminOidcEnvironment | null;
+}
+
+/** What a PUT may carry: the presentation fields plus the three connection fields. An empty string
+ *  clears an override and falls back to the deployment's value. */
+export interface AdminOidcPatch {
+  label?: string | null;
+  showButton?: boolean;
+  autoRedirect?: boolean;
+  issuer?: string;
+  clientId?: string;
+  redirectUri?: string;
 }
 
 export interface ApiResult<T> {
@@ -155,8 +176,14 @@ export const adminApi = {
     req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`),
 
   getOidcSettings: () => req<AdminOidcSettings>('GET', '/admin/oidc'),
-  setOidcSettings: (patch: Partial<AdminOidcPresentation>) =>
-    req<{ presentation: AdminOidcPresentation }>('PUT', '/admin/oidc', patch),
+  // A rejected connection value comes back as 400 with `error` (the reason, meant to be shown) and
+  // `field` (which input to point at), so the caller does not have to guess which one was wrong.
+  setOidcSettings: (patch: AdminOidcPatch) =>
+    req<{ presentation: AdminOidcPresentation; configured: boolean; secretActive: boolean; field?: string }>(
+      'PUT',
+      '/admin/oidc',
+      patch,
+    ),
 
   listMeetingRooms: () => req<{ rooms: AdminMeetingRoom[] }>('GET', '/admin/meeting-rooms'),
   deleteMeetingRoom: (slug: string) =>

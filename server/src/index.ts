@@ -281,7 +281,9 @@ async function main(): Promise<void> {
     if (ADMIN_TOKEN) registerZonePushApi(app, ADMIN_TOKEN, ASSETS_ROOT);
     // Before registerAuth, on purpose: the OIDC routes are how a caller with no session gets one,
     // so they must sit ahead of the gate registerAuth installs (same as /meet/:slug above). Each
-    // one authorizes itself — see oidc/routes.ts.
+    // one authorizes itself — see oidc/routes.ts. Registered even with no provider configured yet,
+    // because an admin can supply the issuer, client id and redirect URI from the panel and that
+    // must work without a restart; unconfigured, they answer 404.
     registerOidcAuth(app);
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)

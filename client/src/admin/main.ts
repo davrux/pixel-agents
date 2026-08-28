@@ -135,6 +135,16 @@ const STYLE = `
   .chk-list input{margin:0;}
   .save-ok{color:#7fbf6a;font-size:.85rem;opacity:0;transition:opacity .15s ease;}
   .save-ok.show{opacity:1;}
+  /* Sign-in tab: the editable connection fields, and a read-only list for the rest. */
+  .conn-field{padding:.65rem 0;border-bottom:1px solid var(--line);}
+  .conn-field:last-of-type{border-bottom:none;}
+  .conn-field label{display:block;font-size:.78rem;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);
+    margin-bottom:.3rem;}
+  .conn-field .row input{flex:1;min-width:12rem;}
+  .conn-field .src{font-size:.8rem;color:var(--muted);margin-top:.25rem;}
+  .conn-field .src b{color:var(--text);font-weight:600;}
+  .warn{border:1px solid #a86a2e;border-radius:.5rem;padding:.6rem .7rem;margin:.7rem 0 0;font-size:.87rem;
+    color:#e6c48f;background:rgba(168,106,46,.12);}
   /* Sign-in tab: a read-only key/value list for the environment-set half. */
   .kv{display:grid;grid-template-columns:minmax(8rem,14rem) 1fr;gap:.35rem .8rem;font-size:.88rem;margin:.6rem 0 0;}
   .kv dt{color:var(--muted);}
@@ -913,12 +923,14 @@ async function renderArcade(): Promise<void> {
 
 // ── Sign-in / single sign-on ───────────────────────────────────────────────
 //
-// Two cards, and the split between them is the point (server: oidc/presentation.ts). The first
-// holds what an admin may change — how the provider is PRESENTED. The second shows what it is
-// pointed at, read-only, because every field there decides who gets in: it is set in the
-// environment so that a stolen admin session cannot repoint this world at another identity
-// provider or rename the claim that grants admin. The client secret is never fetched at all;
-// the API reports only whether one is set.
+// Three cards, and the order is the order somebody sets this up in: which directory to talk to,
+// how the button looks, and what the deployment decided that this panel does not touch.
+//
+// The connection fields (issuer, client id, redirect URI) are editable here by explicit request.
+// The client secret is not, and the panel says out loud when overriding the connection has taken
+// it out of use — that is the rule that keeps an editable issuer from being a way to send the
+// deployment's secret to a directory the deployment never named (server: oidc/adminSettings.ts).
+// Everything that decides who becomes an admin stays environment-only and is shown read-only.
 async function renderSignIn(): Promise<void> {
   const res = await adminApi.getOidcSettings();
   if (res.status === 401) return redirectToLogin();
@@ -934,28 +946,145 @@ async function renderSignIn(): Promise<void> {
   }
   const data: AdminOidcSettings = res.data;
 
-  if (!data.configured) {
-    const card = el('div', 'pa-adm-card');
-    card.innerHTML =
-      '<h2>Single sign-on</h2><div class="muted">No identity provider is configured on this server, ' +
-      'so everybody signs in with a login id and password. To add one (Zitadel or any OpenID Connect ' +
-      'provider), set <code>PIXEL_OIDC_ISSUER</code>, <code>PIXEL_OIDC_CLIENT_ID</code> and ' +
-      '<code>PIXEL_OIDC_REDIRECT_URI</code> in the server environment and restart — see ' +
-      '<code>.env.example</code>. Those live outside this panel on purpose: they decide who can get ' +
-      'in, so changing them takes a deployment, not a browser session.</div>';
-    view.appendChild(card);
-    return;
-  }
+  view.appendChild(connectionCard(data));
+  view.appendChild(presentationCard(data));
+  view.appendChild(environmentCard(data));
+}
 
-  const env = data.environment!;
-  const p = data.presentation;
-
-  // ── Card 1: what an admin may change.
+/** Card 1: which directory this world trusts. Editable. */
+function connectionCard(data: AdminOidcSettings): HTMLElement {
   const card = el('div', 'pa-adm-card');
   card.innerHTML =
-    '<h2>Single sign-on</h2><div class="muted">How the identity provider is offered on the sign-in ' +
-    'screens, in the browser and in the desktop app. Takes effect on the next page load — nothing ' +
-    'to restart.</div>';
+    '<h2>Provider connection</h2><div class="muted">Which OpenID Connect provider (Zitadel, Keycloak, …) ' +
+    'this world signs people in with. Saved here, these override the server environment and take effect ' +
+    'on the next sign-in — nothing to restart. Leave a field empty to use the deployment\'s own value.</div>';
+
+  if (!data.configured) {
+    const warn = el(
+      'div',
+      'warn',
+      'Single sign-on is off: all three fields below need a value, from here or from the environment. ' +
+        'Until then the sign-in screens offer login id + password only.',
+    );
+    card.appendChild(warn);
+  }
+  if (data.secret.configured && !data.secret.active) {
+    card.appendChild(
+      el(
+        'div',
+        'warn',
+        "The deployment's client secret is NOT in use, because the issuer or the client id is overridden here. " +
+          'The sign-in then authenticates as a public client with PKCE — which most providers support, but the ' +
+          'application must be configured for it. Clear both overrides to use the secret again.',
+      ),
+    );
+  }
+
+  const fields = connectionFields(data, card);
+
+  const actions = el('div', 'row');
+  const save = el('button', 'act primary', 'Save connection');
+  save.onclick = async () => {
+    save.disabled = true;
+    const r = await adminApi.setOidcSettings({
+      issuer: fields.issuer.value.trim(),
+      clientId: fields.clientId.value.trim(),
+      redirectUri: fields.redirectUri.value.trim(),
+    });
+    save.disabled = false;
+    if (!r.ok) {
+      // The server names the field it refused and why — point at it instead of a generic failure.
+      const field = r.data?.field;
+      if (field && field in fields) fields[field as keyof typeof fields].focus();
+      toast(r.error ?? 'Could not save the provider connection.', true);
+      return;
+    }
+    flashSaved(actions);
+    toast(r.data?.configured ? 'Provider connection saved.' : 'Saved — single sign-on is still incomplete.');
+    void renderSignIn(); // re-read: the sources, the secret line and the warnings all change
+  };
+  actions.appendChild(save);
+  card.appendChild(actions);
+  return card;
+}
+
+/** The three inputs, each saying where its current value comes from. */
+function connectionFields(
+  data: AdminOidcSettings,
+  card: HTMLElement,
+): { issuer: HTMLInputElement; clientId: HTMLInputElement; redirectUri: HTMLInputElement } {
+  const specs = [
+    {
+      key: 'issuer' as const,
+      label: 'Issuer URL',
+      placeholder: 'https://your-instance.zitadel.cloud',
+      hint: 'The provider\'s base URL. Its /.well-known/openid-configuration is what this server reads. https, unless it is localhost.',
+    },
+    {
+      key: 'clientId' as const,
+      label: 'Client id',
+      placeholder: '123456789@your_project',
+      hint: 'The application id from the provider.',
+    },
+    {
+      key: 'redirectUri' as const,
+      label: 'Redirect URI',
+      placeholder: `https://this-server.example.com${data.callbackPath}`,
+      hint: `Must end in ${data.callbackPath} and be registered with the provider exactly as written here.`,
+    },
+  ];
+  const inputs = {} as { issuer: HTMLInputElement; clientId: HTMLInputElement; redirectUri: HTMLInputElement };
+  for (const spec of specs) {
+    const field = data.connection[spec.key];
+    const wrap = el('div', 'conn-field');
+    const label = el('label');
+    label.htmlFor = `pa-adm-oidc-${spec.key}`;
+    label.textContent = spec.label;
+
+    const row = el('div', 'row');
+    const input = document.createElement('input');
+    input.id = `pa-adm-oidc-${spec.key}`;
+    input.type = 'text';
+    input.spellcheck = false;
+    input.value = field.override;
+    input.placeholder = field.env || spec.placeholder;
+    inputs[spec.key] = input;
+    row.appendChild(input);
+    // Only offered when there is something to fall back TO, so the button never means "clear it".
+    if (field.override && field.env) {
+      const reset = el('button', 'act', "Use deployment's");
+      reset.title = field.env;
+      reset.onclick = () => {
+        input.value = '';
+        input.dispatchEvent(new Event('input'));
+      };
+      row.appendChild(reset);
+    }
+
+    const src = el('div', 'src');
+    const say = (): void => {
+      const typed = input.value.trim();
+      if (typed) src.innerHTML = `In use: <b>${escapeHtml(typed)}</b>${field.env ? ' (overrides the deployment)' : ''}`;
+      else if (field.env) src.innerHTML = `From the deployment: <b>${escapeHtml(field.env)}</b>`;
+      else src.textContent = 'Not set anywhere yet.';
+    };
+    say();
+    input.addEventListener('input', say);
+
+    wrap.append(label, row, spec.hint ? el('div', 'src', spec.hint) : el('div'), src);
+    card.appendChild(wrap);
+  }
+  return inputs;
+}
+
+/** Card 2: how the provider is offered. Presentation only — none of it can grant access. */
+function presentationCard(data: AdminOidcSettings): HTMLElement {
+  const p = data.presentation;
+  const envLabel = data.environment?.envLabel ?? 'Zitadel';
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML =
+    '<h2>Sign-in button</h2><div class="muted">How the provider is offered on the sign-in screens, in the ' +
+    'browser and in the desktop app. Takes effect on the next page load.</div>';
 
   const showRow = settingRow(
     'Offer the sign-in button',
@@ -969,6 +1098,7 @@ async function renderSignIn(): Promise<void> {
       'The password form stays reachable at /login — keep it in mind if the provider is ever down.',
     p.autoRedirect,
   );
+
   const labelWrap = el('div', 'setting');
   const labelBody = el('div', 'body');
   const labelLabel = el('label');
@@ -979,13 +1109,12 @@ async function renderSignIn(): Promise<void> {
   labelInput.type = 'text';
   labelInput.maxLength = data.maxLabelLength;
   labelInput.value = p.label ?? '';
-  labelInput.placeholder = env.envLabel;
-  const labelHint = el(
-    'span',
-    'muted',
-    `What the button says: "Sign in with <label>". Leave empty to use the server's own setting ("${env.envLabel}").`,
+  labelInput.placeholder = envLabel;
+  labelBody.append(
+    labelLabel,
+    labelInput,
+    el('span', 'muted', `What the button says: "Sign in with <label>". Leave empty to use the server's own setting ("${envLabel}").`),
   );
-  labelBody.append(labelLabel, labelInput, labelHint);
   labelWrap.appendChild(labelBody);
 
   card.append(showRow.wrap, labelWrap, redirectRow.wrap);
@@ -1008,40 +1137,64 @@ async function renderSignIn(): Promise<void> {
   };
   actions.appendChild(save);
   card.appendChild(actions);
-  view.appendChild(card);
+  return card;
+}
 
-  // ── Card 2: what it is pointed at. Read-only, and it says why.
-  const envCard = el('div', 'pa-adm-card');
-  envCard.innerHTML =
-    '<h2>Provider configuration</h2><div class="muted">Set in the server environment and shown here ' +
-    'to check against. Not editable from this panel: every value below decides who can sign in and ' +
-    'who becomes an admin, so changing one takes a deployment. The client secret is never sent to ' +
-    'this page.</div>';
+/** Card 3: what the deployment decided and this panel deliberately does not touch. */
+function environmentCard(data: AdminOidcSettings): HTMLElement {
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML =
+    '<h2>Deployment settings</h2><div class="muted">Set in the server environment and shown here to check ' +
+    'against. Not editable from this panel: each one decides who becomes an admin, or whose existing account ' +
+    'a directory username may take over. The client secret is never sent to this page at all.</div>';
+  const env = data.environment;
   const dl = el('dl', 'kv');
   const rows: Array<[string, string]> = [
-    ['Issuer', env.issuer],
-    ['Client id', env.clientId],
-    ['Client secret', env.hasClientSecret ? 'set (confidential client)' : 'not set (public client, PKCE only)'],
-    ['Redirect URI', env.redirectUri],
-    ['Scopes', env.scopes],
-    ['Admin role', env.adminRole ? `${env.adminRole} — grants and revokes admin on each sign-in` : 'not mapped — the admin flag stays local'],
-    ['Roles claim', env.rolesClaim],
     [
-      'Adopt matching accounts',
-      env.claimExisting
-        ? 'yes — a first sign-in takes over the local account with the same login id'
-        : 'no — a colliding login id gets a new account with a suffix',
+      'Client secret',
+      data.secret.configured
+        ? data.secret.active
+          ? 'set and in use (confidential client)'
+          : 'set, but NOT in use — the connection above is overridden, so the flow is a public/PKCE client'
+        : 'not set (public client, PKCE only)',
     ],
-    ['Sign out at provider', env.endSession ? 'yes — /logout also ends the provider session' : 'no — only the local session is dropped'],
   ];
+  if (env) {
+    rows.push(
+      ['Scopes', env.scopes],
+      [
+        'Admin role',
+        env.adminRole ? `${env.adminRole} — grants and revokes admin on each sign-in` : 'not mapped — the admin flag stays local',
+      ],
+      ['Roles claim', env.rolesClaim],
+      [
+        'Adopt matching accounts',
+        env.claimExisting
+          ? 'yes — a first sign-in takes over the local account with the same login id'
+          : 'no — a colliding login id gets a new account with a suffix',
+      ],
+      ['Sign out at provider', env.endSession ? 'yes — /logout also ends the provider session' : 'no — only the local session is dropped'],
+    );
+  }
   for (const [key, value] of rows) {
     dl.appendChild(el('dt', undefined, key));
     const dd = el('dd');
     dd.appendChild(el('code', undefined, value));
     dl.appendChild(dd);
   }
-  envCard.appendChild(dl);
-  view.appendChild(envCard);
+  card.appendChild(dl);
+  if (!env) {
+    card.appendChild(
+      el(
+        'div',
+        'muted',
+        'The environment names no provider at all, so these fall back to their defaults: scopes ' +
+          '"openid profile email", no admin-role mapping, and matching local accounts adopted on a first sign-in. ' +
+          'Set PIXEL_OIDC_* to change them — see .env.example.',
+      ),
+    );
+  }
+  return card;
 }
 
 /** One checkbox setting: the box, its label and a line saying what it does. */
@@ -1059,6 +1212,12 @@ function settingRow(title: string, hint: string, checked: boolean): { wrap: HTML
   body.append(label, el('span', 'muted', hint));
   wrap.append(input, body);
   return { wrap, input };
+}
+
+/** Escape the values this tab interpolates into innerHTML — a URL an admin typed, and the
+ *  deployment's own. Everything else on the page goes in as a text node. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
 }
 
 // ── Arcade cabinets (per zone) ─────────────────────────────────────────────

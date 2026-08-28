@@ -79,13 +79,18 @@ additive on purpose: keep an admin token, because a provider that is down or
 misconfigured must not be able to lock every admin out of the world. See
 [.env.example](.env.example) for every knob and what Zitadel needs configured.
 
-The admin overlay's **Sign-in** tab changes how that button is presented without
-a restart — its label, whether it is shown at all, and whether an unauthenticated
-visit goes straight to the provider (the password form stays at `/login`
-regardless). Everything that decides *who gets in* — issuer, client id and
-secret, redirect URI, scopes, the claim that grants admin — is environment-only
-and shown there read-only, so a stolen admin session cannot repoint the world at
-another identity provider.
+The admin overlay's **Sign-in** tab configures all of that without a restart: the
+provider connection (issuer, client id, redirect URI — so a server whose
+environment names no provider can be switched on entirely from the panel), plus
+how the button is presented — its label, whether it is shown, and whether an
+unauthenticated visit goes straight to the provider (the password form stays at
+`/login` regardless). Three things stay out of it, and the tab shows them
+read-only: the client secret, which never reaches the page and is **withheld from
+the flow entirely** if the issuer or client id is overridden there (an overridden
+connection is a public/PKCE client, so the deployment's secret can never be sent
+to a directory the deployment did not name), and the settings that decide who
+becomes an admin — the roles claim, the admin role, the scopes,
+`PIXEL_OIDC_CLAIM_EXISTING`, `PIXEL_OIDC_END_SESSION`.
 
 All state lives in a single `pixel.db` under
 `PIXEL_STREAM_DATA_DIR` — by default `tmp/data` inside the repo, so a

@@ -19,9 +19,19 @@
  * sent, so its endpoints must live on the issuer's own origin ({@link sameOrigin}); a document
  * that points the token endpoint somewhere else is refused, not followed. Every fetch is
  * bounded in time and size, because an unbounded read on the login path is a DoS.
+ *
+ * **Where each value comes from.** The environment is the baseline; three fields — issuer, client
+ * id, redirect URI — may be overridden by an admin from the panel (`adminSettings.ts`), because
+ * that was asked for. {@link oidcConfig} merges the two on every call, and it is the ONLY place
+ * that decides what wins. One rule comes with it and is enforced here rather than described
+ * anywhere: **an overridden issuer or client id drops the client secret**, so the secret the
+ * environment holds can never be sent to a directory the environment did not name. An overridden
+ * connection is therefore a public client and authenticates with PKCE alone.
  */
 
-/** Everything this server needs to run a login, resolved from the environment. */
+import { getOidcConnectionOverride } from './adminSettings.js';
+
+/** Everything this server needs to run a login, resolved from the environment and the panel. */
 export interface OidcConfig {
   /** Issuer URL, e.g. `https://auth.example.com` (Zitadel instance or custom domain). */
   issuer: string;
@@ -50,27 +60,61 @@ const flag = (name: string, def: boolean): boolean => {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 };
 
-let resolved: OidcConfig | null | undefined;
+let resolvedEnv: OidcConfig | null | undefined;
 
 /**
- * The configuration, or null when OIDC login is off. Memoized: every route asks, and the answer
- * cannot change without a restart.
+ * What the ENVIRONMENT alone says. Memoized — it cannot change without a restart — and exported
+ * so the admin panel can show which values are the deployment's and which an admin has overridden.
  *
- * A half-configured provider (an issuer with no client id, or no redirect URI) is treated as OFF
- * with a loud error rather than as a fatal boot failure — password login still works, and an
- * operator mid-rollout gets a world they can still reach and a line telling them what is
- * missing.
+ * A half-configured provider (an issuer with no client id, or no redirect URI) is treated as
+ * absent with a loud error rather than as a fatal boot failure. That is deliberate now in a second
+ * way: with the connection editable, "the environment names nothing" is a legitimate state, and an
+ * admin can complete it from the panel.
  */
-export function oidcConfig(): OidcConfig | null {
-  if (resolved !== undefined) return resolved;
-  resolved = readConfig();
-  return resolved;
+export function envOidcConfig(): OidcConfig | null {
+  if (resolvedEnv !== undefined) return resolvedEnv;
+  resolvedEnv = readConfig();
+  return resolvedEnv;
 }
 
-/** Test seam: forget the memoized answer (and the discovery cache) after changing the env. */
+/**
+ * The configuration actually in force: the environment with an admin's overrides applied, or null
+ * when the three fields a login needs are not all present from one source or the other.
+ *
+ * Not memoized, on purpose — an admin changing the issuer has to take effect on the next request,
+ * and the cost is two primary-key lookups in `settings` (0.004 ms each). The secret rule lives
+ * here: overriding the issuer or the client id makes this a public client.
+ */
+export function oidcConfig(): OidcConfig | null {
+  const env = envOidcConfig();
+  const override = getOidcConnectionOverride();
+  const issuer = override.issuer || env?.issuer || '';
+  const clientId = override.clientId || env?.clientId || '';
+  const redirectUri = override.redirectUri || env?.redirectUri || '';
+  if (!issuer || !clientId || !redirectUri) return null;
+
+  // The secret belongs to the client the ENVIRONMENT named. Point either half of that identity
+  // somewhere else and it is withheld — see the note in the file header.
+  const connectionIsEnvs = override.issuer === '' && override.clientId === '';
+  return {
+    issuer,
+    clientId,
+    clientSecret: connectionIsEnvs ? (env?.clientSecret ?? null) : null,
+    redirectUri,
+    scopes: env?.scopes ?? 'openid profile email',
+    label: env?.label ?? 'Zitadel',
+    adminRole: env?.adminRole ?? null,
+    rolesClaim: env?.rolesClaim ?? 'urn:zitadel:iam:org:project:roles',
+    claimExisting: env?.claimExisting ?? true,
+    endSession: env?.endSession ?? false,
+  };
+}
+
+/** Test seam: forget the memoized environment (and the discovery cache) after changing it. */
 export function resetOidcConfig(): void {
-  resolved = undefined;
+  resolvedEnv = undefined;
   discovered = undefined;
+  discoveredFor = '';
   discoveredAt = 0;
 }
 
@@ -85,7 +129,9 @@ function readConfig(): OidcConfig | null {
   if (!clientId) missing.push('PIXEL_OIDC_CLIENT_ID');
   if (!redirectUri) missing.push('PIXEL_OIDC_REDIRECT_URI');
   if (missing.length > 0) {
-    console.error(`[oidc] login disabled — missing ${missing.join(', ')}`);
+    // Not necessarily an error any more: an admin may fill these in from the panel. Said once, at
+    // boot, so a deployment that MEANT to configure the environment still hears about it.
+    console.warn(`[oidc] the environment names no complete provider (missing ${missing.join(', ')}) — the admin panel can supply the issuer, client id and redirect URI`);
     return null;
   }
   if (!/^https?:\/\//.test(issuer)) {
@@ -129,6 +175,9 @@ export interface OidcEndpoints {
  *  endpoint is picked up without a restart, and on every failure (nothing is cached). */
 const DISCOVERY_TTL_MS = 60 * 60 * 1000;
 let discovered: OidcEndpoints | undefined;
+/** Which issuer the cached endpoints belong to. Keyed rather than time-only, because the issuer is
+ *  editable now: a change has to take effect on the next login, not in up to an hour. */
+let discoveredFor = '';
 let discoveredAt = 0;
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -167,7 +216,7 @@ function sameOrigin(a: string, b: string): boolean {
  * redirection of that would hand credentials to whoever could influence the document.
  */
 export async function discover(cfg: OidcConfig): Promise<OidcEndpoints> {
-  if (discovered && Date.now() - discoveredAt < DISCOVERY_TTL_MS) return discovered;
+  if (discovered && discoveredFor === cfg.issuer && Date.now() - discoveredAt < DISCOVERY_TTL_MS) return discovered;
   const url = `${cfg.issuer}/.well-known/openid-configuration`;
   const doc = (await fetchJsonBounded(url)) as Record<string, unknown>;
   const str = (k: string): string => (typeof doc[k] === 'string' ? (doc[k] as string) : '');
@@ -189,6 +238,7 @@ export async function discover(cfg: OidcConfig): Promise<OidcEndpoints> {
     }
   }
   discovered = endpoints;
+  discoveredFor = cfg.issuer;
   discoveredAt = Date.now();
   return endpoints;
 }

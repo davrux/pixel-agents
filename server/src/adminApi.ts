@@ -22,8 +22,15 @@ import { effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/fu
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 import { getArcadeCatalog } from './arcadeCatalog.js';
 import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
-import { oidcConfig } from './oidc/config.js';
-import { getOidcPresentation, setOidcPresentation, MAX_LABEL_LEN } from './oidc/presentation.js';
+import { oidcConfig, envOidcConfig } from './oidc/config.js';
+import {
+  CALLBACK_PATH,
+  MAX_LABEL_LEN,
+  getOidcConnectionOverride,
+  getOidcPresentation,
+  setOidcConnectionOverride,
+  setOidcPresentation,
+} from './oidc/adminSettings.js';
 
 // Fresh stores over the shared DB (reads/writes hit the same tables the rooms use).
 // The layout store only needs DB-backed saved layouts here (where admins place
@@ -417,38 +424,88 @@ export function registerAdminApi(app: Express): void {
   app.get('/admin/oidc', (req, res) => {
     if (!admin(req, res)) return;
     const cfg = oidcConfig();
+    const env = envOidcConfig();
+    const override = getOidcConnectionOverride();
+    const source = (o: string, e: string | undefined): 'admin' | 'env' | 'unset' => (o ? 'admin' : e ? 'env' : 'unset');
     res.json({
       configured: cfg !== null,
       presentation: getOidcPresentation(),
       maxLabelLength: MAX_LABEL_LEN,
-      // Read-only, from the environment. Named so the UI can label them as such.
-      environment: cfg
+      callbackPath: CALLBACK_PATH,
+      // The editable connection: what is in force, where it came from, and what the environment
+      // would say if the override were cleared (so "Reset to the deployment's value" can tell the
+      // admin what they are resetting to).
+      connection: {
+        issuer: { value: cfg?.issuer ?? '', override: override.issuer, env: env?.issuer ?? '', source: source(override.issuer, env?.issuer) },
+        clientId: { value: cfg?.clientId ?? '', override: override.clientId, env: env?.clientId ?? '', source: source(override.clientId, env?.clientId) },
+        redirectUri: {
+          value: cfg?.redirectUri ?? '',
+          override: override.redirectUri,
+          env: env?.redirectUri ?? '',
+          source: source(override.redirectUri, env?.redirectUri),
+        },
+      },
+      // The secret is reported as two booleans and never as a value: whether the environment holds
+      // one, and whether it is actually IN USE — an overridden issuer or client id withholds it
+      // (see oidc/adminSettings.ts), which turns the flow into a public/PKCE client and is the
+      // single most surprising consequence of editing the connection here.
+      secret: {
+        configured: env?.clientSecret !== null && env?.clientSecret !== undefined,
+        active: cfg?.clientSecret !== null && cfg?.clientSecret !== undefined,
+      },
+      // Still environment-only: each of these decides who becomes an admin, or whose local account
+      // a directory username may adopt. Shown so an admin can check what the world is doing.
+      environment: env
         ? {
-            issuer: cfg.issuer,
-            clientId: cfg.clientId,
-            hasClientSecret: cfg.clientSecret !== null,
-            redirectUri: cfg.redirectUri,
-            scopes: cfg.scopes,
-            envLabel: cfg.label,
-            adminRole: cfg.adminRole,
-            rolesClaim: cfg.rolesClaim,
-            claimExisting: cfg.claimExisting,
-            endSession: cfg.endSession,
+            scopes: env.scopes,
+            envLabel: env.label,
+            adminRole: env.adminRole,
+            rolesClaim: env.rolesClaim,
+            claimExisting: env.claimExisting,
+            endSession: env.endSession,
           }
         : null,
     });
   });
 
-  // Only the three presentation fields are read, by name (see setOidcPresentation): a key this
-  // does not know has nowhere to go, which is what keeps the endpoint from growing into a way to
-  // write the security-relevant half.
+  // Two patches in one route, and the split is what makes it reviewable: the presentation fields
+  // and the three connection fields are each read BY NAME (see oidc/adminSettings.ts), so a key
+  // this endpoint does not know — `adminRole`, `claimExisting`, `clientSecret`, `scopes` — has
+  // nowhere to go rather than being checked against a deny-list somebody has to maintain.
+  //
+  // A connection value that does not validate refuses the WHOLE request with the reason, so a
+  // mistake can never leave half a connection behind (a new issuer with the old client id).
   app.put('/admin/oidc', json, (req, res) => {
-    if (!admin(req, res)) return;
+    const caller = admin(req, res);
+    if (!caller) return;
     const body = req.body;
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       return void res.status(400).json({ error: 'bad body' });
     }
-    const presentation = setOidcPresentation(body as Record<string, unknown>);
-    res.json({ ok: true, presentation });
+    const patch = body as Record<string, unknown>;
+    const touchesConnection = ['issuer', 'clientId', 'redirectUri'].some((k) => k in patch);
+    if (touchesConnection) {
+      const before = getOidcConnectionOverride();
+      const result = setOidcConnectionOverride(patch);
+      if (!result.ok) return void res.status(400).json({ error: result.error, field: result.field });
+      // Audited: which directory this world trusts is now something a session can change, so every
+      // change says who made it. The secret is not in here; the issuer and client id are not secret
+      // (a browser sees both in the authorize URL).
+      if (JSON.stringify(before) !== JSON.stringify(result.connection)) {
+        console.log(
+          `[oidc] connection changed by "${caller.userId}": ` +
+            `issuer=${result.connection.issuer || '(environment)'} client=${result.connection.clientId || '(environment)'} ` +
+            `redirect=${result.connection.redirectUri || '(environment)'}`,
+        );
+      }
+    }
+    const presentation = setOidcPresentation(patch);
+    const cfg = oidcConfig();
+    res.json({
+      ok: true,
+      presentation,
+      configured: cfg !== null,
+      secretActive: cfg?.clientSecret !== null && cfg?.clientSecret !== undefined,
+    });
   });
 }
