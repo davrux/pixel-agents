@@ -2,11 +2,16 @@
  * The OIDC login routes: two for the browser, two for the desktop app, one to say whether any of
  * this exists.
  *
- *   GET  /auth/oauth/config     → { enabled, label }  — what the sign-in button should say
- *   GET  /auth/oauth/start      → 302 to the provider
- *   GET  /auth/oauth/callback   → the login itself: exchange, provision, set the session cookie
- *   POST /desktop/oauth/start   → { authUrl, deviceCode, … } — begins a desktop pairing
- *   POST /desktop/oauth/token   → { token } | { status:'pending' } — collects its bearer
+ *   GET  /auth/oauth/config          → { enabled, label }  — what the sign-in button should say
+ *   GET  /auth/oauth/start           → 302 to the provider
+ *   GET  /auth/oauth/callback        → the login itself: exchange, provision, set the session cookie
+ *   POST /desktop/oauth/start        → { authUrl, deviceCode, … } — begins a desktop pairing
+ *   POST /desktop/oauth/token        → { token } | { status:'pending' } — collects its bearer
+ *   GET  /auth/oauth/link/status     → is this account connected, and may it be disconnected
+ *   POST /auth/oauth/link/start      → begins connecting THIS account to a provider identity
+ *   POST /auth/oauth/link/poll       → { status:'pending' | 'linked' } — watches that finish
+ *   POST /auth/oauth/link/confirm    → the human's yes, from the page the flow ends on
+ *   POST /auth/oauth/link/disconnect → drops the link
  *
  * All five are registered BEFORE the session gate in `auth.ts` (like `/meet/:slug` and
  * `/mumble/config`), because a caller on their way IN has no session yet. Each one is on
@@ -26,13 +31,25 @@
  * live server-side (`pending.ts`); the browser carries only an opaque `state`, and the callback
  * additionally requires the matching short-lived cookie, so a link somebody else's browser is
  * tricked into following cannot complete a login into this world (login CSRF).
+ *
+ * **Connecting an existing account, and why it ends in a confirmation page.** A signed-in user can
+ * attach their provider identity to the account they already have. The account is taken from the
+ * session at START time and kept server-side, so the callback cannot redirect the link somewhere
+ * else — but that alone does not settle it: whoever starts a flow can pass its authorize URL to
+ * somebody ELSE, and if that person authenticates, their directory identity would attach to the
+ * starter's account, quietly making the starter's account the one they sign into from then on.
+ * The same shape as login CSRF, and the same fix the device flow uses: the exchange stops one step
+ * short and the page names BOTH identities — this directory account, that pixel-agents account —
+ * and asks for a click. Nothing is written until that POST arrives with a token only that page
+ * carries. A browser-mode sign-in keeps using the state cookie for the same job; a link cannot,
+ * because it may finish in the system browser of a desktop user who has no session there.
  */
 import express from 'express';
 
 import type { Express, Request, Response } from 'express';
 
 import { appStore } from '../appStore.js';
-import { loginPageHtml, setSessionCookie } from '../auth.js';
+import { loginPageHtml, setSessionCookie, userIdFromBearer, userIdFromCookie } from '../auth.js';
 import { discover, fetchJsonBounded, oidcConfig, type OidcConfig, type OidcEndpoints } from './config.js';
 import {
   PAIRING_POLL_INTERVAL_S,
@@ -41,11 +58,22 @@ import {
   completePairing,
   createFlow,
   createPairing,
+  createPendingLink,
   pollPairing,
   takeFlow,
+  takePendingLink,
 } from './pending.js';
 import { oidcButtonVisible, oidcLabel } from './presentation.js';
-import { readClaims, resolveOidcUser } from './provision.js';
+import {
+  PROVIDER,
+  linkOidcAccount,
+  readClaims,
+  resolveOidcUser,
+  unlinkOidcAccount,
+  type OidcClaims,
+} from './provision.js';
+import { oauthIdentityStore } from './identityStore.js';
+import { userStore } from '../userStore.js';
 
 /** The cookie that binds a callback to the browser that started the flow. */
 const STATE_COOKIE = 'pixel_oauth_state';
@@ -238,7 +266,120 @@ export function registerOidcAuth(app: Express): void {
     const result = pollPairing(deviceCode || undefined);
     if (result.status === 'pending') return void res.status(202).json({ status: 'pending' });
     if (result.status === 'error') return void res.status(401).json({ error: result.error });
+    // 'linked' cannot appear here: a link is polled on its own route, which hands out no token.
+    if (result.status !== 'ready') return void res.status(400).json({ error: 'that request is not a sign-in' });
     return void res.status(200).json({ token: result.sid });
+  });
+
+  // ── Connecting an existing account ────────────────────────────────────────
+  //
+  // All four resolve the caller from their session (cookie in the browser, bearer on the desktop)
+  // and act on THAT account — never on an id in the payload. The confirm route is the exception
+  // and says why on its own line.
+  //
+  // The resolution is one helper, but the CALL stays in each route body rather than behind a
+  // `signedIn(req, res)` wrapper: a gate that only a helper can see is one a reader — and
+  // mmo-readiness's route check, which is a grep — cannot confirm from the route itself.
+  const reqUserId = (req: Request): string | undefined =>
+    userIdFromCookie(req.headers.cookie) ?? userIdFromBearer(req.headers.authorization);
+  const unauthorized = (res: Response): void => void res.status(401).json({ error: 'unauthorized' });
+
+  // What the settings panel renders: whether this account is connected, and whether it may be
+  // disconnected (an account with no password would lose its only way in).
+  app.get('/auth/oauth/link/status', (req: Request, res: Response) => {
+    const userId = reqUserId(req);
+    if (!userId) return unauthorized(res);
+    const cfg = oidcConfig();
+    const link = oauthIdentityStore.linkFor(PROVIDER, userId);
+    const user = userStore.get(userId);
+    res.json({
+      enabled: cfg !== null && oidcButtonVisible(),
+      label: oidcLabel(),
+      linked: link !== undefined,
+      connectedAt: link?.createdAt ?? null,
+      canDisconnect: link !== undefined && user?.hasPassword === true,
+      // Said here rather than only on the refusal, so the button can explain itself before it is
+      // pressed instead of failing when it is.
+      disconnectBlockedReason:
+        link !== undefined && user?.hasPassword !== true
+          ? `${oidcLabel()} is the only way into this account. Set a password first.`
+          : null,
+    });
+  });
+
+  // Begin connecting. Answers a pairing rather than a redirect: the same shape serves the browser
+  // (a second tab) and the desktop (the system browser), and neither needs this page to navigate.
+  app.post('/auth/oauth/link/start', express.json({ limit: '1kb' }), (req: Request, res: Response) => {
+    void (async () => {
+      const userId = reqUserId(req);
+      if (!userId) return unauthorized(res);
+      const cfg = configured(res);
+      if (!cfg) return;
+      if (oauthIdentityStore.linkFor(PROVIDER, userId)) {
+        return void res.status(409).json({ error: `This account is already connected to ${oidcLabel()}.` });
+      }
+      try {
+        const endpoints = await discover(cfg);
+        const pairing = createPairing();
+        const flow = createFlow(pairing.deviceCode, userId);
+        res.json({
+          authUrl: authorizeUrl(cfg, endpoints, flow.state, flow.nonce, flow.verifier),
+          deviceCode: pairing.deviceCode,
+          intervalSeconds: PAIRING_POLL_INTERVAL_S,
+          expiresInSeconds: Math.floor(PAIRING_TTL_MS / 1000),
+          label: oidcLabel(),
+        });
+      } catch (err) {
+        console.error(`[oidc] cannot start a link: ${(err as Error)?.message}`);
+        res.status(502).json({ error: GENERIC_FAILURE });
+      }
+    })();
+  });
+
+  // Watch it finish. Hands out nothing — the caller already has a session — so a 200 here means
+  // only "the link now exists".
+  app.post('/auth/oauth/link/poll', express.json({ limit: '1kb' }), (req: Request, res: Response) => {
+    const userId = reqUserId(req);
+    if (!userId) return unauthorized(res);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const deviceCode = typeof body.deviceCode === 'string' ? body.deviceCode.slice(0, 128) : '';
+    const result = pollPairing(deviceCode || undefined);
+    if (result.status === 'pending') return void res.status(202).json({ status: 'pending' });
+    if (result.status === 'linked') return void res.status(200).json({ status: 'linked' });
+    if (result.status === 'error') return void res.status(400).json({ error: result.error });
+    return void res.status(400).json({ error: 'that request is not a link' });
+  });
+
+  // The human's yes, posted by the page the flow ends on. Authorized by the one-time token that
+  // page carries and nothing else — deliberately: it may be submitted from a system browser that
+  // has no session with this server at all, which is the whole reason the desktop pairs. The token
+  // is unguessable, single-use, short-lived, and useless without having just completed an exchange.
+  app.post('/auth/oauth/link/confirm', express.urlencoded({ extended: false }), (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const token = typeof body.token === 'string' ? body.token.slice(0, 256) : '';
+    const pending = takePendingLink(token || undefined);
+    if (!pending) {
+      return void res.status(400).type('html').send(resultPage('This confirmation has expired — start again from Settings.', false));
+    }
+    const claims = { sub: pending.subject, preferredUsername: pending.providerName, email: '', name: '', roles: [] };
+    const result = linkOidcAccount(pending.userId, claims as OidcClaims, oidcLabel());
+    if ('error' in result) {
+      if (pending.deviceCode) completePairing(pending.deviceCode, { error: result.error });
+      return void res.status(409).type('html').send(resultPage(result.error, false));
+    }
+    if (pending.deviceCode) completePairing(pending.deviceCode, { linked: true });
+    res
+      .status(200)
+      .type('html')
+      .send(resultPage(`Connected. You can close this tab — ${oidcLabel()} now signs you in as "${pending.userId}".`, true));
+  });
+
+  app.post('/auth/oauth/link/disconnect', express.json({ limit: '1kb' }), (req: Request, res: Response) => {
+    const userId = reqUserId(req);
+    if (!userId) return unauthorized(res);
+    const result = unlinkOidcAccount(userId, oidcLabel());
+    if ('error' in result) return void res.status(400).json({ error: result.error });
+    res.json({ ok: true });
   });
 }
 
@@ -263,7 +404,7 @@ async function handleCallback(cfg: OidcConfig, req: Request, res: Response): Pro
     if (flow?.deviceCode) {
       completePairing(flow.deviceCode, { error: userMessage });
       clearStateCookie(res);
-      res.status(status).type('html').send(desktopResultPage(userMessage, false));
+      res.status(status).type('html').send(resultPage(userMessage, false));
       return;
     }
     clearStateCookie(res);
@@ -312,6 +453,22 @@ async function handleCallback(cfg: OidcConfig, req: Request, res: Response): Pro
     }
   }
 
+  // A link stops one step short of writing anything: the page that comes next names both
+  // identities and asks. See the file header for the attack that makes this more than ceremony.
+  if (flow.linkUserId) {
+    const owner = userStore.get(flow.linkUserId);
+    if (!owner) return fail('That account no longer exists.', `link target "${flow.linkUserId}" is gone`, 404);
+    const pending = createPendingLink({
+      userId: owner.userId,
+      subject: claims.sub,
+      providerName: claims.preferredUsername || claims.email || claims.name || claims.sub,
+      deviceCode: flow.deviceCode,
+    });
+    clearStateCookie(res);
+    res.status(200).type('html').send(confirmLinkPage(pending.token, pending.providerName, owner.userId, oidcLabel()));
+    return;
+  }
+
   const resolved = resolveOidcUser(claims, cfg);
   if ('error' in resolved) return fail(resolved.error, `provisioning refused: ${resolved.error}`, resolved.status ?? 403);
 
@@ -321,7 +478,7 @@ async function handleCallback(cfg: OidcConfig, req: Request, res: Response): Pro
     // says so. The token never touches the URL.
     completePairing(flow.deviceCode, { sid: appStore.createSession(resolved.userId) });
     clearStateCookie(res);
-    res.status(200).type('html').send(desktopResultPage('You are signed in — you can close this tab and return to the app.', true));
+    res.status(200).type('html').send(resultPage('You are signed in — you can close this tab and return to the app.', true));
     return;
   }
   // Browser: the same opaque session cookie the password form sets, then into the world.
@@ -331,11 +488,11 @@ async function handleCallback(cfg: OidcConfig, req: Request, res: Response): Pro
 }
 
 /**
- * The page the system browser is left on after a desktop sign-in, in the house chrome and
- * self-contained (this is served to a browser that may have no session, so it fetches nothing —
- * not even the font, which lives behind the gate's allow-list but is not worth a request here).
+ * The page a flow that cannot set a cookie is left on — a desktop sign-in, and every link. In the
+ * house chrome and self-contained: this is served to a browser that may have no session with this
+ * server at all, so it fetches nothing, not even the font.
  */
-function desktopResultPage(message: string, ok: boolean): string {
+function resultPage(message: string, ok: boolean): string {
   const escaped = message.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>pixel-agents — sign-in</title>
@@ -345,4 +502,36 @@ div{background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:24p
 box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55)}
 h3{margin:0 0 10px;color:#f5f3f0}p{margin:0;color:${ok ? '#adb0b2' : '#f6cdd4'};line-height:1.5}</style>
 </head><body><div><h3>pixel-agents</h3><p>${escaped}</p></div></body></html>`;
+}
+
+/**
+ * "Connect <directory account> to <pixel-agents account>?" — the one page in this flow that asks
+ * instead of telling.
+ *
+ * Both names are on it because that is what makes it a real check: somebody who was handed
+ * a link they did not start sees an account name that is not theirs and stops. No script and no
+ * fetched asset, for the same reason as `resultPage`.
+ */
+function confirmLinkPage(token: string, providerName: string, accountId: string, label: string): string {
+  const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>pixel-agents — connect account</title>
+<style>html,body{height:100%;margin:0}body{background:#141312;color:#f1efec;
+font-family:ui-monospace,monospace;display:flex;align-items:center;justify-content:center;text-align:center}
+form{background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:24px 28px;max-width:28rem;
+box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55)}
+h3{margin:0 0 10px;color:#f5f3f0}p{margin:0 0 16px;color:#adb0b2;line-height:1.55}
+b{color:#f1efec}
+button{background:#c51a1b;color:#fff;border:2px solid #0a0908;border-radius:0.45rem;padding:10px 18px;
+font:bold 14px ui-monospace,monospace;cursor:pointer;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10}
+button:hover{background:#d42021}
+.warn{color:#e6c48f;font-size:13px;margin:14px 0 0;line-height:1.5}</style></head><body>
+<form method="post" action="/auth/oauth/link/confirm"><h3>pixel-agents</h3>
+<p>Connect the ${esc(label)} account <b>${esc(providerName)}</b> to the pixel-agents account
+<b>${esc(accountId)}</b>?<br>After this, signing in with ${esc(label)} signs you in as
+<b>${esc(accountId)}</b>.</p>
+<input type="hidden" name="token" value="${esc(token)}">
+<div><button type="submit">Connect</button></div>
+<p class="warn">If <b>${esc(accountId)}</b> is not your account, close this tab instead — somebody
+else would be signing in as you.</p></form></body></html>`;
 }

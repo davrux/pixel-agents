@@ -821,6 +821,22 @@ background only.)
   (`oidc/pending.ts`): the desktop app cannot follow a redirect (no cookie jar,
   and an embedded webview is the wrong place for MFA), so it opens the system
   browser and polls for a bearer that is handed over exactly once.
+  **Connecting an account that already exists is a deliberate act, and it ends in
+  a confirmation.** Settings → the provider block starts a flow whose target
+  account is taken from the SESSION and kept server-side (`PendingFlow.linkUserId`),
+  so a callback can never redirect a link onto somebody else. That is not enough on
+  its own, and the second half is the part to keep: whoever starts a flow can hand
+  its authorize URL to somebody ELSE, and if that person authenticates, their
+  directory identity would attach to the starter's account — login CSRF, aimed at
+  the link instead of the session. So the exchange stops one step short and the page
+  it lands on NAMES BOTH identities and asks; nothing is written until that POST
+  arrives carrying a one-time token only that page has. The confirmation is
+  authorized by the token alone, deliberately, because it may be submitted from a
+  system browser that has no session with this server at all. Three refusals go with
+  it — a subject that already signs in as another account, a second identity on an
+  account that already has one, and disconnecting when the provider is the account's
+  ONLY way in (`hasPassword` is false, so removing the link would lock its owner out
+  of a world they can still see).
 - **Single sign-on is configured in two halves, and where a field lives is a
   security decision** (`oidc/adminSettings.ts`, admin panel → Sign-in,
   `GET`/`PUT /admin/oidc`). A new field goes on one side or the other; adding one

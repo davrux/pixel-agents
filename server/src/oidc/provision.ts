@@ -174,3 +174,64 @@ function syncAdminRole(userId: string, claims: OidcClaims, cfg: OidcConfig): voi
   userStore.setAdmin(userId, shouldBeAdmin);
   console.log(`[oidc] ${shouldBeAdmin ? 'granted' : 'revoked'} admin for "${userId}" from the provider's roles`);
 }
+
+/**
+ * Connect a provider identity to an account that already exists — the deliberate version of what
+ * `PIXEL_OIDC_CLAIM_EXISTING` does automatically at a first login.
+ *
+ * The account comes from the session that started the flow (`PendingFlow.linkUserId`), never from
+ * the claims or the callback, so this cannot be steered into attaching somebody's directory
+ * identity to an account they did not choose. Three refusals, each for a different way that would
+ * otherwise go wrong:
+ *
+ *  • the subject already signs in as ANOTHER account — linking would give two people one login;
+ *  • this account is already connected to a DIFFERENT subject — silently replacing it would take
+ *    somebody's access away without telling them; disconnect first;
+ *  • the account is gone or disabled since the flow started.
+ *
+ * Roles are deliberately NOT synced here: a link is not a sign-in, and `PIXEL_OIDC_ADMIN_ROLE`
+ * applies on the next one. Nor is the display name touched — the account has one already, and
+ * connecting a login is not a rename.
+ */
+export function linkOidcAccount(userId: string, claims: OidcClaims, label: string): { ok: true; already: boolean } | { error: string } {
+  const user = userStore.get(userId);
+  if (!user) return { error: 'That account no longer exists.' };
+  if (user.disabled) return { error: 'This account has been disabled.' };
+
+  const owner = oauthIdentityStore.userIdFor(PROVIDER, claims.sub);
+  if (owner === user.userId) return { ok: true, already: true };
+  if (owner) return { error: `That ${label} account is already connected to another user here.` };
+
+  const existing = oauthIdentityStore.linkFor(PROVIDER, user.userId);
+  if (existing) {
+    return { error: `This account is already connected to a different ${label} account. Disconnect that one first.` };
+  }
+
+  oauthIdentityStore.link(PROVIDER, claims.sub, user.userId);
+  console.log(`[oidc] "${user.userId}" connected a ${label} identity to their account`);
+  return { ok: true, already: false };
+}
+
+/**
+ * Disconnect an account from its provider identity.
+ *
+ * Refused when it would leave the account with no way in at all: an account provisioned by the
+ * provider has no password (`createProvisionedUser`), so removing the link would lock its owner
+ * out of a world they can still see. Setting a password first is the way through, and the message
+ * says so rather than just refusing.
+ */
+export function unlinkOidcAccount(userId: string, label: string): { ok: true } | { error: string } {
+  const user = userStore.get(userId);
+  if (!user) return { error: 'That account no longer exists.' };
+  if (!oauthIdentityStore.linkFor(PROVIDER, user.userId)) {
+    return { error: `This account is not connected to ${label}.` };
+  }
+  if (!user.hasPassword) {
+    return {
+      error: `Set a password first: ${label} is currently the only way into this account, so disconnecting it would lock you out.`,
+    };
+  }
+  oauthIdentityStore.unlink(PROVIDER, user.userId);
+  console.log(`[oidc] "${user.userId}" disconnected their ${label} identity`);
+  return { ok: true };
+}

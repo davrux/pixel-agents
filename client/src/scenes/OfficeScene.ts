@@ -3769,6 +3769,11 @@ export class OfficeScene extends Phaser.Scene {
           <div class="row"><button id="pa-token-copy">Copy</button><button id="pa-token-new">Regenerate</button></div>
           <div class="hint">Your agents authenticate with this token (<code>--token</code>); keep it secret.</div>
         </div>
+        <div id="pa-sso" style="display:none">
+          <div class="row"><label id="pa-sso-state">Single sign-on</label></div>
+          <div class="row"><button id="pa-sso-connect">Connect</button></div>
+          <div class="hint" id="pa-sso-hint"></div>
+        </div>
       </div>
       <div class="row"><label>Your avatar</label></div>
       <div id="pa-avatar">
@@ -3863,6 +3868,7 @@ export class OfficeScene extends Phaser.Scene {
       pw.value = '';
       await alertDialog('Password changed.');
     };
+    panel.querySelector<HTMLButtonElement>('#pa-sso-connect')!.onclick = () => void this.toggleSsoLink();
     panel.querySelector<HTMLButtonElement>('#pa-token-copy')!.onclick = () => {
       void navigator.clipboard?.writeText(this.agentToken);
     };
@@ -4307,6 +4313,132 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
+  /** Latest answer from `/auth/oauth/link/status`, so the button knows which action it is. */
+  private ssoLink: { enabled: boolean; label: string; linked: boolean; canDisconnect: boolean; reason: string | null } | null = null;
+  /** Set while a connect flow is waiting on the provider tab; also the cancel switch. */
+  private ssoLinking = false;
+
+  /** Fetch the link status and render the Settings block from it. Any failure hides the block:
+   *  the rest of Settings must not depend on a provider being reachable. */
+  private async refreshSsoLink(): Promise<void> {
+    try {
+      const res = await serverFetch('/auth/oauth/link/status', { cache: 'no-store' });
+      if (!res.ok) throw new Error(String(res.status));
+      const d = (await res.json()) as {
+        enabled: boolean;
+        label: string;
+        linked: boolean;
+        canDisconnect: boolean;
+        disconnectBlockedReason: string | null;
+      };
+      this.ssoLink = {
+        enabled: d.enabled,
+        label: d.label,
+        linked: d.linked,
+        canDisconnect: d.canDisconnect,
+        reason: d.disconnectBlockedReason,
+      };
+    } catch {
+      this.ssoLink = null;
+    }
+    this.renderSsoLink();
+  }
+
+  private renderSsoLink(): void {
+    const block = this.settingsPanel?.querySelector<HTMLDivElement>('#pa-sso');
+    if (!block) return;
+    const link = this.ssoLink;
+    block.style.display = link?.enabled ? '' : 'none';
+    if (!link?.enabled) return;
+    const state = block.querySelector<HTMLLabelElement>('#pa-sso-state')!;
+    const button = block.querySelector<HTMLButtonElement>('#pa-sso-connect')!;
+    const hint = block.querySelector<HTMLDivElement>('#pa-sso-hint')!;
+
+    if (this.ssoLinking) {
+      state.textContent = `${link.label}: waiting for your browser…`;
+      button.textContent = 'Cancel';
+      button.disabled = false;
+      hint.textContent = `Finish signing in to ${link.label} in the tab that opened, then confirm the connection there.`;
+      return;
+    }
+    state.textContent = link.linked ? `${link.label}: connected` : `${link.label}: not connected`;
+    button.textContent = link.linked ? 'Disconnect' : `Connect ${link.label}`;
+    button.disabled = link.linked && !link.canDisconnect;
+    hint.textContent = link.linked
+      ? (link.reason ?? `Signing in with ${link.label} signs you in as ${this.myUserId}.`)
+      : `Connect your ${link.label} account and you can sign in with it instead of a password. Your avatar, agents and settings stay as they are.`;
+  }
+
+  /**
+   * Connect or disconnect, depending on which one the button currently is.
+   *
+   * Connecting opens the provider in a second tab (in the desktop app the Electron shell turns
+   * that into the system browser) and polls until the server says the link exists. The last step
+   * happens over there, on a page that names both accounts and asks — see server/src/oidc/routes.ts
+   * for why that confirmation is not ceremony.
+   */
+  private async toggleSsoLink(): Promise<void> {
+    if (this.ssoLinking) {
+      this.ssoLinking = false; // cancel: the pairing simply expires server-side
+      this.renderSsoLink();
+      return;
+    }
+    const link = this.ssoLink;
+    if (!link?.enabled) return;
+
+    if (link.linked) {
+      if (!link.canDisconnect) return;
+      const ok = await confirmDialog(`Disconnect ${link.label} from this account? You will sign in with your password again.`, {
+        danger: true,
+        confirmLabel: 'Disconnect',
+      });
+      if (!ok) return;
+      const res = await serverFetch('/auth/oauth/link/disconnect', { method: 'POST' });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        await alertDialog(body?.error ?? 'Could not disconnect.');
+      }
+      await this.refreshSsoLink();
+      return;
+    }
+
+    const started = await serverFetch('/auth/oauth/link/start', { method: 'POST' }).catch(() => null);
+    const startBody = started ? ((await started.json().catch(() => null)) as Record<string, unknown> | null) : null;
+    if (!started?.ok || typeof startBody?.authUrl !== 'string' || typeof startBody?.deviceCode !== 'string') {
+      await alertDialog((startBody?.error as string) ?? 'Could not start the connection — try again.');
+      return;
+    }
+    this.ssoLinking = true;
+    this.renderSsoLink();
+    window.open(startBody.authUrl, '_blank', 'noopener,noreferrer');
+
+    const deviceCode = startBody.deviceCode;
+    const intervalMs = Math.max(1000, (typeof startBody.intervalSeconds === 'number' ? startBody.intervalSeconds : 2) * 1000);
+    const deadline = Date.now() + (typeof startBody.expiresInSeconds === 'number' ? startBody.expiresInSeconds : 600) * 1000;
+    while (this.ssoLinking && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      if (!this.ssoLinking) return;
+      let res: Response;
+      try {
+        res = await serverFetch('/auth/oauth/link/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceCode }),
+        });
+      } catch {
+        continue; // the tab is open and the user is mid-flow; one failed poll is not a failure
+      }
+      if (res.status === 202) continue;
+      this.ssoLinking = false;
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) await alertDialog(body?.error ?? 'The connection did not complete.');
+      await this.refreshSsoLink();
+      return;
+    }
+    this.ssoLinking = false;
+    this.renderSsoLink();
+  }
+
   private syncSettingsInputs(): void {
     if (!this.settingsPanel) return;
     const nameEl = this.settingsPanel.querySelector<HTMLInputElement>('#pa-name');
@@ -4322,6 +4454,10 @@ export class OfficeScene extends Phaser.Scene {
     if (account) account.style.display = this.myUserId ? '' : 'none';
     const tok = this.settingsPanel.querySelector<HTMLInputElement>('#pa-token');
     if (tok) tok.value = this.agentToken;
+    // Connecting this account to the identity provider — server-answered, so it is fetched rather
+    // than derived: whether a provider exists, whether this account is already connected, and
+    // whether disconnecting would leave no way in.
+    if (this.myUserId) void this.refreshSsoLink();
     // Identity line: login id + admin badge (logged-in users only).
     const info = this.settingsPanel.querySelector<HTMLDivElement>('#pa-userinfo');
     if (info) {

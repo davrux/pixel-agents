@@ -79,6 +79,15 @@ additive on purpose: keep an admin token, because a provider that is down or
 misconfigured must not be able to lock every admin out of the world. See
 [.env.example](.env.example) for every knob and what Zitadel needs configured.
 
+Already have an account? **Settings → Single sign-on** connects it to your
+directory identity, so you can sign in with the provider from then on and keep
+the avatar, agents, zone grants and position you already have. It opens the
+provider in a second tab (the system browser in the desktop app) and finishes on
+a page that names both accounts and asks — read it, because a connection link
+somebody else sent you would name *their* account. Disconnecting is one click,
+unless the provider is the only way into your account, in which case set a
+password first.
+
 The admin overlay's **Sign-in** tab configures all of that without a restart: the
 provider connection (issuer, client id, redirect URI — so a server whose
 environment names no provider can be switched on entirely from the panel), plus

@@ -224,6 +224,10 @@ const PUBLIC_ROUTES = new Map([
   ],
   ['POST /desktop/oauth/start', 'begins a desktop pairing; the device code is worthless until a login completes'],
   ['POST /desktop/oauth/token', 'the device code IS the credential, consumed on success (one-shot)'],
+  [
+    'POST /auth/oauth/link/confirm',
+    'the one-time token from the page a link ends on IS the credential — that page may be in a system browser with no session',
+  ],
   ['GET /meet/:slug', 'the invite landing page — a guest has no account yet'],
   ['GET /meet/:slug/info', 'says only whether the slug exists and needs a password'],
   ['GET /assets/tiled/sets.json', 'the tileset table; art is served openly (see the asset exemption)'],

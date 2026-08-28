@@ -117,6 +117,14 @@ const DESKTOP_CORS_PATHS = new Set([
   '/desktop/oauth/start',
   '/desktop/oauth/token',
   '/auth/oauth/config',
+  // Connecting an existing account to the identity provider, from the in-world Settings panel —
+  // which on the desktop is a page at app:// talking to this server. Each of these resolves the
+  // caller from the bearer and acts only on that account (oidc/routes.ts); as with the rest of this
+  // set, no Access-Control-Allow-Credentials is sent, so no cookie surface is opened.
+  '/auth/oauth/link/status',
+  '/auth/oauth/link/start',
+  '/auth/oauth/link/poll',
+  '/auth/oauth/link/disconnect',
   '/health',
 ]);
 

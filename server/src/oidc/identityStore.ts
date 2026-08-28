@@ -18,6 +18,7 @@ interface Row {
   provider: string;
   subject: string;
   user_id: string;
+  created_at: number;
 }
 
 class OauthIdentityStore {
@@ -44,6 +45,23 @@ class OauthIdentityStore {
         .prepare('SELECT 1 AS one FROM oauth_identities WHERE provider = ? AND user_id = ?')
         .get(provider, userId) !== undefined
     );
+  }
+
+  /** The subject this account is connected to, with when it was connected — what the settings
+   *  panel shows, and what tells a deliberate LINK from an account that has none. */
+  linkFor(provider: string, userId: string): { subject: string; createdAt: number } | undefined {
+    const r = this.db
+      .prepare('SELECT provider, subject, user_id, created_at FROM oauth_identities WHERE provider = ? AND user_id = ?')
+      .get(provider, userId) as Row | undefined;
+    return r ? { subject: r.subject, createdAt: Number(r.created_at) } : undefined;
+  }
+
+  /** Disconnect an account from its provider identity. Returns true if there was one. The caller
+   *  decides whether it MAY be removed — see `unlinkOidcAccount`, which refuses to leave an
+   *  account with no way in at all. */
+  unlink(provider: string, userId: string): boolean {
+    const r = this.db.prepare('DELETE FROM oauth_identities WHERE provider = ? AND user_id = ?').run(provider, userId);
+    return Number(r.changes) > 0;
   }
 
   link(provider: string, subject: string, userId: string): void {
