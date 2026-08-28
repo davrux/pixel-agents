@@ -73,8 +73,11 @@ Set `PIXEL_OIDC_ISSUER`, `PIXEL_OIDC_CLIENT_ID` and `PIXEL_OIDC_REDIRECT_URI`
 screen grows a "Sign in with …" button — in the browser and in the desktop app,
 which opens your real browser and waits, so MFA and passkeys work. A first
 sign-in creates the account; it is keyed to the provider's immutable subject, so
-a rename in the directory keeps the same avatar, agent token and position, and
-`PIXEL_OIDC_ADMIN_ROLE` lets the directory decide who is an admin. All of it is
+a rename in the directory keeps the same avatar, agent token and position. Give a
+directory role the admin rights here by naming it in the **Sign-in** tab (or
+`PIXEL_OIDC_ADMIN_ROLE`): everyone holding it becomes an admin on their next
+sign-in and loses it when the role is taken away, except the last usable admin,
+who is never revoked. All of it is
 additive on purpose: keep an admin token, because a provider that is down or
 misconfigured must not be able to lock every admin out of the world. See
 [.env.example](.env.example) for every knob and what Zitadel needs configured.
@@ -89,8 +92,9 @@ unless the provider is the only way into your account, in which case set a
 password first.
 
 The admin overlay's **Sign-in** tab configures all of that without a restart: the
-provider connection (issuer, client id, redirect URI — so a server whose
-environment names no provider can be switched on entirely from the panel), plus
+provider connection (issuer, client id, redirect URI and scopes — so a server
+whose environment names no provider can be switched on entirely from the panel),
+plus
 how the button is presented — its label, whether it is shown, and whether an
 unauthenticated visit goes straight to the provider (the password form stays at
 `/login` regardless). Three things stay out of it, and the tab shows them
@@ -98,8 +102,10 @@ read-only: the client secret, which never reaches the page and is **withheld fro
 the flow entirely** if the issuer or client id is overridden there (an overridden
 connection is a public/PKCE client, so the deployment's secret can never be sent
 to a directory the deployment did not name), and the settings that decide who
-becomes an admin — the roles claim, the admin role, the scopes,
-`PIXEL_OIDC_CLAIM_EXISTING`, `PIXEL_OIDC_END_SESSION`.
+becomes an admin — the roles claim,
+`PIXEL_OIDC_CLAIM_EXISTING`, `PIXEL_OIDC_END_SESSION`. Scopes are editable but
+sharp-edged, and the field says why: drop the scope that carries the roles claim
+and the next sign-in revokes admin from everyone but the last one left.
 
 All state lives in a single `pixel.db` under
 `PIXEL_STREAM_DATA_DIR` — by default `tmp/data` inside the repo, so a

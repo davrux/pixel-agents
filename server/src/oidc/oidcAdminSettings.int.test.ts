@@ -3,10 +3,10 @@
  * matters — what they may not.
  *
  * The claim this file keeps true is the split in `adminSettings.ts`. Writable: the presentation
- * fields, and — by explicit request — the connection (issuer, client id, redirect URI). NOT
- * writable: the client secret, the scopes, the roles claim, the admin role, `CLAIM_EXISTING` and
- * `END_SESSION`, because those decide who becomes an admin and whose existing account a directory
- * username may take over.
+ * fields, and — by explicit request — the request this server makes (issuer, client id, redirect
+ * URI, scopes). NOT writable: the client secret, the roles claim, the admin role,
+ * `CLAIM_EXISTING` and `END_SESSION`, because those decide who becomes an admin and whose
+ * existing account a directory username may take over.
  *
  * The connection being editable is what makes the rest of this file load-bearing rather than
  * pedantic:
@@ -57,7 +57,7 @@ interface Settings {
   presentation: { label: string | null; showButton: boolean; autoRedirect: boolean };
   maxLabelLength: number;
   callbackPath: string;
-  connection: { issuer: ConnField; clientId: ConnField; redirectUri: ConnField };
+  connection: { issuer: ConnField; clientId: ConnField; redirectUri: ConnField; scopes: ConnField; adminRole: ConnField };
   secret: { configured: boolean; active: boolean };
   environment: Record<string, unknown> | null;
 }
@@ -141,14 +141,14 @@ test('the client secret never reaches the page — only whether one is set', asy
   assert.equal(data.secret.active, true, 'and nothing is overridden yet, so it is in use');
   assert.equal(data.connection.issuer.value, 'https://idp.invalid');
   assert.equal(data.connection.issuer.source, 'env');
-  assert.equal(data.environment?.adminRole, 'pixel-admin');
+  assert.equal(data.connection.adminRole.value, 'pixel-admin', 'the deployment maps a role');
+  assert.equal(data.connection.adminRole.source, 'env');
 });
 
 test('a PUT cannot write the fields that decide who becomes an admin', async () => {
   const before = await getSettings();
   const res = await putSettings({
     clientSecret: 'attacker-secret',
-    scopes: 'openid profile email offline_access',
     adminRole: 'everyone',
     rolesClaim: 'groups',
     claimExisting: false,
@@ -326,4 +326,95 @@ test('a stored blob with junk in it reads back as the defaults, not as a crash',
   assert.equal(connection.redirectUri.value, 'https://pixel.invalid/auth/oauth/callback');
   setOidcPresentation({});
   appStore.setSetting('oidcConnection', { issuer: '', clientId: '', redirectUri: '' });
+});
+
+test('the scopes are editable, normalised, and always carry openid', async () => {
+  const { oidcConfig } = await import('./config.js');
+  assert.equal((await getSettings()).connection.scopes.source, 'env');
+
+  const res = await putSettings({ scopes: '  profile   email  profile  ' });
+  assert.equal(res.status, 200);
+  const set = await getSettings();
+  assert.equal(set.connection.scopes.override, 'profile email', 'collapsed and deduped as stored');
+  assert.equal(set.connection.scopes.source, 'admin');
+  assert.equal(
+    oidcConfig()?.scopes,
+    'openid profile email',
+    'openid is added whichever side the scopes came from — this can never become a non-OIDC request',
+  );
+
+  // Written with openid already there, it is not doubled.
+  await putSettings({ scopes: 'openid profile urn:zitadel:iam:org:project:id:12345:aud' });
+  assert.equal(oidcConfig()?.scopes, 'openid profile urn:zitadel:iam:org:project:id:12345:aud');
+
+  await putSettings({ scopes: '' });
+  const cleared = await getSettings();
+  assert.equal(cleared.connection.scopes.source, 'env', 'empty clears the override');
+  assert.equal(oidcConfig()?.scopes, 'openid profile email');
+});
+
+test('a scope that would not survive a URL is refused', async () => {
+  const before = await getSettings();
+  const cases: Array<[string, RegExp]> = [
+    ['openid "profile"', /not a valid scope/],
+    ['openid pro\\file', /not a valid scope/],
+    ['x'.repeat(600), /at most/],
+    [Array.from({ length: 30 }, (_, i) => `s${i}`).join(' '), /At most/],
+  ];
+  for (const [scopes, reason] of cases) {
+    const res = await putSettings({ scopes });
+    assert.equal(res.status, 400, `"${scopes.slice(0, 30)}" should be refused`);
+    const body = (await res.json()) as { error: string; field: string };
+    assert.equal(body.field, 'scopes');
+    assert.match(body.error, reason);
+  }
+  assert.deepEqual(await getSettings(), before, 'a refused patch stores nothing');
+});
+
+test('overriding the scopes does NOT withhold the client secret', async () => {
+  // The secret belongs to the client the environment named, and scopes do not change who is
+  // asking — only what is asked. Getting this wrong would silently turn a confidential client into
+  // a public one the first time somebody edited the field.
+  const { oidcConfig } = await import('./config.js');
+  await putSettings({ scopes: 'openid profile' });
+  assert.equal(oidcConfig()?.clientSecret, CLIENT_SECRET);
+  assert.equal((await getSettings()).secret.active, true);
+  await putSettings({ scopes: '' });
+});
+
+test('the admin role is settable from the panel and takes effect on the next sign-in', async () => {
+  const { oidcConfig } = await import('./config.js');
+  assert.equal(oidcConfig()?.adminRole, 'pixel-admin', 'the deployment\'s, to begin with');
+
+  const res = await putSettings({ adminRole: 'admin' });
+  assert.equal(res.status, 200);
+  assert.equal(oidcConfig()?.adminRole, 'admin', 'a directory whose role is simply called "admin"');
+  assert.equal((await getSettings()).connection.adminRole.source, 'admin');
+
+  await putSettings({ adminRole: '' });
+  assert.equal(oidcConfig()?.adminRole, 'pixel-admin', 'cleared, it follows the deployment again');
+});
+
+test('a role name that could never match is refused rather than stored', async () => {
+  // The failure this prevents is the invisible one: a name with a stray space simply never equals
+  // anything the provider sends, which looks exactly like "the role is not arriving".
+  for (const [adminRole, reason] of [
+    ['pixel admin', /printable ASCII/],
+    ['x'.repeat(80), /at most/],
+  ] as Array<[string, RegExp]>) {
+    const res = await putSettings({ adminRole });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string; field: string };
+    assert.equal(body.field, 'adminRole');
+    assert.match(body.error, reason);
+  }
+  const { oidcConfig } = await import('./config.js');
+  assert.equal(oidcConfig()?.adminRole, 'pixel-admin', 'nothing was stored');
+});
+
+test('the roles claim itself stays environment-only', async () => {
+  const before = await getSettings();
+  const res = await putSettings({ rolesClaim: 'groups', claimExisting: false });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await getSettings()).environment, before.environment);
 });

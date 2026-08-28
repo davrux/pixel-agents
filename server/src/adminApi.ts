@@ -413,14 +413,12 @@ export function registerAdminApi(app: Express): void {
   });
   // ── Single sign-on (OIDC / Zitadel) ──────────────────────────────────────
   //
-  // Read everything, write only the presentation. The split is stated and enforced in
-  // oidc/presentation.ts: issuer, client id, secret, redirect URI, scopes, roles claim, admin
-  // role, CLAIM_EXISTING and END_SESSION decide who gets in and what they get, so they are
-  // environment-only — a stolen admin session must not be able to repoint this world at another
-  // identity provider or rename the claim that grants admin. They are shown here (an admin
-  // configuring the button wants to see what it is pointed at) with ONE exception: the client
-  // secret is reported as a boolean and never as a value, because "secrets stay on the server"
-  // has no admin-shaped hole in it.
+  // Read everything; write the presentation and the request this server makes — issuer, client
+  // id, redirect URI, scopes. The split is stated and enforced in oidc/adminSettings.ts. What
+  // stays environment-only is the client secret, the roles CLAIM, CLAIM_EXISTING and END_SESSION —
+  // the last two decide whose existing account a directory username may take over. They are shown here — an admin configuring this wants to see
+  // what it is pointed at — with one exception: the client secret is reported as a boolean and
+  // never as a value, because "secrets stay on the server" has no admin-shaped hole in it.
   app.get('/admin/oidc', (req, res) => {
     if (!admin(req, res)) return;
     const cfg = oidcConfig();
@@ -444,6 +442,22 @@ export function registerAdminApi(app: Express): void {
           env: env?.redirectUri ?? '',
           source: source(override.redirectUri, env?.redirectUri),
         },
+        // Editable too, and the one field here that decides what the provider is ASKED, not who is
+        // asked: drop the scope carrying the roles claim and the next sign-in sees no roles.
+        scopes: {
+          value: cfg?.scopes ?? '',
+          override: override.scopes,
+          env: env?.scopes ?? '',
+          source: source(override.scopes, env?.scopes),
+        },
+        // The directory role that grants admin here. Empty on both sides means the directory says
+        // nothing about admin and the local flag is left alone — not that nobody is an admin.
+        adminRole: {
+          value: cfg?.adminRole ?? '',
+          override: override.adminRole,
+          env: env?.adminRole ?? '',
+          source: source(override.adminRole, env?.adminRole ?? undefined),
+        },
       },
       // The secret is reported as two booleans and never as a value: whether the environment holds
       // one, and whether it is actually IN USE — an overridden issuer or client id withholds it
@@ -457,9 +471,7 @@ export function registerAdminApi(app: Express): void {
       // a directory username may adopt. Shown so an admin can check what the world is doing.
       environment: env
         ? {
-            scopes: env.scopes,
             envLabel: env.label,
-            adminRole: env.adminRole,
             rolesClaim: env.rolesClaim,
             claimExisting: env.claimExisting,
             endSession: env.endSession,
@@ -470,7 +482,7 @@ export function registerAdminApi(app: Express): void {
 
   // Two patches in one route, and the split is what makes it reviewable: the presentation fields
   // and the three connection fields are each read BY NAME (see oidc/adminSettings.ts), so a key
-  // this endpoint does not know — `adminRole`, `claimExisting`, `clientSecret`, `scopes` — has
+  // this endpoint does not know — `rolesClaim`, `claimExisting`, `clientSecret` — has
   // nowhere to go rather than being checked against a deny-list somebody has to maintain.
   //
   // A connection value that does not validate refuses the WHOLE request with the reason, so a
@@ -483,7 +495,7 @@ export function registerAdminApi(app: Express): void {
       return void res.status(400).json({ error: 'bad body' });
     }
     const patch = body as Record<string, unknown>;
-    const touchesConnection = ['issuer', 'clientId', 'redirectUri'].some((k) => k in patch);
+    const touchesConnection = ['issuer', 'clientId', 'redirectUri', 'scopes', 'adminRole'].some((k) => k in patch);
     if (touchesConnection) {
       const before = getOidcConnectionOverride();
       const result = setOidcConnectionOverride(patch);
@@ -495,7 +507,8 @@ export function registerAdminApi(app: Express): void {
         console.log(
           `[oidc] connection changed by "${caller.userId}": ` +
             `issuer=${result.connection.issuer || '(environment)'} client=${result.connection.clientId || '(environment)'} ` +
-            `redirect=${result.connection.redirectUri || '(environment)'}`,
+            `redirect=${result.connection.redirectUri || '(environment)'} scopes=${result.connection.scopes || '(environment)'} ` +
+            `adminRole=${result.connection.adminRole || '(environment)'}`,
         );
       }
     }

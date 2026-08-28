@@ -93,17 +93,24 @@ export function oidcConfig(): OidcConfig | null {
   const redirectUri = override.redirectUri || env?.redirectUri || '';
   if (!issuer || !clientId || !redirectUri) return null;
 
-  // The secret belongs to the client the ENVIRONMENT named. Point either half of that identity
-  // somewhere else and it is withheld — see the note in the file header.
+  // The secret belongs to the client the ENVIRONMENT named. Point either half of that IDENTITY
+  // somewhere else and it is withheld — see the note in the file header. Deliberately only those
+  // two: overriding the scopes or the redirect URI changes what is asked for and where the answer
+  // lands, not who is asking, so it leaves the secret in place.
   const connectionIsEnvs = override.issuer === '' && override.clientId === '';
+  // `openid` is forced whichever side the scopes came from, so neither an admin nor a deployment
+  // can produce a request that is not an OIDC one.
+  const scopes = override.scopes || env?.scopes || 'openid profile email';
   return {
     issuer,
     clientId,
     clientSecret: connectionIsEnvs ? (env?.clientSecret ?? null) : null,
     redirectUri,
-    scopes: env?.scopes ?? 'openid profile email',
+    scopes: /\bopenid\b/.test(scopes) ? scopes : `openid ${scopes}`,
     label: env?.label ?? 'Zitadel',
-    adminRole: env?.adminRole ?? null,
+    // Unset on BOTH sides means "the directory says nothing about admin", which is not the same as
+    // "nobody is an admin": the local flag is then left alone entirely (see syncAdminRole).
+    adminRole: override.adminRole || env?.adminRole || null,
     rolesClaim: env?.rolesClaim ?? 'urn:zitadel:iam:org:project:roles',
     claimExisting: env?.claimExisting ?? true,
     endSession: env?.endSession ?? false,

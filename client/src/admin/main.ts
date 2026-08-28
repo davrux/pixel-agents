@@ -990,6 +990,8 @@ function connectionCard(data: AdminOidcSettings): HTMLElement {
       issuer: fields.issuer.value.trim(),
       clientId: fields.clientId.value.trim(),
       redirectUri: fields.redirectUri.value.trim(),
+      scopes: fields.scopes.value.trim(),
+      adminRole: fields.adminRole.value.trim(),
     });
     save.disabled = false;
     if (!r.ok) {
@@ -1012,7 +1014,13 @@ function connectionCard(data: AdminOidcSettings): HTMLElement {
 function connectionFields(
   data: AdminOidcSettings,
   card: HTMLElement,
-): { issuer: HTMLInputElement; clientId: HTMLInputElement; redirectUri: HTMLInputElement } {
+): {
+  issuer: HTMLInputElement;
+  clientId: HTMLInputElement;
+  redirectUri: HTMLInputElement;
+  scopes: HTMLInputElement;
+  adminRole: HTMLInputElement;
+} {
   const specs = [
     {
       key: 'issuer' as const,
@@ -1032,8 +1040,36 @@ function connectionFields(
       placeholder: `https://this-server.example.com${data.callbackPath}`,
       hint: `Must end in ${data.callbackPath} and be registered with the provider exactly as written here.`,
     },
+    {
+      key: 'scopes' as const,
+      label: 'Scopes',
+      placeholder: 'openid profile email',
+      hint:
+        'Space-separated. "openid" is always included. Scopes decide which claims come back — ' +
+        'including the one that carries roles, so if an admin role is mapped below, the scope that ' +
+        'delivers it has to be here (in Zitadel that means enabling the project\'s role assertion, ' +
+        'or adding its …:aud scope). Remove it and the next sign-in reports no roles, which revokes ' +
+        'admin from everyone but the last one left.',
+    },
+    {
+      key: 'adminRole' as const,
+      label: 'Admin role',
+      placeholder: 'admin',
+      hint:
+        'A user with this role in the directory becomes an admin here on their next sign-in — and ' +
+        'loses it when the role is taken away. Leave it empty and the directory says nothing about ' +
+        'admin: the flag stays whatever it is set to here. The last usable admin is never revoked, ' +
+        'so a wrong role name cannot lock everyone out. Zitadel has to be asserting roles for the ' +
+        'name to arrive at all (see Scopes above); the server logs the roles it saw on each sign-in.',
+    },
   ];
-  const inputs = {} as { issuer: HTMLInputElement; clientId: HTMLInputElement; redirectUri: HTMLInputElement };
+  const inputs = {} as {
+    issuer: HTMLInputElement;
+    clientId: HTMLInputElement;
+    redirectUri: HTMLInputElement;
+    scopes: HTMLInputElement;
+    adminRole: HTMLInputElement;
+  };
   for (const spec of specs) {
     const field = data.connection[spec.key];
     const wrap = el('div', 'conn-field');
@@ -1161,12 +1197,7 @@ function environmentCard(data: AdminOidcSettings): HTMLElement {
   ];
   if (env) {
     rows.push(
-      ['Scopes', env.scopes],
-      [
-        'Admin role',
-        env.adminRole ? `${env.adminRole} — grants and revokes admin on each sign-in` : 'not mapped — the admin flag stays local',
-      ],
-      ['Roles claim', env.rolesClaim],
+      ['Roles claim', `${env.rolesClaim} (Zitadel's project-scoped variants are read too)`],
       [
         'Adopt matching accounts',
         env.claimExisting
@@ -1188,8 +1219,8 @@ function environmentCard(data: AdminOidcSettings): HTMLElement {
       el(
         'div',
         'muted',
-        'The environment names no provider at all, so these fall back to their defaults: scopes ' +
-          '"openid profile email", no admin-role mapping, and matching local accounts adopted on a first sign-in. ' +
+        'The environment names no provider at all, so these fall back to their defaults: the ' +
+          "standard Zitadel roles claim, and matching local accounts adopted on a first sign-in. " +
           'Set PIXEL_OIDC_* to change them — see .env.example.',
       ),
     );

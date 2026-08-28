@@ -4,11 +4,19 @@
  *
  * Two groups, in two `settings` rows:
  *
- *  • **Connection** — issuer, client id, redirect URI. These decide WHICH directory this world
- *    trusts, so they were environment-only at first and are editable here by explicit request.
- *    What makes that safe enough to ship is the rule below about the client secret plus the
- *    validation in this file; what it costs is written down in AGENTS.md § Accounts, because it
- *    is a real widening of what an admin session can do.
+ *  • **Connection** — issuer, client id, redirect URI, and the scopes asked for. These decide
+ *    WHICH directory this world trusts and WHAT it is asked about, so they were environment-only
+ *    at first and are editable here by explicit request. What makes that safe enough to ship is
+ *    the rule below about the client secret plus the validation in this file; what it costs is
+ *    written down in AGENTS.md § Accounts, because it is a real widening of what an admin session
+ *    can do.
+ *
+ *    Scopes carry one consequence that is worth stating where it can be read rather than
+ *    discovered: they decide which CLAIMS come back, and the roles claim is what
+ *    `PIXEL_OIDC_ADMIN_ROLE` reads. Drop the scope that carries it and the next sign-in sees a
+ *    user with no roles — which is indistinguishable from a user who lost them, so admin is
+ *    revoked (all but the last usable one, which `syncAdminRole` refuses to touch). The panel says
+ *    so beside the field; nothing here can tell the two apart, so nothing here tries.
  *  • **Presentation** — the button's label, whether it is offered, whether an ungated navigation
  *    goes straight to the provider. None of these can grant access.
  *
@@ -20,9 +28,17 @@
  * straight to it. With it, an overridden connection is a public client — PKCE only — which is a
  * perfectly ordinary Zitadel application type, and the admin panel says so on the page.
  *
- * Everything else stays environment-only: scopes, the roles claim, the admin role,
- * `CLAIM_EXISTING` and `END_SESSION`. Those decide who becomes an admin and whose local account a
- * directory username may adopt, and nobody asked for them.
+ *  • **The admin role** — the directory role that grants admin here. Editable for a reason worth
+ *    writing down, because it looks like the field that should be locked hardest: an admin session
+ *    can ALREADY promote anyone (`PATCH /admin/users/:id` takes a role), so keeping this one in the
+ *    environment protected almost nothing while costing a redeploy every time a directory's role
+ *    was named differently than a deployment guessed. What it does add over a manual promotion is
+ *    automation, so it is audited like the connection, and the one refusal that matters stays in
+ *    `syncAdminRole`: the last usable admin is never revoked, whatever the directory says.
+ *
+ * Everything else stays environment-only: the roles CLAIM (which claim carries the roles),
+ * `CLAIM_EXISTING` and `END_SESSION`. The first is a wire detail no panel should have to explain,
+ * and the other two decide whose existing local account a directory username may adopt.
  *
  * Both rows are read at request time. A settings row is one primary-key lookup (0.004 ms —
  * AGENTS.md § Memory has the measurement), so there is no cache to invalidate and a change takes
@@ -61,10 +77,15 @@ export interface OidcConnectionOverride {
   issuer: string;
   clientId: string;
   redirectUri: string;
+  /** Space-separated scopes for the authorize request. `openid` is added by `config.ts` whether or
+   *  not it is written here, so this cannot produce a request that is not an OIDC one. */
+  scopes: string;
+  /** The directory role that grants admin, or '' to follow `PIXEL_OIDC_ADMIN_ROLE`. */
+  adminRole: string;
 }
 
 const PRESENTATION_DEFAULTS: OidcPresentation = { label: null, showButton: true, autoRedirect: false };
-const CONNECTION_DEFAULTS: OidcConnectionOverride = { issuer: '', clientId: '', redirectUri: '' };
+const CONNECTION_DEFAULTS: OidcConnectionOverride = { issuer: '', clientId: '', redirectUri: '', scopes: '', adminRole: '' };
 
 /** Strip control characters, collapse whitespace, cap the length. The label is written into HTML
  *  (escaped where it is used) and into a DOM text node on the desktop, so this is about it being a
@@ -123,6 +144,8 @@ export function getOidcConnectionOverride(): OidcConnectionOverride {
     issuer: keep(stored.issuer, issuerError),
     clientId: keep(stored.clientId, clientIdError),
     redirectUri: keep(stored.redirectUri, redirectUriError),
+    scopes: keep(stored.scopes, scopesError),
+    adminRole: keep(stored.adminRole, adminRoleError),
   };
 }
 
@@ -180,6 +203,41 @@ export function redirectUriError(raw: string): string | null {
   return null;
 }
 
+/**
+ * Scopes, as RFC 6749 defines them: space-separated tokens of printable ASCII without `"` or `\`.
+ * Checked rather than passed through because this string is written into the authorize URL, and a
+ * space or a quote smuggled into a "token" would either split it or break out of the parameter.
+ */
+const MAX_SCOPES_LEN = 512;
+const MAX_SCOPE_TOKENS = 20;
+export function scopesError(raw: string): string | null {
+  if (raw.length > MAX_SCOPES_LEN) return `The scopes must be at most ${MAX_SCOPES_LEN} characters.`;
+  const tokens = raw.split(/\s+/).filter((t) => t !== '');
+  if (tokens.length === 0) return 'Enter at least one scope, or leave the field empty to use the deployment\'s.';
+  if (tokens.length > MAX_SCOPE_TOKENS) return `At most ${MAX_SCOPE_TOKENS} scopes.`;
+  const bad = tokens.find((t) => !/^[\x21\x23-\x5b\x5d-\x7e]+$/.test(t));
+  if (bad) return `"${bad.slice(0, 40)}" is not a valid scope (printable ASCII, no spaces, quotes or backslashes).`;
+  return null;
+}
+
+/** The stored form: one space between tokens, duplicates dropped, order kept. */
+function normalizeScopes(raw: string): string {
+  return [...new Set(raw.split(/\s+/).filter((t) => t !== ''))].join(' ');
+}
+
+/**
+ * A role name, as the directory spells it. Bounded and free of whitespace and control characters:
+ * it is compared against what the provider sends, so a name with a stray space would silently
+ * never match — which looks exactly like "the role is not arriving" and is the one failure this
+ * whole area is hard to debug for.
+ */
+const MAX_ROLE_LEN = 64;
+export function adminRoleError(raw: string): string | null {
+  if (raw.length > MAX_ROLE_LEN) return `The role name must be at most ${MAX_ROLE_LEN} characters.`;
+  if (!/^[\x21-\x7e]+$/.test(raw)) return 'The role name must be printable ASCII with no spaces.';
+  return null;
+}
+
 export type ConnectionUpdate = { ok: true; connection: OidcConnectionOverride } | { ok: false; field: string; error: string };
 
 /**
@@ -196,6 +254,8 @@ export function setOidcConnectionOverride(patch: Record<string, unknown>): Conne
     ['issuer', issuerError],
     ['clientId', clientIdError],
     ['redirectUri', redirectUriError],
+    ['scopes', scopesError],
+    ['adminRole', adminRoleError],
   ];
   for (const [field, check] of fields) {
     if (!(field in patch)) continue;
@@ -207,8 +267,8 @@ export function setOidcConnectionOverride(patch: Record<string, unknown>): Conne
     const error = check(raw);
     if (error) return { ok: false, field, error };
     // Trailing slashes are stripped from the issuer so the discovery URL is built the same way
-    // whether or not somebody typed one.
-    next[field] = field === 'issuer' ? raw.replace(/\/+$/, '') : raw;
+    // whether or not somebody typed one; scopes are stored one-space-separated and deduped.
+    next[field] = field === 'issuer' ? raw.replace(/\/+$/, '') : field === 'scopes' ? normalizeScopes(raw) : raw;
   }
   appStore.setSetting(CONNECTION_KEY, next);
   return { ok: true, connection: next };

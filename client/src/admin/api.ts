@@ -74,9 +74,7 @@ export interface AdminOidcField {
 /** The rest of the provider setup: environment-only, because each field decides who becomes an
  *  admin or whose local account a directory username may adopt. Shown to check against. */
 export interface AdminOidcEnvironment {
-  scopes: string;
   envLabel: string;
-  adminRole: string | null;
   rolesClaim: string;
   claimExisting: boolean;
   endSession: boolean;
@@ -88,7 +86,13 @@ export interface AdminOidcSettings {
   maxLabelLength: number;
   /** The path a redirect URI must end with — the route this server serves the callback on. */
   callbackPath: string;
-  connection: { issuer: AdminOidcField; clientId: AdminOidcField; redirectUri: AdminOidcField };
+  connection: {
+    issuer: AdminOidcField;
+    clientId: AdminOidcField;
+    redirectUri: AdminOidcField;
+    scopes: AdminOidcField;
+    adminRole: AdminOidcField;
+  };
   /** Whether the deployment holds a client secret, and whether it is actually in use: overriding
    *  the issuer or the client id withholds it, and the flow becomes a public (PKCE) client. */
   secret: { configured: boolean; active: boolean };
@@ -104,6 +108,8 @@ export interface AdminOidcPatch {
   issuer?: string;
   clientId?: string;
   redirectUri?: string;
+  scopes?: string;
+  adminRole?: string;
 }
 
 export interface ApiResult<T> {

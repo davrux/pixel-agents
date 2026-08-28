@@ -175,6 +175,28 @@ test('an admin types the connection into the panel and single sign-on comes up',
   assert.match(await (await fetch(`${base}/login`)).text(), /Sign in with Corp Directory/);
 });
 
+test('scopes typed into the panel are what the provider is asked for', async () => {
+  const res = await fetch(`${base}/admin/oidc`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${adminBearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ scopes: 'profile urn:zitadel:iam:org:project:id:99:aud' }),
+  });
+  assert.equal(res.status, 200);
+
+  const start = await fetch(`${base}/auth/oauth/start`, { redirect: 'manual' });
+  const scope = new URL(start.headers.get('location') ?? '').searchParams.get('scope');
+  // Read off the URL the browser is actually sent to, not back out of the settings: openid forced
+  // in front, then exactly what was typed. Zitadel's roles need that …:aud scope, which is the
+  // reason this field is editable at all.
+  assert.equal(scope, 'openid profile urn:zitadel:iam:org:project:id:99:aud');
+
+  await fetch(`${base}/admin/oidc`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${adminBearer}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ scopes: '' }),
+  });
+});
+
 test('a real login goes through the provider the panel named, as a public client', async () => {
   const start = await fetch(`${base}/auth/oauth/start`, { redirect: 'manual' });
   assert.equal(start.status, 302);

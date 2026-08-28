@@ -810,19 +810,20 @@ background only.)
   browser carries decides anything: the browser holds an opaque `state`, and the
   callback additionally requires the cookie set when the flow started, so a
   callback URL cannot be used to log somebody's browser into this world.
-  **The provider may own roles, but not the last admin.** With
-  `PIXEL_OIDC_ADMIN_ROLE` set the directory grants and revokes admin on every
-  login; revoking the last *usable* admin is refused and logged, because the fix
-  for that mistake would need the very admin panel it just closed. **Roles are read
-  from the ID token AND from userinfo**, and from any claim matching Zitadel's
-  project-roles URN as well as the configured name — because which of those a token
-  carries depends on provider settings this server cannot see, and reading userinfo
-  alone (as it did at first) made a correctly configured directory look like it was
-  sending no roles at all. `groups` and a bare `roles` are deliberately NOT
-  consulted: a directory fills those with things that are not authorization for this
-  world. Every login logs the role names it saw, because "the role is not arriving"
-  and "the role arrived and nothing changed" are indistinguishable from the outside
-  and the first is what costs an afternoon.
+  **The provider may own roles, but not the last admin.** With an admin role
+  mapped (`PIXEL_OIDC_ADMIN_ROLE`, or the field in the panel) the directory grants
+  and revokes admin on every login; revoking the last *usable* admin is refused and
+  logged, because the fix for that mistake would need the very admin panel it just
+  closed. **Roles are read from the ID token AND from userinfo**, and from any
+  claim matching Zitadel's project-roles URN as well as the configured name —
+  because which of those a token carries depends on provider settings this server
+  cannot see, and reading userinfo alone (as it did at first) made a correctly
+  configured directory look like it was sending no roles at all. `groups` and a
+  bare `roles` are deliberately NOT consulted: a directory fills those with things
+  that are not authorization for this world. Every login logs the role names it
+  saw, because "the role is not arriving" and "the role arrived and nothing
+  changed" are indistinguishable from the outside and the first is what costs an
+  afternoon.
   **A provisioned account has no password** (`createProvisionedUser`) rather than
   a random one — a credential that exists is a credential that can be attacked,
   and `/login` refuses a row with no hash outright.
@@ -853,19 +854,38 @@ background only.)
   **Writable from the panel** are the presentation (button label, whether the
   button is offered, whether an ungated navigation goes straight to the provider)
   and — asked for explicitly, so the deployment is not the only way to point this
-  world at a directory — the **connection**: issuer, client id, redirect URI. A
+  world at a directory — the **request this server makes**: issuer, client id,
+  redirect URI, scopes, and the **admin role**. That last one looks like the field
+  to lock hardest and is not: an admin session can already promote anyone through
+  `PATCH /admin/users/:id`, so keeping it in the environment protected almost
+  nothing and cost a redeploy every time a directory named its role differently
+  than the deployment guessed. What it adds over a manual promotion is automation,
+  so it is audited like the rest, and `syncAdminRole` still refuses to revoke the
+  last usable admin. A
   server whose environment names no provider can therefore be switched on entirely
   from the panel, which is why `registerOidcAuth` mounts the routes whenever login
   is possible and they answer 404 until a connection exists, and why the effective
   config is merged per request (`oidcConfig()`) instead of memoized.
-  **Environment-only** are the client secret, the scopes, the roles claim, the
-  admin role, `CLAIM_EXISTING` and `END_SESSION` — those decide who becomes an
-  admin and whose existing local account a directory username may take over.
+  **Environment-only** are the client secret, the roles CLAIM (which claim carries
+  the roles — a wire detail, not a policy), `CLAIM_EXISTING` and `END_SESSION` —
+  the last two decide whose existing local account a directory username may take
+  over.
+  **Scopes are the sharp one of the writable set, and the panel says so beside the
+  field.** They decide which CLAIMS come back, and the roles claim is what
+  `PIXEL_OIDC_ADMIN_ROLE` reads — so removing the scope that carries it (in Zitadel,
+  the project's role assertion or its `…:aud` scope) makes the next sign-in report a
+  user with no roles, which is indistinguishable from a user who lost them and
+  therefore revokes admin from everyone but the last usable one. Nothing in the code
+  can tell those two apart, so nothing tries to; the consequence is written where it
+  is read instead. `openid` is forced on whichever side the scopes come from, and
+  each token is checked against RFC 6749's grammar because the string is written
+  into the authorize URL.
   Three rules make the editable connection safe enough to ship, and all three are
   tested rather than described:
-  **An overridden issuer or client id withholds the secret.** `oidcConfig()` drops
-  `PIXEL_OIDC_CLIENT_SECRET` the moment either half of the identity it was issued
-  for is overridden, so pointing the issuer at a server you control and waiting for
+  **An overridden issuer or client id withholds the secret** — and only those two,
+  because they are the identity the secret was issued for, where scopes and the
+  redirect URI change what is asked and where the answer lands. `oidcConfig()` drops
+  `PIXEL_OIDC_CLIENT_SECRET` the moment either half of that identity is overridden, so pointing the issuer at a server you control and waiting for
   the next login cannot POST the deployment's secret to it. An overridden
   connection is a public client (PKCE only) and the panel says so on the page.
   **Every value is validated where it is stored, on write AND on read.** https
