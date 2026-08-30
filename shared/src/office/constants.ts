@@ -108,9 +108,12 @@ export const BUBBLE_VERTICAL_OFFSET_PX = 24;
 
 export const CANVAS_ERROR_TILE_COLOR = '#FF00FF';
 
-// ── Zoom ─────────────────────────────────────────────────────
-export const ZOOM_MIN = 1;
-export const ZOOM_DEFAULT_DPR_FACTOR = 2;
+// (A `// ── Zoom ──` section with ZOOM_MIN = 1 and ZOOM_DEFAULT_DPR_FACTOR = 2 stood here until
+// 2026-08-28. Nothing read either one — the camera's floor and ceiling are the literals in
+// OfficeScene's wheel handler, `Phaser.Math.Clamp(cam.zoom * …, 1, 14)`, and the default is
+// DEFAULT_ZOOM there. A second, unused copy of the number 1 is exactly the shape this codebase
+// keeps getting caught by, so it is gone rather than wired up: a camera clamp is client
+// presentation and has no business being a shared engine constant.)
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
 export const WAITING_BUBBLE_DURATION_SEC = 2.0;

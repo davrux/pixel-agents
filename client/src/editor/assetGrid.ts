@@ -41,18 +41,3 @@ export function spriteThumbCanvas(sprite: SpriteData | undefined, zoom: Zoom = 1
   }
   return cv;
 }
-
-/** A 1×/2×/4× segmented zoom control (`.pa-seg`, shares paSkin's styling). */
-export function buildZoomSeg(current: Zoom, onSet: (z: Zoom) => void): HTMLDivElement {
-  const seg = document.createElement('div');
-  seg.className = 'pa-seg';
-  for (const z of [1, 2, 4] as const) {
-    const s = document.createElement('div');
-    s.className = 'seg' + (current === z ? ' on' : '');
-    s.textContent = `${z}×`;
-    s.dataset.value = String(z);
-    s.onclick = () => onSet(z);
-    seg.appendChild(s);
-  }
-  return seg;
-}
