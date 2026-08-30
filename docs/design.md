@@ -48,15 +48,24 @@ Movement is tile-based A* on a grid. No physics engine: determinism and headless
 execution are worth more here than a solver, and both are lost the moment
 floating-point contact resolution enters the loop.
 
-### Entities
+### Pawns and controllers
 
-`EntitySync` (id, transform, coarse state) is the base schema; `CharacterSync`
-and `PetSync` extend it, and a new kind of thing — a monster, an NPC, an item —
+`PawnSync` (id, transform, coarse state, **controller**) is the base schema; `CharacterSync`
+and `PetSync` extend it, and a new kind of body — a monster, an NPC, an item that moves —
 extends it too rather than redeclaring a transform. Movement and pose primitives
 live in `shared/src/office/engine/entity.ts` and are shared by everything that moves.
 
-**A player is a `Character` with `isPlayer = true`**, not a parallel code path.
-That is what keeps player and agent behaviour from drifting apart.
+The split is Unreal's: a **pawn** is the body (how it looks, which poses it has, what it can
+physically do) and a **controller** decides where it goes — `HUMAN` (a viewer's input), `AGENT`
+(an external process mirrored through the feed, which reports rather than decides) or `PET` (the
+world itself, via a behaviour tree). `NONE` is the zero so an unclaimed pawn is inert.
+It was a boolean `isPlayer` until protocol 10, which could express two drivers and no more.
+AGENTS.md has the vocabulary and the procedure for adding either.
+
+**A player is a character pawn with `controller = HUMAN`**, not a parallel code path.
+The same body, the same poses, the same occupancy — only the driver differs. That is what
+keeps player and agent behaviour from drifting apart, and it is why the driver is a value on
+the pawn rather than a type of its own.
 
 ### Occupancy is one model
 

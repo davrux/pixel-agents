@@ -8,20 +8,31 @@ import type { DefinitionType } from '@colyseus/schema';
  * chosen so the client can rebuild a render-only Character/Pet cheaply.
  */
 /**
- * Fields every synced entity shares: id + transform + coarse FSM state. Kind-
- * specific schemas (characters, pets, later players/monsters) extend this, so a
- * new entity kind reuses the transform sync instead of redeclaring it.
+ * A PAWN: a body in the world, and what drives it.
+ *
+ * The word is Unreal's and the split is the same one, because it is the split this world already
+ * had without naming it: a pawn is the body — identity, transform, facing, coarse state — and a
+ * CONTROLLER is what decides where it goes. Kind-specific schemas extend this (`CharacterSync`,
+ * `PetSync`), the way `ACharacter` and a vehicle both extend `APawn`; `FurnitureSync` deliberately
+ * does not, because furniture is not possessable.
+ *
+ * `controller` is here rather than on the subclasses because EVERY pawn has one, and because it
+ * makes the next one free: a fourth controller is a new enum value, not a schema change (which is
+ * what a boolean `isPlayer` could never be — see PROTOCOL_VERSION 10).
  */
-export class EntitySync extends Schema {
+export class PawnSync extends Schema {
   @type('int32') id = 0;
   @type('number') x = 0;
   @type('number') y = 0;
   @type('uint8') dir = 0;
   /** Coarse FSM state string (CharacterState / PetState / …). */
   @type('string') state = 'idle';
+  /** Which controller drives this pawn — a {@link ControllerKind}. */
+  @type('uint8') controller = 0;
 }
 
-export class CharacterSync extends EntitySync {
+
+export class CharacterSync extends PawnSync {
   /** Animation pose (CharacterPose): idle|walk|typing|reading|coffee. The
    *  animation *frame phase* is cosmetic and timed client-side from this pose +
    *  dir, so it is intentionally NOT synced (see AGENTS.md). */
@@ -38,7 +49,6 @@ export class CharacterSync extends EntitySync {
   @type('string') matrixEffect = '';
   @type('number') matrixEffectTimer = 0;
   @type('boolean') isSubagent = false;
-  @type('boolean') isPlayer = false;
   // Identity + tooltip
   @type('string') folderName = '';
   @type('string') teamName = '';
@@ -58,7 +68,7 @@ export class CharacterSync extends EntitySync {
   @type('string') workStatus = '';
 }
 
-export class PetSync extends EntitySync {
+export class PetSync extends PawnSync {
   @type('uint8') kind = 0; // 0 dog, 1 cat, 2 duck
   @type('uint8') variant = 0;
   @type('uint8') frame = 0;

@@ -21,29 +21,100 @@ survives: authoritative server state plus client interpolation, never client-sid
 truth. When you add something, ask "does this still hold with N players moving and
 interacting?"
 
-### Three kinds of character, and the words for them
+### Pawns and controllers — the words, and how to add one
 
-The vocabulary is load-bearing, so it is fixed here:
+The vocabulary is load-bearing, so it is fixed here, and it is Unreal's because the split is the
+same one: **a PAWN is a body, a CONTROLLER decides where it goes.**
 
-- **Agents** — the AI participants. Art `assets/characters/char_*.png` (16×32, 7 columns:
-  walk 0-2, typing 3-4, reading 5-6), driven by the feed and the character FSM. `coffee` is
-  declared in `DEFAULT_CHARACTER_SPEC` but **has no art**, so an agent at the machine draws its
-  stand frame; `sit` uses a synthesized seated frame. Both are documented placeholders, not bugs.
-- **Players** — a viewer's own avatar. The same art and the same poses; driven by input instead of
-  the FSM (`addPlayer` marks `isPlayer` so the agent FSM skips it).
-- **Pets** — dogs, cats and ducks. Art `assets/pets/*.png` (16×16, 8 columns: walk 0-2, sit 3-4,
-  idle 5, talk 6-7), their own cadences (`poseCadence.ts`), and their frames are advanced
-  **server-side** (`advancePetFrame`, synced as `PetSync.frame`) because their behaviour is the
-  server's. `drink` is the pose still without art.
+**Pawn** = the body. `PawnSync` (id, transform, facing, coarse state) is the base; `CharacterSync`
+and `PetSync` extend it the way `ACharacter` and a vehicle both extend `APawn`. `FurnitureSync`
+deliberately does not — furniture is not possessable. Everything about HOW a pawn looks and what it
+can physically do belongs on this side: frame size, which sheet, which poses exist, where its frames
+advance. In Unreal the mesh and the Animation Blueprint hang off the Pawn for exactly this reason,
+and a spider, a tank and a soldier share a controller interface while sharing no animation at all.
 
-**"NPC" means a humanoid non-player character, and there are none yet.** Until 2026-08-27 the code
-called every pet an NPC — 250 identifiers, a database column, and three names on the wire — which
-left no word for the thing the Direction above actually promises. It says pet now. When humanoid
-NPCs arrive they should reuse the agent pose set exactly as it stands: the render path resolves
-poses from a **spec**, not from what drives the entity, and `createCharacter(id, skin, null, null)`
-already builds a Character with no agent behind it (that is how a player avatar is made). What
-would be new is only the driver — the equivalent of `engine/pets.ts` for pets. So do not reintroduce
-"npc" as a synonym for pet; the name is spoken for.
+**Controller** = what drives it, as a `ControllerKind` on the pawn:
+
+| | Decision comes from | Body |
+|---|---|---|
+| `HUMAN` | a viewer's input, live | `CharacterSync` (16×32; walk 0-2, typing 3-4, reading 5-6) |
+| `AGENT` | an external process, mirrored through the ingest feed | the same |
+| `PET` | the world itself (`engine/pets.ts` + the mistreevous brain) | `PetSync` (16×16; walk 0-2, sit 3-4, idle 5, talk 6-7) |
+| `NONE` = 0 | nobody — the deny-by-default zero | — |
+
+Four things follow, and each one is the reason this is an enum on the pawn and not a boolean:
+
+- **`AGENT` reports, it does not decide.** `applyEvent` turns an `AgentEvent` into world mutations;
+  there is no behaviour tree behind it and there should not be. Unreal has no word for this — its
+  net roles describe who has authority, and an agent's authority is outside the game entirely.
+  `isSubagent` and `isTeamLead` are ROLES within this controller, not controllers of their own.
+- **`PET` is the one that matches `AAIController`** — `server/src/pet/petBrain.ts` is literally a
+  behaviour tree plus blackboard, with the shared engine as the actuator. That half was built
+  before it had the name.
+- **A command is a property of the controller.** The ten `…Player` methods go through
+  `humanPawn(id)`, which returns the pawn only if a HUMAN drives it. It used to be ten copies of
+  `if (!ch.isPlayer) return`, which is where the eleventh forgets and a `playerMove` moves an agent.
+- **Nothing runs on an unclaimed pawn.** `NONE` is the schema's zero so a pawn nobody claimed is
+  inert rather than privileged; the update loop holds it still and says so once, instead of
+  defaulting it into the agent FSM. `pawnController.int.test.ts` pins all of this.
+
+**"NPC" is the umbrella and both existing controllers are already under it** — an agent and a pet
+are both characters no player controls, which is what the word has meant since tabletop. What does
+NOT exist yet is the fourth cell of that table: a humanoid whose behaviour the world invents (what
+games plainly call an NPC, with `vendor`/`crowd`/`mob` as the role names below it). It is a new
+`ControllerKind` value and a driver, and nothing else — the pose path resolves from a **spec**, not
+from what drives the pawn, and `createCharacter(id, skin, null, null)` already builds a pawn with no
+agent behind it. Until 2026-08-27 the code called every pet an NPC (250 identifiers, a database
+column, three names on the wire), which is why that word is now used only in this sense.
+
+**Adding a CONTROLLER** (a new way for something to be driven) — this is the cheap direction, and
+it is cheap on purpose:
+
+1. A value in `ControllerKind` (`shared/office/types.ts`). **Never 0** — that stays `NONE`, so a
+   pawn nobody claimed is inert rather than privileged.
+2. Something that drives it. Two shapes, and which one you are in decides everything else: a
+   controller that drives a **character** pawn gets a case in the dispatch in `officeState.update`;
+   one that brings its **own pawn kind** does not, and is stated where that pawn is synced (`PET`
+   is this shape — a pet is pet-driven by being in `os.pets`, so the engine never asks).
+   `pawnController.int.test.ts` fails until one of the two exists.
+3. Something that SETS it, on every path that spawns such a pawn (`addAgent`/`addPlayer` are the
+   two today). A pawn must never reach the world still reading `NONE`.
+4. If it accepts commands, an accessor like `humanPawn(id)` that returns the pawn only for that
+   controller — **never** a per-method `if`. Ten copies of one rule is where the eleventh forgets.
+5. If it DECIDES rather than reports, its brain is server-only. `server/src/pet/petBrain.ts` is the
+   pattern (behaviour tree + blackboard, engine as the actuator), and `mmo-readiness` fails a
+   behaviour tree that reaches `client/dist`.
+6. **No `PROTOCOL_VERSION` bump.** It is a new value in a `uint8` that already ships. That is the
+   whole reason the driver is an enum on the pawn instead of a boolean per kind.
+
+**Adding a PAWN KIND** (a new body) is the expensive direction, and it is a wire change:
+
+1. A schema class extending `PawnSync` in `officeSync.ts` — `mmo-readiness` checks that inheritance,
+   because a body that redeclares the transform is a body the rest of the code cannot treat
+   uniformly.
+2. Its own art, poses and cadences (`poseCadence.ts`, `poseFrames.ts`). The body owns how it looks
+   and what it can physically do; the controller never learns about it.
+3. A collection on `RoomState` and a sync loop that sets `controller` on every pawn it writes.
+4. **`PROTOCOL_VERSION` bumps.** A new synced collection changes what a client decodes.
+
+**What must never happen**, each one a mistake this codebase has already made:
+
+- **A boolean that means "which driver".** `isPlayer` could express two and no more, which is why
+  the third driver had to be its own collection and the fourth had nowhere to go. If you find
+  yourself adding `isSomething: boolean` to a pawn to say who moves it, it is a `ControllerKind`.
+- **A controller test inside a command.** Use the accessor; the guard belongs in one place.
+- **Reading the driver from a client payload.** The controller is server state, resolved from the
+  session like everything else in § Security. A client may not say what drives a pawn.
+- **`NONE` as a real driver, or as a spawn's default.** It exists so that "nobody claimed this"
+  cannot be mistaken for "the usual one".
+- **Roles turned into controllers.** `isSubagent` and `isTeamLead` are roles WITHIN the agent
+  controller. A role is what a pawn is doing; a controller is who decides. Inflating one into the
+  other is how you get eight kinds and no dispatch.
+
+Two art gaps live on the pawn side and are documented placeholders, not bugs: a character's
+`coffee` is declared in `DEFAULT_CHARACTER_SPEC` with no frames drawn (the ☕ head marker is what
+you actually see — `markerSpecs`), and a pet's `drink` has none either. Both fall back to the stand
+frame, on the fly, per frame.
 
 ## Architecture invariants
 
@@ -77,11 +148,13 @@ would be new is only the driver — the equivalent of `engine/pets.ts` for pets.
    server-side. Validate identity, length, format and bounds before persisting or
    mutating, and reject silently. A new message ships with its server-side
    validator in the same change.
-8. **Reuse the entity, zone and portal model.** Synced entities extend
-   `EntitySync`; players are `Character`s with `isPlayer = true`. A zone is an
-   instance of the one room type (`filterBy(['zone'])`) — never a room class per
-   zone. Travel is placed furniture with a `portal` action — never a hard-coded
-   coordinate jump.
+8. **Reuse the pawn, zone and portal model.** Synced pawns extend `PawnSync`, and
+   what drives one is a `ControllerKind` ON the pawn — a player's avatar is a
+   character pawn with `controller = HUMAN`, never a boolean of its own (see
+   "Pawns and controllers" above for the vocabulary and the procedure for adding
+   either half). A zone is an instance of the one room type
+   (`filterBy(['zone'])`) — never a room class per zone. Travel is placed
+   furniture with a `portal` action — never a hard-coded coordinate jump.
 9. **Support Chrome *and* Firefox.** Every feature works in both current
    Chrome/Chromium (the Electron shell counts as Chrome) and Firefox. This bites
    hardest in media: use `HTMLMediaElement.setSinkId` (both), not

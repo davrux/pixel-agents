@@ -22,7 +22,7 @@ import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
-import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
+import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog, effectiveAction,
@@ -91,9 +91,9 @@ const SPOT_CHECKPOINT_SEC = 5;
  * world. Clients are pure renderers.
  */
 /** Copy the shared entity transform (position + facing + coarse state) onto a
- *  synced EntitySync. Each kind's sync loop then sets its own fields on top.
+ *  synced PawnSync. Each kind's sync loop then sets its own fields on top.
  *
- *  The target is typed by the four fields this writes rather than as `EntitySync`:
+ *  The target is typed by the four fields this writes rather than as `PawnSync`:
  *  since @colyseus/schema 5, structurally comparing two Schema subclasses at a call
  *  site overruns the compiler's instantiation budget (TS2589) — CharacterSync alone
  *  is enough. Every caller still passes a real synced entity; this only stops the
@@ -1907,14 +1907,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.matrixEffect = ch.matrixEffect ?? '';
       cs.matrixEffectTimer = ch.matrixEffectTimer;
       cs.isSubagent = ch.isSubagent;
-      cs.isPlayer = ch.isPlayer;
+      cs.controller = ch.controller;
       cs.afk = ch.afk ?? false;
-      // Working status, as last reported by this player's own desktop app
-      // (agents and pets have none, hence the isPlayer guard). Synced from here
-      // rather than fetched per client so the hover overlay shows everyone the
-      // same thing, and so nobody's client learns anything about anyone else's
+      // Working status, as last reported by this player's own desktop app (only a human-controlled
+      // pawn has one). Synced from here rather than fetched per client so the hover overlay shows
+      // everyone the same thing, and so nobody's client learns anything about anyone else's
       // TimeTracking beyond the glyph.
-      cs.workStatus = ch.isPlayer ? this.freshWorkStatus(ch.id) : '';
+      cs.workStatus = ch.controller === ControllerKind.HUMAN ? this.freshWorkStatus(ch.id) : '';
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';
@@ -1922,7 +1921,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.activity = this.activity.get(ch.id) ?? '';
       cs.inputTokens = ch.inputTokens;
       cs.outputTokens = ch.outputTokens;
-      if (ch.isPlayer) this.updateMeetingRoomMembership(ch.id, ch.tileCol, ch.tileRow);
+      if (ch.controller === ControllerKind.HUMAN) this.updateMeetingRoomMembership(ch.id, ch.tileCol, ch.tileRow);
     }
     for (const key of [...this.state.characters.keys()]) {
       if (!live.has(key)) this.state.characters.delete(key);
@@ -1941,6 +1940,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.state.pets.set(key, ps);
       }
       writeEntityTransform(ps, pet);
+      // Every pawn says what drives it, pets included: a client can then ask one question of any
+      // pawn instead of inferring the answer from which collection it came out of.
+      ps.controller = ControllerKind.PET;
       ps.kind = pet.kind === PetKind.CAT ? 1 : pet.kind === PetKind.DUCK ? 2 : 0;
       ps.variant = pet.variant;
       ps.frame = pet.frame & 0xff;

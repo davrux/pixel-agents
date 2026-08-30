@@ -16,7 +16,7 @@ import { findPath } from '../layout/tileMap.js';
 import type { WallEdges, GroundMap } from '../types.js';
 import { isReadingToolName } from '../toolUtils.js';
 import type { Character, CharacterPose, InteractionPoint } from '../types.js';
-import { CharacterPose as Pose, CharacterState, Direction } from '../types.js';
+import { ControllerKind, CharacterPose as Pose, CharacterState, Direction } from '../types.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
  *  from the active HookProvider via the `providerCapabilities` message. */
@@ -60,7 +60,7 @@ export function createCharacter(
     bubbleTimer: 0,
     seatTimer: 0,
     isSubagent: false,
-    isPlayer: false,
+    controller: ControllerKind.AGENT,
     afk: false,
     parentAgentId: null,
     matrixEffect: null,

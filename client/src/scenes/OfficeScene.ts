@@ -21,6 +21,7 @@ import {
 import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
 import {
   CharacterState,
+  ControllerKind,
   Direction,
   TILE_SIZE,
   type Action,
@@ -1003,7 +1004,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     rc.matrixEffect = me;
     rc.isSubagent = cs.isSubagent as boolean;
-    rc.isPlayer = cs.isPlayer as boolean;
+    rc.controller = cs.controller as ControllerKind;
     rc.afk = cs.afk as boolean;
     rc.workStatus = ((cs.workStatus as string) ?? '') as WorkStatus;
     rc.folderName = cs.folderName as string;
@@ -4499,7 +4500,7 @@ export class OfficeScene extends Phaser.Scene {
    *  Pure presentation over synced state; the owner itself comes from the
    *  server (`folderName`, the feed's user). */
   private characterLabel(ch: RenderChar): string {
-    if (ch.isPlayer) return ch.folderName || ch.agentName || '';
+    if (ch.controller === ControllerKind.HUMAN) return ch.folderName || ch.agentName || '';
     const owner = ch.folderName || ch.agentName || '';
     return owner ? `${owner}-Agent` : '';
   }
@@ -4530,7 +4531,7 @@ export class OfficeScene extends Phaser.Scene {
       // the world rather than a way to read it. The tag itself did not go away
       // — hovering an agent still names it (see showTip, same characterLabel),
       // which is where a name you look up on demand belongs.
-      if (!ch.isPlayer || !this.alwaysShowLabels) continue;
+      if (ch.controller !== ControllerKind.HUMAN || !this.alwaysShowLabels) continue;
       const name = this.characterLabel(ch);
       if (!name) continue;
       live.add(ch.id);
@@ -4786,13 +4787,13 @@ export class OfficeScene extends Phaser.Scene {
 
     // Players get just their nickname — the activity line ("Working…", "Idle",
     // …) only means something for an agent's task state.
-    const act = ch.isPlayer
+    const act = ch.controller === ControllerKind.HUMAN
       ? null
       : ch.bubbleType === 'permission'
         ? 'Needs approval'
         : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
     const name =
-      this.characterLabel(ch) || (ch.isPlayer ? 'Player' : `agent ${id}`);
+      this.characterLabel(ch) || (ch.controller === ControllerKind.HUMAN ? 'Player' : `agent ${id}`);
     const dot = ch.bubbleType === 'permission' ? '#ffcc00' : ch.isActive ? '#4caf3f' : '';
     const total = (ch.inputTokens ?? 0) + (ch.outputTokens ?? 0);
     const ratio = total / MAX_CONTEXT_TOKENS;

@@ -84,10 +84,12 @@ fi
 
 # 5 — Unified entity model & zone/portal conventions -------------------------
 head "5. Entity / zone / portal model reused (not forked)"
-if grep -qE "extends EntitySync" shared/src/schema/officeSync.ts 2>/dev/null; then
-  pass "synced entities extend EntitySync"
+# PawnSync was EntitySync until the pawn/controller split (protocol 10). The rule is the same:
+# a new synced body reuses the base transform instead of redeclaring it.
+if grep -qE "extends PawnSync" shared/src/schema/officeSync.ts 2>/dev/null; then
+  pass "synced pawns extend PawnSync"
 else
-  bad "no schema extends EntitySync — new entities must reuse the base transform"
+  bad "no schema extends PawnSync — a new synced pawn must reuse the base transform"
 fi
 extra_rooms=$(grep -rlE "extends Room\b" server/src 2>/dev/null | grep -viE "SimRoom" )
 if [[ -n "$extra_rooms" ]]; then

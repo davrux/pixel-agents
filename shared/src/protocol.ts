@@ -47,8 +47,16 @@ export const WORLD_ROOM = 'world';
  *     every zone as "all". The reason for the rename is that the word was needed: this world is
  *     meant to grow humanoid NPCs beside the agents (AGENTS.md), and the name was taken by
  *     dogs, cats and ducks.
+ * 10 — pawns and controllers. `EntitySync` is `PawnSync` and carries `controller` (a
+ *     `ControllerKind`: HUMAN, AGENT, PET, with NONE as the deny-by-default zero), replacing
+ *     `CharacterSync.isPlayer`. A boolean could say "viewer-driven or not" and nothing more, which
+ *     is why a third driver had to be its own collection and a fourth had nowhere to go; an enum on
+ *     the pawn makes the next one a value rather than a schema change. An older build reads the
+ *     removed `isPlayer` as undefined and would show every avatar — its own included — as an
+ *     agent, with an activity line it has no business having, so this is gated rather than
+ *     tolerated.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

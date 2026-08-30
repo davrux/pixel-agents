@@ -102,6 +102,38 @@ export interface InteractionPoint {
 }
 
 // ── Pets ─────────────────────────────────────────────────────
+/**
+ * What drives a pawn. Unreal's split: the pawn is the body, the controller decides where it goes.
+ *
+ * A pawn's kind (character sheet vs pet sheet, which poses it has, where its frames advance) is a
+ * property of the BODY and lives in its schema subclass. This says who is at the wheel, and the
+ * three that exist differ in where the decision comes from — which is the distinction that
+ * actually matters here, and the one the old `isPlayer` boolean could not express:
+ *
+ *  • `HUMAN` — a viewer's input, live. The only controller with a command surface (walk, sit, warp).
+ *  • `AGENT` — an external process, mirrored through the ingest feed. It does not decide; it
+ *    REPORTS, and `applyEvent` turns its events into world mutations. `isSubagent`/`isTeamLead` are
+ *    ROLES within this controller, not controllers of their own.
+ *  • `PET` — the world itself decides (`engine/pets.ts` + the mistreevous brain in
+ *    `server/src/pet/petBrain.ts`, which is a behaviour tree and blackboard exactly as an
+ *    `AAIController` holds one).
+ *
+ * A fourth — a humanoid whose behaviour the world invents, what games plainly call an NPC — is a
+ * new value here and nothing else. That is the whole reason this is an enum on the pawn rather
+ * than a boolean per kind.
+ *
+ * **`NONE` is 0 on purpose.** It is the schema default, so a pawn whose controller was never set
+ * reads as unclaimed and gets nothing — default to deny (AGENTS.md § Security). Making `HUMAN`
+ * the zero value would turn a forgotten assignment into a command surface.
+ */
+export const ControllerKind = {
+  NONE: 0,
+  HUMAN: 1,
+  AGENT: 2,
+  PET: 3,
+} as const;
+export type ControllerKind = (typeof ControllerKind)[keyof typeof ControllerKind];
+
 export const PetKind = { DOG: 'dog', CAT: 'cat', DUCK: 'duck' } as const;
 export type PetKind = (typeof PetKind)[keyof typeof PetKind];
 
@@ -256,8 +288,8 @@ export type ApplianceKind = 'coffee';
  * replaces the old per-feature furniture-catalog flags (conference/arcade/
  * meetingRoom/appliance) and the tile-only `tilePrivateArea` boolean with one
  * model. Player-triggered ones are player-only: pets/agents never trigger any
- * of those (enforced once, server-side, in OfficeState.walkPlayerToAction's
- * `ch.isPlayer` check).
+ * of those (enforced once, server-side: `walkPlayerToAction` goes through
+ * `humanPawn`, so only a HUMAN-controlled pawn can reach it).
  *
  * Trigger rule: a furniture action requires an explicit click (walk-then-
  * open, like today's arcade/kiosk/conference); a tile action fires the
@@ -928,10 +960,13 @@ export interface Character {
   /** Timer to stay seated while inactive after a point reassignment (counts down to 0) */
   seatTimer: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */
+  /** A ROLE within the AGENT controller (a task an agent spawned), not a controller of its own —
+   *  see ControllerKind. `isTeamLead` is the other one. */
   isSubagent: boolean;
-  /** Whether this character is a human player's avatar (viewer-driven, not the
-   *  agent FSM; spawned on join). */
-  isPlayer: boolean;
+  /** What drives this pawn. Was a boolean `isPlayer` until the controllers were named; a boolean
+   *  could say "viewer-driven or not" and nothing more, which is why a third driver had to be a
+   *  separate collection and a fourth had nowhere to go. */
+  controller: ControllerKind;
   /** Player marked themselves away (/afk); shows an "afk" marker, cleared on move. */
   afk?: boolean;
   /** Held WASD direction for continuous keyboard walking, or null. Server-only

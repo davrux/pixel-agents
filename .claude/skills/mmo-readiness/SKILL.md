@@ -39,7 +39,8 @@ if any hard check fails.
 4. **Server authority over input** — lists every `onMessage` handler so you can
    confirm each validates identity/length/format/bounds server-side (client checks
    are UX only).
-5. **Entity / zone / portal model reused** — synced entities extend `EntitySync`;
+5. **Pawn / zone / portal model reused** — synced pawns extend `PawnSync` (the body; a
+   `ControllerKind` on it says what drives it);
    zones are instances of the one room (matchmade by `zone`), not new Room classes;
    travel is placed `portal` furniture + a `ZONES` entry, not a hard-coded jump.
 5b. **Security — nobody unauthorized reaches a resource** (see below).

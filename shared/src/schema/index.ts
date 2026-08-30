@@ -1,1 +1,1 @@
-export { EntitySync, RoomState, CharacterSync, PetSync, FurnitureSync } from './officeSync.js';
+export { PawnSync, RoomState, CharacterSync, PetSync, FurnitureSync } from './officeSync.js';

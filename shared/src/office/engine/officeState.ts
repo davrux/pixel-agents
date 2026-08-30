@@ -70,6 +70,7 @@ import type {
 } from '../types.js';
 import {
   CharacterState,
+  ControllerKind,
   Direction,
   MATRIX_EFFECT_DURATION,
   PetKind as PetKindEnum,
@@ -351,7 +352,7 @@ export class OfficeState {
     // desk of their own (homePointId is the agent-side reservation), and handing
     // them one here would teleport them onto a chair the moment a map is pushed.
     for (const ch of this.characters.values()) {
-      if (ch.homePointId || ch.isPlayer) continue;
+      if (ch.homePointId || ch.controller === ControllerKind.HUMAN) continue;
       const uid = this.findFreeSitPoint();
       if (!uid) continue;
       const point = this.points.get(uid)!;
@@ -905,6 +906,35 @@ export class OfficeState {
     ch.bubbleType = null;
   }
 
+  // ── Human-controlled pawns (a viewer's avatar) ────────────────────
+
+  /**
+   * The pawn `id`, but only if a HUMAN controller drives it.
+   *
+   * Every command below used to open with `if (!ch || !ch.isPlayer) return …` — ten copies of one
+   * rule, which is the shape a mistake hides in: the day one of them forgets, a `playerMove`
+   * message moves an agent. Stated once, it is also the only thing that makes the command surface
+   * a property of the CONTROLLER rather than a habit. Callers still supply the id from the
+   * session, never from a payload (SimRoom maps sessionId → pawn id); this is applicability, not
+   * authorisation.
+   */
+  /** Said once per process, not per pawn or per tick: a Set keyed by id or kind would grow with
+   *  whatever produced the bad value, and this is a code bug, not a data condition. */
+  private unclaimedWarned = false;
+  private warnUnclaimedPawn(kind: number): void {
+    if (this.unclaimedWarned) return;
+    this.unclaimedWarned = true;
+    console.warn(
+      `[office] a character pawn has controller ${kind} — no controller drives it, so it will stand still. ` +
+        `Every pawn gets one at creation (addAgent/addPlayer); a new ControllerKind needs a case in update().`,
+    );
+  }
+
+  private humanPawn(id: number): Character | null {
+    const ch = this.characters.get(id);
+    return ch && ch.controller === ControllerKind.HUMAN ? ch : null;
+  }
+
   // ── Players (human viewer avatars) ────────────────────────────────
 
   /** Spawn a human player's avatar (a viewer-driven Character, not the agent
@@ -913,7 +943,7 @@ export class OfficeState {
     const id = this.nextPlayerId++;
     const skin = preferredSkin ?? this.pickDiverseSkin();
     const ch = createCharacter(id, skin, null, null);
-    ch.isPlayer = true;
+    ch.controller = ControllerKind.HUMAN;
     ch.heldDir = null;
     ch.isActive = false;
     ch.state = CharacterState.IDLE;
@@ -943,8 +973,8 @@ export class OfficeState {
    * putting each back is a different act.
    */
   playerSpot(id: number): PlayerSpot | null {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return null;
+    const ch = this.humanPawn(id);
+    if (!ch) return null;
     const spot: PlayerSpot = { col: ch.tileCol, row: ch.tileRow, dir: ch.dir };
     if (ch.atPointId) spot.pointId = ch.atPointId;
     else if (ch.state === CharacterState.SIT) spot.sit = true;
@@ -971,8 +1001,8 @@ export class OfficeState {
    * - a tile that is no longer walkable leaves them wherever addPlayer put them.
    */
   resumePlayer(id: number, spot: PlayerSpot): void {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return;
+    const ch = this.humanPawn(id);
+    if (!ch) return;
     // Facing is worth keeping even when nothing else can be: a resumed avatar
     // that turns to face south says "you were moved" all by itself. The stored
     // spot is validated where it is read back (appStore.getPlayerSpot), so this
@@ -1087,8 +1117,8 @@ export class OfficeState {
    *  avatar up to it rather than doing nothing. Paths via the shared
    *  pathfinder; returns false if nothing walkable is reachable at all. */
   walkPlayer(id: number, col: number, row: number): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     // Outside the play area (off the map, or a VOID gap in it) — no-op, not
     // "walk to the nearest real tile". A click ON a real but non-walkable
     // tile (a wall, furniture) still resolves to the nearest walkable spot,
@@ -1123,8 +1153,8 @@ export class OfficeState {
    *  nearestWalkableTile snapping like walkPlayer — you can't warp into a
    *  wall. Available to every player (not admin-gated). */
   warpPlayer(id: number, col: number, row: number): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
     // Unlike findFreeSpawnTile/findFreeSitPoint (automatic placement, which must
     // never silently drop someone into a call), a warp is the player's own
@@ -1162,8 +1192,8 @@ export class OfficeState {
    *  direction. Returns false if there's no seat at the tile or it's unreachable.
    *  The seat tile is normally blocked, so it's temporarily unblocked to path. */
   sitPlayerAt(id: number, col: number, row: number): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     let point: InteractionPoint | undefined;
     for (const p of this.points.values()) {
       if (p.posture === 'sit' && p.col === col && p.row === row) {
@@ -1210,8 +1240,8 @@ export class OfficeState {
    *  keyboard walking: while held, the player steps tile-by-tile that way
    *  (validated per step). Abandons any in-flight click-to-walk path. */
   setPlayerDir(id: number, dir: Direction | null): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     if (dir !== null && ch.state === CharacterState.SIT) ch.state = CharacterState.IDLE; // stand up to move
     if (dir !== null) {
       ch.pendingSitFacing = null; // cancel a walk-to-seat
@@ -1229,8 +1259,8 @@ export class OfficeState {
   /** Toggle a player's sit-in-place rest. Sitting clears any movement; standing
    *  returns to idle. Moving (click/WASD) also stands the player up. */
   setPlayerSit(id: number, sit: boolean): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     if (sit) {
       ch.path = [];
       ch.heldDir = null;
@@ -1252,8 +1282,8 @@ export class OfficeState {
   /** Toggle (or set) a player's afk marker. Returns the new state, or null if
    *  the id isn't a player. Cleared automatically on movement (see clearAfk). */
   setPlayerAfk(id: number, on?: boolean): boolean | null {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return null;
+    const ch = this.humanPawn(id);
+    if (!ch) return null;
     ch.afk = on ?? !ch.afk;
     return ch.afk;
   }
@@ -1358,8 +1388,8 @@ export class OfficeState {
    *  not computeApproachTiles), and a talking object is not walked up to at
    *  all. */
   walkPlayerToAction(id: number, anchorCol: number, anchorRow: number): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     // A tile can carry more than one furniture item (e.g. a cup placed on a
     // table via occupiesSurface) — of the ones a click actually reaches (see
     // isClickAction), prefer whichever renders on top: the higher
@@ -1429,8 +1459,8 @@ export class OfficeState {
    *  appliance instead of stacking on one fixed tile. Returns false if there's
    *  no appliance at that tile or no stand tile was derivable (buildStations). */
   useAppliance(id: number, anchorCol: number, anchorRow: number): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
     // An appliance can share its tile with the surface it sits on (e.g. a
     // coffee machine placed atop a counter) — match the appliance item
     // specifically (effectiveAction, so an override counts too — see
@@ -1476,7 +1506,7 @@ export class OfficeState {
     if (ch.state === CharacterState.SIT) return; // sitting still; movement input stands up
     // A new walk (WASD held-step queued below, or a path already queued by
     // walkPlayer/useAppliance) ends any appliance pose right away — players
-    // aren't run through the agent FSM (see the isPlayer branch above), so
+    // aren't run through the agent FSM (see the controller branch above), so
     // nothing else would release this claim once they move on.
     if (ch.atPointId && ch.path.length > 0) releasePoint(ch, this.points);
     // Standing at a tile with a key held → begin a step that way.
@@ -1844,7 +1874,7 @@ export class OfficeState {
   private autoOnSitters(): Array<{ col: number; row: number; dir: Direction }> {
     const out: Array<{ col: number; row: number; dir: Direction }> = [];
     for (const ch of this.characters.values()) {
-      if (ch.isPlayer) {
+      if (ch.controller === ControllerKind.HUMAN) {
         if (ch.state === CharacterState.SIT) out.push({ col: ch.tileCol, row: ch.tileRow, dir: ch.dir });
         continue;
       }
@@ -2103,10 +2133,21 @@ export class OfficeState {
         continue; // skip normal FSM while effect is active
       }
 
-      // Players are viewer-driven, not run by the agent FSM — just advance along
-      // any commanded path (movement input lands in P2).
-      if (ch.isPlayer) {
+      // ── Controller dispatch ────────────────────────────────────────────────────────────
+      // One place decides who moves this pawn, and every kind is named. It was an `if` on a
+      // boolean, which is the same thing for two controllers and nothing at all for three: a
+      // fourth (a humanoid whose behaviour the world invents) is a case here and a value in
+      // ControllerKind, and nowhere else.
+      if (ch.controller === ControllerKind.HUMAN) {
+        // Viewer-driven: no FSM, just advance along whatever path the input commanded.
         this.updatePlayerMovement(ch, dt);
+        continue;
+      }
+      if (ch.controller !== ControllerKind.AGENT) {
+        // NONE (nobody claimed this pawn) or a controller this build does not know. Running the
+        // agent FSM on it would be the wrong default — an unclaimed pawn would start wandering
+        // off to fetch coffee — so it holds still and says so once.
+        this.warnUnclaimedPawn(ch.controller);
         continue;
       }
 
@@ -2344,7 +2385,7 @@ export class OfficeState {
   getConnectedAgentCount(): number {
     let n = 0;
     for (const ch of this.characters.values()) {
-      if (ch.id > 0 && !ch.isSubagent && !ch.isPlayer && ch.matrixEffect !== 'despawn') n++;
+      if (ch.id > 0 && !ch.isSubagent && ch.controller === ControllerKind.AGENT && ch.matrixEffect !== 'despawn') n++;
     }
     return n;
   }
