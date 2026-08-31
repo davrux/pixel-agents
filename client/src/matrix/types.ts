@@ -220,6 +220,42 @@ export interface MxRoom {
   avatarMxc: string | null;
 }
 
+/**
+ * Who can read a room's earlier messages, as `m.room.history_visibility`
+ * states it — the spec's own four values, so nothing has to be translated back.
+ * A room with no such state event reads as `shared`, which is the spec's
+ * default rather than a guess.
+ */
+export type MxHistoryVisibility = 'world_readable' | 'shared' | 'invited' | 'joined';
+
+/**
+ * A room's settings, for the info view: the facts a reader wants before they
+ * type — is this encrypted, who can read what was said before they arrived,
+ * and what the room says it is for.
+ *
+ * Deliberately NOT fields on `MxRoom`: that one is projected for every room on
+ * every sync tick (see `MatrixStore.rooms`), and a topic nobody is looking at
+ * is a string built hundreds of times a minute. This is read on demand instead,
+ * for the one room whose info is on screen.
+ */
+export interface MxRoomInfo {
+  roomId: string;
+  name: string;
+  avatarMxc: string | null;
+  isDirect: boolean;
+  encrypted: boolean;
+  joinedCount: number;
+  invitedCount: number;
+  /** `m.room.topic`'s text, `''` when the room has none. Remote text. */
+  topic: string;
+  historyVisibility: MxHistoryVisibility;
+  /** The room has no `m.room.history_visibility` event, so the value above is
+   *  the spec's default and not something this room chose. Worth saying: "the
+   *  default" and "somebody decided this" read differently to whoever is
+   *  deciding whether to talk here. */
+  historyDefaulted: boolean;
+}
+
 export interface MxMember {
   userId: string;
   displayName: string;

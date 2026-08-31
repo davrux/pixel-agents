@@ -68,7 +68,9 @@ import type {
   MxReader,
   MxMembership,
   MxReplyTo,
+  MxHistoryVisibility,
   MxRoom,
+  MxRoomInfo,
   MxSession,
   MxSecretRequest,
   MxStatus,
@@ -1099,6 +1101,49 @@ export class MatrixStore {
   room(roomId: string): MxRoom | undefined {
     const room = this.client?.getRoom(roomId);
     return room ? this.toPublicRoom(room) : undefined;
+  }
+
+  /**
+   * A room's settings, for the info view — read on demand rather than carried
+   * on `MxRoom` (see MxRoomInfo for why).
+   *
+   * Both state events are already in the SDK's room state (sync delivers them),
+   * so this is map lookups and no request: an info view that needed a round trip
+   * would need a loading state, an error state and a cache, for two strings the
+   * client has had since it joined. `RoomStateEvent.Update` is already wired to
+   * the `rooms` event, so a topic changed by somebody else repaints this.
+   */
+  roomInfo(roomId: string): MxRoomInfo | undefined {
+    const room = this.client?.getRoom(roomId);
+    if (!room) return undefined;
+    const ownEvent = room.currentState.getStateEvents(sdk.EventType.RoomMember, this.userId);
+    const ownContent = (ownEvent?.getContent() as { is_direct?: boolean } | undefined) ?? undefined;
+
+    const topicEvent = room.currentState.getStateEvents(sdk.EventType.RoomTopic, '');
+    const rawTopic = (topicEvent?.getContent() as { topic?: unknown } | undefined)?.topic;
+    // A redacted m.room.topic leaves an empty content behind, so "no topic" and
+    // "topic removed" are the same thing here — which is what they mean.
+    const topic = typeof rawTopic === 'string' ? rawTopic : '';
+
+    const hvEvent = room.currentState.getStateEvents(sdk.EventType.RoomHistoryVisibility, '');
+    const rawHv = (hvEvent?.getContent() as { history_visibility?: unknown } | undefined)?.history_visibility;
+    const known: MxHistoryVisibility[] = ['world_readable', 'shared', 'invited', 'joined'];
+    const named = known.find((v) => v === rawHv);
+    return {
+      roomId: room.roomId,
+      name: room.name,
+      avatarMxc: this.roomAvatarMxc(room),
+      isDirect: this.isDirectRoom(room, ownContent),
+      encrypted: room.hasEncryptionStateEvent(),
+      joinedCount: room.getJoinedMemberCount(),
+      invitedCount: room.getInvitedMemberCount(),
+      topic,
+      // A value this client doesn't know falls back to the spec's default the
+      // same way a missing event does, and is reported as defaulted for the same
+      // reason: what the view can honestly say is "not something this room set".
+      historyVisibility: named ?? 'shared',
+      historyDefaulted: named === undefined,
+    };
   }
 
   totalUnread(): number {

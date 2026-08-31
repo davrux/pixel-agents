@@ -1,6 +1,6 @@
 /**
- * Matrix chat panel: the view router, all nine views (login, rooms, room,
- * members, media, threads, newdm, newgroup, join, encryption), the composer and
+ * Matrix chat panel: the view router, every view (login, rooms, room, members,
+ * media, threads, info, newdm, newgroup, join, encryption), the composer and
  * the pin/status strip.
  *
  * Rendered into whatever container the host gives it (the panel's `.pa-body`).
@@ -16,7 +16,7 @@
  * costs one click instead of ◀ + a scroll through the room list.
  *
  * Navigation is a small explicit stack: `rooms` is the root, `room` pushes on
- * top of it, `members`/`media`/`threads` push on top of `room`, and
+ * top of it, `members`/`media`/`threads`/`info` push on top of `room`, and
  * `newdm`/`newgroup`/`join`/`encryption` push directly on top of `rooms`.
  *
  * A THREAD is not a view of its own: it is a second `room` frame carrying a
@@ -44,6 +44,7 @@ import {
   type MxEvent,
   type MxMember,
   type MxRoom,
+  type MxRoomInfo,
   type MxSession,
   type MxThreadInfo,
 } from './types.js';
@@ -89,6 +90,7 @@ type ViewName =
   | 'members'
   | 'media'
   | 'threads'
+  | 'info'
   | 'newdm'
   | 'newgroup'
   | 'join'
@@ -201,6 +203,7 @@ export class MatrixUI {
   private roomMembersBtn!: HTMLButtonElement;
   private roomMediaBtn!: HTMLButtonElement;
   private roomThreadsBtn!: HTMLButtonElement;
+  private roomInfoBtn!: HTMLButtonElement;
   /** Shown instead of the room's picture while a thread is open, so the header
    *  says which of the two the composer below it is pointed at. */
   private roomThreadTagEl!: HTMLSpanElement;
@@ -260,6 +263,13 @@ export class MatrixUI {
   // ---- threads view ----
   private threadsStatusEl!: HTMLDivElement;
   private threadsListEl!: HTMLDivElement;
+
+  // ---- info view ----
+  private infoAvatarSlot!: HTMLDivElement;
+  private infoNameEl!: HTMLDivElement;
+  private infoSubEl!: HTMLDivElement;
+  private infoTopicEl!: HTMLDivElement;
+  private infoFactsEl!: HTMLDivElement;
 
   // ---- members view ----
   private membersJoinedLabel!: HTMLDivElement;
@@ -335,6 +345,7 @@ export class MatrixUI {
     this.buildMembersView();
     this.buildMediaView();
     this.buildThreadsView();
+    this.buildInfoView();
     this.buildNewDmView();
     this.buildNewGroupView();
     this.buildJoinView();
@@ -431,6 +442,11 @@ export class MatrixUI {
         if (this.openRoomId && (top?.view === 'room' || top?.view === 'members')) {
           this.renderRoomView(this.openRoomId, this.openThreadId);
         }
+        // Everything the info view draws is room state, and RoomStateEvent.Update
+        // arrives here as `rooms` — so a topic or a history-visibility setting
+        // changed by somebody else while the view is open repaints rather than
+        // sitting there stale until it is reopened.
+        if (top?.view === 'info' && top.roomId) this.renderInfoView(top.roomId);
       }),
       this.store.on('timeline', (roomId) => {
         const top = this.stack[this.stack.length - 1];
@@ -558,6 +574,9 @@ export class MatrixUI {
       } else if (saved.view === 'threads' && saved.roomId) {
         this.openRoomView(saved.roomId);
         this.openThreadsView();
+      } else if (saved.view === 'info' && saved.roomId) {
+        this.openRoomView(saved.roomId);
+        this.openInfoView();
       } else {
         this.stack = [{ view: 'rooms' }];
       }
@@ -614,6 +633,9 @@ export class MatrixUI {
         break;
       case 'threads':
         if (frame.roomId) this.renderThreadsView(frame.roomId);
+        break;
+      case 'info':
+        if (frame.roomId) this.renderInfoView(frame.roomId);
         break;
       case 'newdm':
         this.renderNewDmView();
@@ -759,6 +781,16 @@ export class MatrixUI {
       /* surfaced via store.threadsError() in the next render */
     });
     this.renderCurrent();
+  }
+
+  /** What this chat IS, beside the room itself: its description, whether it is
+   *  encrypted, and what somebody joining now would be able to read. */
+  private openInfoView(): void {
+    const top = this.stack[this.stack.length - 1];
+    if (!top || top.view !== 'room' || !top.roomId || top.threadId) return;
+    this.stack.push({ view: 'info', roomId: top.roomId });
+    this.renderCurrent();
+    this.sections.get('info')?.focus();
   }
 
   private pushRootView(view: 'newdm' | 'newgroup' | 'join' | 'encryption' | 'notifications'): void {
@@ -1545,6 +1577,14 @@ export class MatrixUI {
     this.roomMembersBtn.addEventListener('click', () => this.openMembersView());
     subhead.appendChild(this.roomMembersBtn);
 
+    this.roomInfoBtn = document.createElement('button');
+    this.roomInfoBtn.className = 'pa-b';
+    this.roomInfoBtn.textContent = 'ℹ️';
+    this.roomInfoBtn.title = 'About this chat';
+    this.roomInfoBtn.setAttribute('aria-label', 'About this chat');
+    this.roomInfoBtn.addEventListener('click', () => this.openInfoView());
+    subhead.appendChild(this.roomInfoBtn);
+
     col.appendChild(subhead);
 
     this.roomNoticeEl = document.createElement('div');
@@ -1778,6 +1818,9 @@ export class MatrixUI {
     else this.roomAvatarSlot.removeAttribute('aria-label');
     this.roomMediaBtn.style.display = inThread ? 'none' : '';
     this.roomMembersBtn.style.display = inThread ? 'none' : '';
+    // Same rule as the two above: the info view is about the ROOM, and backing
+    // out of it would land in the room and lose the thread.
+    this.roomInfoBtn.style.display = inThread ? 'none' : '';
 
     this.roomThreadsBtn.style.display = inThread ? 'none' : '';
     // A thread's unread count is its own and reading the room never clears it,
@@ -2623,6 +2666,197 @@ export class MatrixUI {
 
     row.title = info.participated ? 'You are in this thread' : 'Open thread';
     return row;
+  }
+
+  // ==================================================================
+  // info view
+  // ==================================================================
+
+  /**
+   * What this chat is, as opposed to what is being said in it: its description,
+   * whether it is end-to-end encrypted, and what somebody who joins now would be
+   * able to read.
+   *
+   * All three are room state the client has held since it joined, so this view
+   * fetches nothing and has no loading or error state — see
+   * `MatrixStore.roomInfo`. It is read-only on purpose: changing a topic or a
+   * room's history visibility is a power-level-gated write whose refusal needs
+   * its own handling, and none of it is what a reader opens this for.
+   */
+  private buildInfoView(): void {
+    const section = document.createElement('section');
+    section.dataset.view = 'info';
+    // Focusable so openInfoView can land focus here: the ℹ button that opened
+    // this view is inside the room section, which is now display:none, so focus
+    // would otherwise fall back to <body> and the next keystroke would reach
+    // OfficeScene (walking the avatar) instead of the panel — the same reason the
+    // encryption view carries a tabIndex.
+    section.tabIndex = -1;
+
+    const head = document.createElement('div');
+    head.className = 'mx-subhead';
+    const back = document.createElement('button');
+    back.className = 'pa-b';
+    back.textContent = '◀';
+    back.addEventListener('click', () => this.goBack());
+    head.appendChild(back);
+    const title = document.createElement('span');
+    title.className = 'mx-room-name';
+    title.textContent = 'ℹ️ About this chat';
+    head.appendChild(title);
+    section.appendChild(head);
+
+    const ident = document.createElement('div');
+    ident.className = 'mx-info-id';
+    this.infoAvatarSlot = document.createElement('div');
+    this.infoAvatarSlot.className = 'mx-av-slot';
+    ident.appendChild(this.infoAvatarSlot);
+    const identMain = document.createElement('div');
+    identMain.className = 'mx-info-id-main';
+    this.infoNameEl = document.createElement('div');
+    this.infoNameEl.className = 'nm';
+    this.infoNameEl.dir = 'auto';
+    this.infoSubEl = document.createElement('div');
+    this.infoSubEl.className = 'sub';
+    identMain.append(this.infoNameEl, this.infoSubEl);
+    ident.appendChild(identMain);
+    section.appendChild(ident);
+
+    const topicLbl = document.createElement('div');
+    topicLbl.className = 'grouplbl';
+    topicLbl.textContent = 'DESCRIPTION';
+    section.appendChild(topicLbl);
+    this.infoTopicEl = document.createElement('div');
+    this.infoTopicEl.className = 'mx-info-topic';
+    // Remote text, and a topic is the one string in a room that is often several
+    // paragraphs — so `dir=auto`, `white-space:pre-wrap` in the skin, and
+    // textContent only (renderInfoView), never innerHTML.
+    this.infoTopicEl.dir = 'auto';
+    section.appendChild(this.infoTopicEl);
+
+    const factsLbl = document.createElement('div');
+    factsLbl.className = 'grouplbl';
+    factsLbl.textContent = 'PRIVACY';
+    section.appendChild(factsLbl);
+    this.infoFactsEl = document.createElement('div');
+    this.infoFactsEl.className = 'mx-info-facts';
+    section.appendChild(this.infoFactsEl);
+
+    this.sections.set('info', section);
+    this.root.appendChild(section);
+  }
+
+  private renderInfoView(roomId: string): void {
+    if (!this.store) return;
+    const info = this.store.roomInfo(roomId);
+    const name = info?.name ?? roomId;
+    this.paintAvatarSlot(this.infoAvatarSlot, roomId, name, info?.avatarMxc ?? null);
+    this.infoNameEl.textContent = name;
+    this.infoNameEl.title = name;
+    this.infoSubEl.textContent = info ? this.infoMemberLine(info) : '';
+
+    this.infoTopicEl.classList.toggle('muted', !info?.topic);
+    this.infoTopicEl.textContent = info?.topic
+      ? info.topic
+      : info?.isDirect
+        ? 'No description — a direct message rarely has one.'
+        : 'No description set.';
+
+    // A room this client doesn't have is a room whose state it cannot report, and
+    // guessing at a padlock is the one thing this view must never do.
+    if (!info) {
+      const unknown = document.createElement('div');
+      unknown.className = 'muted';
+      unknown.textContent = "This chat isn't loaded on this device, so its settings can't be shown.";
+      this.infoFactsEl.replaceChildren(unknown);
+      return;
+    }
+
+    const facts: HTMLElement[] = [];
+    facts.push(
+      info.encrypted
+        ? this.buildInfoFact(
+            '🔒',
+            'End-to-end encrypted',
+            'Only the people in this chat can read what is said here — the homeserver keeps the messages, but not the keys.',
+          )
+        : this.buildInfoFact(
+            '🔓',
+            'Not encrypted',
+            'Whoever runs the homeserver can read what is said here.',
+          ),
+    );
+    facts.push(this.buildHistoryFact(info));
+    this.infoFactsEl.replaceChildren(...facts);
+  }
+
+  /** "Direct message" / "4 members, 1 invited" — the line under the name. */
+  private infoMemberLine(info: MxRoomInfo): string {
+    if (info.isDirect) return 'Direct message';
+    const members = info.joinedCount === 1 ? '1 member' : `${info.joinedCount} members`;
+    return info.invitedCount > 0 ? `${members}, ${info.invitedCount} invited` : members;
+  }
+
+  /**
+   * What a new member gets to read, in words rather than in the spec's four
+   * enum values.
+   *
+   * The encrypted case carries a caveat rather than a flat answer, and it is not
+   * hedging: `m.room.history_visibility` says what the SERVER will hand out, and
+   * in an encrypted room reading it also needs the message keys, which are
+   * distributed per device and not by this setting alone. Saying "they can read
+   * everything" in an encrypted room would be wrong about the half that decides.
+   */
+  private buildHistoryFact(info: MxRoomInfo): HTMLElement {
+    const [icon, head, detail] =
+      info.historyVisibility === 'world_readable'
+        ? ['🌐', 'Anyone can read the history', 'Even somebody who never joins can read what was said here, from the beginning.']
+        : info.historyVisibility === 'shared'
+          ? ['📖', 'New members see the whole history', 'Somebody who joins later can read every earlier message.']
+          : info.historyVisibility === 'invited'
+            ? ['📨', 'New members see the history from their invite', 'Somebody who joins later can read messages from the moment they were invited, and nothing before that.']
+            : ['🚪', 'New members see nothing older', 'Somebody who joins later can only read messages sent after they joined.'];
+    const el = this.buildInfoFact(icon, head, detail);
+    if (info.historyDefaulted) {
+      this.appendInfoNote(el, "This chat never set this, so it is Matrix's default.");
+    }
+    if (info.encrypted && info.historyVisibility !== 'joined') {
+      this.appendInfoNote(
+        el,
+        'Because this chat is encrypted, reading older messages also needs the keys for them — a new member may still see "unable to decrypt" instead.',
+      );
+    }
+    return el;
+  }
+
+  /** One row of the privacy block: an icon, a headline, and the sentence that
+   *  says what it actually means for whoever is about to type. */
+  private buildInfoFact(icon: string, head: string, detail: string): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'mx-info-fact';
+    const i = document.createElement('span');
+    i.className = 'i';
+    i.setAttribute('aria-hidden', 'true');
+    i.textContent = icon;
+    row.appendChild(i);
+    const main = document.createElement('div');
+    main.className = 'main';
+    const hd = document.createElement('div');
+    hd.className = 'hd';
+    hd.textContent = head;
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = detail;
+    main.append(hd, sub);
+    row.appendChild(main);
+    return row;
+  }
+
+  private appendInfoNote(fact: HTMLElement, text: string): void {
+    const note = document.createElement('div');
+    note.className = 'note';
+    note.textContent = text;
+    fact.querySelector('.main')?.appendChild(note);
   }
 
   private async refreshMembers(roomId: string): Promise<void> {

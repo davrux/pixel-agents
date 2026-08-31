@@ -129,7 +129,17 @@ export function injectMatrixSkin(): void {
    to reach the panel's edges, so each view pads itself instead. */
 #pa-matrix-panel .pa-body{padding:0}
 
-#pa-mx{display:flex;flex-direction:column;flex:1;min-height:0;position:relative;font-family:'FS Pixel Sans',ui-monospace,monospace}
+/* min-width:0 here and on every section below, and both are load-bearing: a
+   stretched column-flex item is floored at its own min-content width, so
+   whatever the widest row inside NEEDS becomes the panel's width — and the
+   docked window (width in px, overflow:hidden) does not grow with it, it clips.
+   Measured the day the room header grew a fourth button: the header wanted
+   432px inside a 420px panel and the rightmost button (ℹ️) was drawn half off
+   the edge, i.e. unclickable rather than merely tight. With these, every view is
+   exactly the window's width and the flexible child in the row (the chat's
+   name, which ellipsizes) gives up the space instead. Both are needed — #pa-mx
+   stops the body imposing it, the section stops #pa-mx imposing it. */
+#pa-mx{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;position:relative;font-family:'FS Pixel Sans',ui-monospace,monospace}
 
 /* Every view is a plain <section data-view="…">; without this it is a flex
    *item* of #pa-mx, not a flex *container* itself, and every flex:1/flex:0 0
@@ -137,7 +147,7 @@ export function injectMatrixSkin(): void {
    footer) is inert. The room view's own children already carry their own
    padding (subhead/timeline/composer), so it gets zero — every other view
    gets the panel's usual ~0.7rem gutter. */
-#pa-mx > section{display:flex;flex-direction:column;flex:1;min-height:0;gap:0.5rem}
+#pa-mx > section{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;gap:0.5rem}
 /* room + encryption both pin a subhead above their own scroller, so the section
    itself must not pad or scroll — see .mx-encbody below. */
 #pa-mx > section[data-view="room"],#pa-mx > section[data-view="encryption"]{padding:0;gap:0}
@@ -221,7 +231,15 @@ export function injectMatrixSkin(): void {
    own glyph's line box, and the colour-emoji font (🖼, 👥) rides a taller one
    than ◀ in FS Pixel Sans — three buttons, three heights. */
 .mx-subhead .pa-b{height:2rem;padding:0 0.55rem;display:inline-flex;align-items:center;justify-content:center;line-height:1}
-.mx-room-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Child selector, not the bare class: the .mx-subhead > span rule above is
+   (0,1,1) and outranks .mx-room-name (0,1,0) whatever the order, so this
+   element's flex:1
+   was inert and the ellipsis it declares could never trigger — the name kept its
+   full text width and pushed the buttons past the panel's right edge instead.
+   Measured with four buttons in the row and a 12-character room name: the subhead
+   wanted 429px of 423, and the ℹ came out half-drawn. */
+.mx-subhead > .mx-room-name{flex:1;min-width:0}
+.mx-room-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 #pa-mx-list,#pa-mx-tl{overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0}
 #pa-mx-tl,#pa-mx-tl .mx-day,#pa-mx-tl .mx-grp{overflow-anchor:none}
@@ -387,6 +405,41 @@ export function injectMatrixSkin(): void {
 /* The 🧵 that replaces the chat's picture in the header while a thread is open:
    the one thing saying which of the two the composer below is pointed at. */
 .mx-thread-tag{flex:0 0 auto;font-size:0.95rem;line-height:1}
+
+/* ---- info view (MatrixUI buildInfoView) -------------------------------------
+   Who/what the chat is, then its description, then a privacy fact per row. The
+   name and the topic are remote text of unbounded length, so both wrap here
+   (overflow-wrap:anywhere) rather than getting the one-line ellipsis every
+   list row uses — this view has the height, and a truncated topic is exactly the
+   sentence somebody opened it to read. */
+.mx-info-id{display:flex;align-items:center;gap:0.5rem;padding:0.15rem 0.15rem 0.1rem}
+.mx-info-id .mx-av{width:2.6rem;height:2.6rem;font-size:0.9rem;border-radius:0.45rem}
+.mx-info-id-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.1rem}
+.mx-info-id-main .nm{
+  color:#f5f3f0;font-size:1rem;font-weight:600;overflow-wrap:anywhere;
+  font-family:'FS Pixel Sans',ui-monospace,monospace;
+}
+.mx-info-id-main .sub{color:#adb0b2;font-size:0.8rem}
+.mx-info-topic{
+  background:#141312;border:2px solid #0a0908;border-radius:0.45rem;padding:0.5rem 0.6rem;
+  color:#f1efec;font-size:0.9rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
+  font-family:'FS Pixel Sans',ui-monospace,monospace;
+}
+.mx-info-topic.muted{color:#818586;font-style:italic}
+.mx-info-facts{display:flex;flex-direction:column;gap:0.4rem}
+.mx-info-fact{
+  display:flex;gap:0.5rem;align-items:flex-start;
+  background:#242220;border:2px solid #0a0908;border-radius:0.45rem;padding:0.5rem 0.6rem;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-info-fact .i{flex:0 0 auto;font-size:1rem;line-height:1.3}
+.mx-info-fact .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.15rem}
+.mx-info-fact .hd{
+  color:#f1efec;font-size:0.9rem;font-weight:600;
+  font-family:'FS Pixel Sans',ui-monospace,monospace;
+}
+.mx-info-fact .sub{color:#adb0b2;font-size:0.8rem;line-height:1.45}
+.mx-info-fact .note{color:#818586;font-size:0.75rem;line-height:1.45}
 
 /* Delivery gutter (timeline.ts setStatus): a check on your newest confirmed
    message, replaced by the pictures of whoever has read up to that message.
