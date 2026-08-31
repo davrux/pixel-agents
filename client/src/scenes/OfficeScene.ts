@@ -1853,7 +1853,7 @@ export class OfficeScene extends Phaser.Scene {
    * direction to the server, which steps the avatar tile-by-tile (server-
    * authoritative); null on release. The most recently pressed key wins, so
    * releasing it resumes the previously held one. Ignored while typing in a field,
-   * or when this viewer has no avatar (spectator).
+   * while a modifier is held, or when this viewer has no avatar (spectator).
    */
   private setupKeyboardMovement(): void {
     const KEY_DIR: Record<string, Direction> = {
@@ -1869,7 +1869,13 @@ export class OfficeScene extends Phaser.Scene {
     const held: string[] = []; // pressed movement keys, oldest → newest
     let sent: Direction | null = null;
 
-    const blocked = (): boolean => {
+    // Every hotkey below is a BARE key, so a held Ctrl/Cmd/Alt means the
+    // BROWSER's shortcut was meant, not ours. Without this, Ctrl+C over a
+    // selected chat line matched KeyC: the avatar sat down AND the
+    // preventDefault ate the copy. Shift stays ours — nothing here binds it,
+    // and it is the modifier a player rests a finger on.
+    const blocked = (e: KeyboardEvent): boolean => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return true;
       if (this.myPlayerId === null || this.arcadeUI.isOpen) return true;
       const el = document.activeElement;
       const tag = el?.tagName;
@@ -1891,7 +1897,7 @@ export class OfficeScene extends Phaser.Scene {
 
     window.addEventListener('keydown', (e) => {
       if (!(e.code in KEY_DIR) || e.repeat) return;
-      if (blocked()) return;
+      if (blocked(e)) return;
       e.preventDefault();
       if (!held.includes(e.code)) held.push(e.code);
       flush();
@@ -1911,7 +1917,7 @@ export class OfficeScene extends Phaser.Scene {
     });
     // Sit toggle (C): rest in place; moving stands the avatar back up (server-side).
     window.addEventListener('keydown', (e) => {
-      if (e.code !== 'KeyC' || e.repeat || blocked()) return;
+      if (e.code !== 'KeyC' || e.repeat || blocked(e)) return;
       e.preventDefault();
       const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
       const sitting = me?.state === CharacterState.SIT;
@@ -1921,7 +1927,7 @@ export class OfficeScene extends Phaser.Scene {
     // there is one (mirrors the bar mic button), and never while typing
     // (blocked() covers chat/inputs).
     window.addEventListener('keydown', (e) => {
-      if (e.code !== 'KeyM' || e.repeat || blocked()) return;
+      if (e.code !== 'KeyM' || e.repeat || blocked(e)) return;
       const call = this.activeCall();
       if (!call) return;
       e.preventDefault();
