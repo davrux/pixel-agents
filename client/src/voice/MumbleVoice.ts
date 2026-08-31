@@ -110,6 +110,10 @@ export interface MumbleVoiceState {
   master: number;
   /** Channel we are currently in, or 0 before sync. */
   channel: number;
+  /** That channel's name, or '' while the tree has not arrived (the id alone
+   *  means nothing outside this client — see OfficeScene.reportVoiceChannel,
+   *  which is what puts it over the player's head for everyone else). */
+  channelName: string;
   /** True once the server reports a registered account for us. */
   registered: boolean;
   /** OS notifications when someone joins or leaves our channel. */
@@ -349,6 +353,7 @@ export class MumbleVoice {
       micThreshold: this.micThreshold,
       master: this.master,
       channel: this.myChannel,
+      channelName: this.channels.get(this.myChannel)?.name ?? '',
       registered: this.registered,
       joinAlerts: this.joinAlerts,
       host: this.host,
@@ -526,6 +531,9 @@ export class MumbleVoice {
       }
       case 'channel':
         this.channels.set(e.channel.id, e.channel);
+        // A channel arriving or being renamed can change our own channel's NAME
+        // without changing its id, and the name is part of the state now.
+        if (e.channel.id === this.myChannel) this.emitState();
         this.emitTree();
         return;
       case 'channelRemove':

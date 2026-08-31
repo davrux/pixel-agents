@@ -66,6 +66,12 @@ export class CharacterSync extends PawnSync {
    *  viewer's hover overlay shows the same glyph. Appended last — see the afk
    *  comment above. */
   @type('string') workStatus = '';
+  /** Name of the Mumble channel this player's desktop app is sitting in
+   *  ('' = not connected, no Mumble, or the browser build), mirrored here so
+   *  every viewer's hover overlay can say where to go to talk to them. Same
+   *  shape and same trust model as `workStatus` above — self-reported by the
+   *  one process that knows, cosmetic, and it grants nothing. Appended last. */
+  @type('string') voiceChannel = '';
 }
 
 export class PetSync extends PawnSync {

@@ -49,6 +49,10 @@ export interface MumbleUIHooks {
   /** Called when the user joins/leaves, so the scene can park zone voice. */
   onJoin?: () => void;
   onLeave?: () => void;
+  /** The Mumble channel we are sitting in, by name, or '' when we are in none
+   *  (disconnected, or not connected yet). Fires on every change and only on a
+   *  change, so the host can report it to the world without deduping. */
+  onChannel?: (name: string) => void;
 }
 
 /** Per-user volume choices. A dropdown keeps each user on one line, where a
@@ -550,7 +554,13 @@ export class MumbleUI {
   }
 
   private renderState(s: MumbleVoiceState): void {
+    const channel = s.connected ? s.channelName : '';
+    if (channel !== (this.lastState && this.lastState.connected ? this.lastState.channelName : '')) {
+      this.hooks.onChannel?.(channel);
+    }
     this.lastState = s;
+    // Everything below this line draws the panel; the hook above is about the
+    // CONNECTION, so it runs before the guard that gives up on drawing.
     if (!this.track) return;
     const enabled = this.voice?.isEnabled === true;
     this.track.classList.toggle('on', enabled);

@@ -55,8 +55,13 @@ export const WORLD_ROOM = 'world';
  *     removed `isPlayer` as undefined and would show every avatar — its own included — as an
  *     agent, with an activity line it has no business having, so this is gated rather than
  *     tolerated.
+ * 11 — `CharacterSync.voiceChannel`: the Mumble channel a player is sitting in, so a hover
+ *     tells you where to go to talk to them. A new synced field, appended last, so an older
+ *     client decodes everything before it correctly and simply never shows the line — but
+ *     appending is only safe by CONVENTION here (the field order IS the wire format), and the
+ *     gate is what makes "appended last" a rule rather than a hope.
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

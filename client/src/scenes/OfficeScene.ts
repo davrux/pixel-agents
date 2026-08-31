@@ -105,6 +105,9 @@ type RenderChar = Partial<Character> & {
   /** Synced TimeTracking status ('' = none) — a mirror of an external system,
    *  so it lives on the synced schema and here, not on the engine's Character. */
   workStatus?: WorkStatus;
+  /** Synced Mumble channel name ('' = not in one). Same reasoning as workStatus:
+   *  an external system this world only mirrors. */
+  voiceChannel?: string;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
@@ -338,6 +341,9 @@ export class OfficeScene extends Phaser.Scene {
   private timePanel?: HTMLDivElement;
   private timeTracking?: TimeTrackingUI;
   private workStatus: WorkStatus = '';
+  /** The Mumble channel last reported to the server, kept for the same reason as
+   *  `workStatus` above: a reconnect or a zone change has to re-send it. */
+  private voiceChannel = '';
   private moreBtn?: HTMLButtonElement;
   /** Grouped popover panels — all share the .pa-panel style; mutually exclusive. */
   private audioPanel?: HTMLDivElement;
@@ -567,7 +573,11 @@ export class OfficeScene extends Phaser.Scene {
     // nothing, so the panel and its bar button simply stay hidden.
     const mumbleBody = this.mumblePanel?.querySelector<HTMLElement>('.pa-body');
     if (mumbleBody) {
-      this.mumble = new MumbleUI(mumbleBody, {});
+      // The channel is the one thing about this Mumble connection that leaves the
+      // machine: everyone's hover overlay shows where its owner can be talked to.
+      this.mumble = new MumbleUI(mumbleBody, {
+        onChannel: (name) => this.reportVoiceChannel(name),
+      });
       this.mumble.start();
       // Reopen the window if it was left open — an application window is
       // expected back where you left it.
@@ -714,6 +724,7 @@ export class OfficeScene extends Phaser.Scene {
       // Each zone is its own room instance with its own state, so a status
       // reported to the last one means nothing here — re-send what we have.
       if (this.workStatus) this.reportWorkStatus(this.workStatus);
+      if (this.voiceChannel) this.reportVoiceChannel(this.voiceChannel);
       // Auto-reconnect: if the connection drops (e.g. a server restart), wait for
       // the server to come back and reload — so the player is back in the game
       // without a manual refresh. A consented leave / our own navigation is skipped.
@@ -1007,6 +1018,7 @@ export class OfficeScene extends Phaser.Scene {
     rc.controller = cs.controller as ControllerKind;
     rc.afk = cs.afk as boolean;
     rc.workStatus = ((cs.workStatus as string) ?? '') as WorkStatus;
+    rc.voiceChannel = (cs.voiceChannel as string) ?? '';
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
     rc.agentName = cs.agentName as string;
@@ -1340,6 +1352,21 @@ export class OfficeScene extends Phaser.Scene {
   private reportWorkStatus(status: WorkStatus): void {
     this.workStatus = status;
     this.room?.send('workStatus', { status });
+  }
+
+  /**
+   * Tell the server which Mumble channel this player is sitting in, so hovering
+   * anyone says where to go to talk to them — the same trip a working status
+   * makes, and for the same reason: the Mumble connection lives in the Electron
+   * main process, so this client is the only thing in the world that knows.
+   *
+   * '' means "in no channel", which is also every browser build (MumbleUI
+   * renders nothing there and the hook never fires) — so the line simply never
+   * appears rather than appearing empty.
+   */
+  private reportVoiceChannel(name: string): void {
+    this.voiceChannel = name;
+    this.room?.send('voiceChannel', { name });
   }
 
   /** Meeting-room kiosk, clicked/arrived-at: fetch the caller's OWN rooms first
@@ -4763,6 +4790,10 @@ export class OfficeScene extends Phaser.Scene {
         .pa-tip .dot{width:0.65rem;height:0.65rem;border-radius:50%;flex:0 0 auto;}
         .pa-tip .act{color:#f1efec;font-size:1.2rem;line-height:1.15;}
         .pa-tip .name{color:#adb0b2;font-size:0.9rem;line-height:1.15;}
+        /* Where this player can be talked to. Muted like the name, because it is
+           an attribute of them and not an alert — and the 🎧 carries the meaning,
+           so the text does not have to shout to be found. */
+        .pa-tip .voice{color:#818586;font-size:0.85rem;line-height:1.25;}
         .pa-tip .work{font-size:1rem;line-height:1;flex:0 0 auto;padding-left:0.15rem;}
         .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#141312;margin-top:0.2rem;}
         .pa-tip .fuel > div{height:100%;}
@@ -4809,9 +4840,17 @@ export class OfficeScene extends Phaser.Scene {
     const work = ch.workStatus ?? '';
     const workIcon = WORK_STATUS_ICON[work] ?? '';
 
+    // The Mumble channel they are sitting in, synced the same way and from the
+    // same place — their own desktop app, the only thing that knows. Under the
+    // name rather than beside it: it is a name too, of arbitrary length, and the
+    // row is nowrap.
+    const voice = ch.voiceChannel ?? '';
+
     this.tip.innerHTML =
       `<div class="row">${dot ? `<span class="dot" style="background:${dot}"></span>` : ''}` +
-      `<div>${act ? `<div class="act">${esc(act)}</div>` : ''}<div class="name">${esc(name)}</div></div>` +
+      `<div>${act ? `<div class="act">${esc(act)}</div>` : ''}<div class="name">${esc(name)}</div>` +
+      (voice ? `<div class="voice" title="In Mumble — ${esc(voice)}">🎧 ${esc(voice)}</div>` : '') +
+      `</div>` +
       (workIcon ? `<span class="work" title="${esc(WORK_STATUS_LABEL[work])}">${workIcon}</span>` : '') +
       `</div>` +
       (total > 0

@@ -8,6 +8,7 @@ import {
   conferenceKey,
   PROTOCOL_VERSION,
   cleanName,
+  MAX_NAME_LEN,
   playerAvatarSkinId,
   findCommand,
   mayRunCommand,
@@ -167,6 +168,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * empty chair.
    */
   private readonly workStatuses = new Map<number, { status: WorkStatus; at: number }>();
+  /**
+   * Self-reported Mumble channel name per player avatar id — the desktop app is
+   * the only thing that knows it, since the Mumble connection lives there.
+   *
+   * No timestamp, unlike workStatuses above, and the difference is the report's
+   * shape rather than an oversight: a working status is POLLED, so silence is
+   * ambiguous and has to age out, while a channel is reported on the EDGE — the
+   * client sends '' the moment it disconnects or moves, and the only way to stop
+   * reporting without saying so is to lose the session, which deletes the entry
+   * outright (onLeave, portalGo).
+   */
+  private readonly voiceChannels = new Map<number, string>();
   /** Seconds until the next player-spot checkpoint (see checkpointSpots). */
   private spotCheckpointIn = SPOT_CHECKPOINT_SEC;
   /** The spot last written per user, so a checkpoint only writes what changed —
@@ -679,6 +692,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
       this.workStatuses.delete(playerId);
+      this.voiceChannels.delete(playerId);
     }
     // Release this user's owned avatar from the zone once their last session
     // here is gone, so other clients can drop the no-longer-needed sprite data.
@@ -1380,6 +1394,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.workStatuses.set(id, { status: msg.status, at: Date.now() });
     });
 
+    // A player's desktop app reporting which Mumble channel it is sitting in, so
+    // a hover says where to go to talk to them. Cosmetic and unverifiable for
+    // exactly the same reason as workStatus above — the Mumble connection lives
+    // in the Electron main process and this server holds none — so it is bounded
+    // rather than checked, and keyed by the sender's OWN avatar so it can never
+    // name anyone else's. `cleanName` is what bounds it, and it is doing real
+    // work here: the name comes from a Mumble server nobody in this world
+    // administers, and it lands in every other viewer's tooltip.
+    this.onMessage('voiceChannel', (client, msg: { name?: unknown }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const name = cleanName(msg?.name, MAX_NAME_LEN);
+      if (name) this.voiceChannels.set(id, name);
+      else this.voiceChannels.delete(id);
+    });
+
     // Personal viewer prefs — keyed per user (never global). Anonymous viewers
     // (open dev) keep them client-side only. The client applies them locally on
     // toggle regardless; the server write is just cross-device persistence.
@@ -1561,6 +1591,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.os.removePlayer(id);
       this.players.delete(client.sessionId);
       this.workStatuses.delete(id);
+      this.voiceChannels.delete(id);
       client.send('m', { type: 'zoneTransition', zone: target.id });
     });
 
@@ -1914,6 +1945,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // everyone the same thing, and so nobody's client learns anything about anyone else's
       // TimeTracking beyond the glyph.
       cs.workStatus = ch.controller === ControllerKind.HUMAN ? this.freshWorkStatus(ch.id) : '';
+      // Likewise the Mumble channel: a pawn nobody sits behind runs no voice client.
+      cs.voiceChannel = ch.controller === ControllerKind.HUMAN ? this.voiceChannels.get(ch.id) ?? '' : '';
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';
