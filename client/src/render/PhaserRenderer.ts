@@ -468,9 +468,13 @@ export class PhaserRenderer {
    *  property of a call you are in, and a meeting shows it in its own window,
    *  on the tile of the person it belongs to. */
   private markerSpecs(ch: Character): MarkerSpec[] {
-    if (!ch.afk && ch.pose !== 'coffee') return NO_MARKERS;
+    if (!ch.afk && ch.pose !== 'coffee' && ch.pose !== 'drink') return NO_MARKERS;
     const specs: MarkerSpec[] = [];
+    // ☕ at a coffee machine, 💧 at a fountain. The glyph is what actually tells a viewer what is
+    // happening: neither pose has drawn frames, and until they do the body stands in its neutral
+    // frame (see POSE_FALLBACK). Same sip loop for both — a sip is a sip.
     if (ch.pose === 'coffee') specs.push({ text: '☕', size: MARKER_SIZE_COFFEE, sip: true });
+    if (ch.pose === 'drink') specs.push({ text: '💧', size: MARKER_SIZE_COFFEE, sip: true });
     if (ch.afk) specs.push({ text: '💤 afk', size: MARKER_SIZE_AFK, color: MARKER_AFK_COLOR });
     return specs;
   }

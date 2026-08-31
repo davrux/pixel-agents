@@ -114,12 +114,19 @@ test('a player at the coffee machine comes back holding the cup', () => {
   const ch = os.getCharacter(after);
   assert.ok(ch);
   assert.equal(ch.atPointId, spot.pointId);
-  assert.equal(getCharacterPose(ch), CharacterPose.COFFEE, 'the ☕ pose is what the player sees restored');
+  // The APPLIANCE decides the standing pose now, so the caller says which one it is — the server
+  // reads it off the point (`os.points.get(ch.atPointId)?.appliance`). Without it a held point is
+  // plain idle, which is what a seat should be: this used to answer COFFEE for any point at all.
+  const applianceOf = (): 'coffee' | 'drink' | 'pet_feed' | undefined =>
+    ch.atPointId ? os.points.get(ch.atPointId)?.appliance : undefined;
+  assert.equal(applianceOf(), 'coffee', 'the machine is a coffee appliance');
+  assert.equal(getCharacterPose(ch, applianceOf()), CharacterPose.COFFEE, 'the ☕ pose is what the player sees restored');
+  assert.equal(getCharacterPose(ch), CharacterPose.IDLE, 'without knowing the appliance it is just standing');
   // Held indefinitely, exactly as a click-started pose is (a pet's break is the
   // timed one) — a resumed cup must not vanish a second later.
   assert.equal(ch.atPointTimer, 0);
   for (let i = 0; i < 40; i++) os.update(0.05);
-  assert.equal(getCharacterPose(ch), CharacterPose.COFFEE, 'the pose timed out — players hold it until they move');
+  assert.equal(getCharacterPose(ch, applianceOf()), CharacterPose.COFFEE, 'the pose timed out — players hold it until they move');
 });
 
 test('a spot on open floor resumes exactly, facing the same way', () => {

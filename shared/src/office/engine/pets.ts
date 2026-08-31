@@ -27,7 +27,7 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
-import type { WallEdges, GroundMap } from '../types.js';
+import type { ApplianceKind, WallEdges, GroundMap } from '../types.js';
 import type { Pet, PetKind } from '../types.js';
 import { Direction, PetState } from '../types.js';
 
@@ -72,6 +72,10 @@ export interface PetTarget {
   furnitureUid: string | null;
   /** Claimed appliance station uid (for 'station' targets), else null. */
   stationId: string | null;
+  /** For a 'station' target: which appliance it is, which decides what the pet DOES there —
+   *  a fountain is drinking, a bowl is eating. Carried on the target rather than looked up on
+   *  arrival, because the point is known where the target is chosen and the pet is not. */
+  appliance?: ApplianceKind;
   /** Claimed agent id (for 'agent' targets), else null. */
   agentId: number | null;
   sitCol: number;
@@ -150,6 +154,7 @@ export function createPet(
     targetAction: null,
     targetSeatId: null,
     targetStationId: null,
+    targetAppliance: null,
     targetAgentId: null,
     targetFurnitureUid: null,
     sitTileCol: 0,
@@ -228,6 +233,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           pet.targetAction = target.action;
           pet.targetSeatId = target.seatId;
           pet.targetStationId = target.stationId;
+          pet.targetAppliance = target.appliance ?? null;
           pet.targetAgentId = target.agentId;
           pet.targetFurnitureUid = target.furnitureUid;
           pet.sitTileCol = target.sitCol;
@@ -322,6 +328,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       break;
     }
 
+    case PetState.FEED:
     case PetState.DRINK: {
       // Stand at the appliance for the duration, reusing sitTimer as the stay
       // timer. Cycle the frame so an authored `drink` track animates; with no
@@ -374,6 +381,9 @@ function beginTargetAction(pet: Pet): void {
 }
 
 /** Stand at a claimed appliance station for a while (coffee). Idle pose. */
+/** Stand at the claimed appliance. WHICH state depends on what the appliance is: a bowl is a
+ *  meal (`FEED`), anything else a drink. The state is what the client reads to pick the pose, so
+ *  this one line is the whole difference between a pet lapping at a fountain and eating. */
 function startDrinking(pet: Pet): void {
   const center = tileCenter(pet.sitTileCol, pet.sitTileRow);
   pet.tileCol = pet.sitTileCol;
@@ -381,7 +391,7 @@ function startDrinking(pet: Pet): void {
   pet.x = center.x;
   pet.y = center.y;
   pet.dir = pet.sitFacingDir;
-  pet.state = PetState.DRINK;
+  pet.state = pet.targetAppliance === 'pet_feed' ? PetState.FEED : PetState.DRINK;
   pet.sitTimer = randomRange(PET_DRINK_MIN_SEC, PET_DRINK_MAX_SEC);
   pet.frame = 0;
   pet.frameTimer = 0;
@@ -426,6 +436,9 @@ export function petPose(pet: Pet): string {
       return 'sit';
     case PetState.DRINK:
       return 'drink';
+    case PetState.FEED:
+      return 'feed';
+
     case PetState.TALK:
       return 'talk';
     default:

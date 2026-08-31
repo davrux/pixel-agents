@@ -28,7 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
 
-import { poseFrame, posePlaybackLength, sheetRowForDir, standColumn } from '@pixel/shared/office/sprites/poseFrames.js';
+import { poseChain, poseFrame, posePlaybackLength, sheetRowForDir, standColumn } from '@pixel/shared/office/sprites/poseFrames.js';
 import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, type CharacterSpec } from '@pixel/shared/office/sprites/characterSpec.js';
 import { getCharacterSprites, setCharacterTemplates, spriteForPose } from '@pixel/shared/office/sprites/spriteData.js';
 import { Direction } from '@pixel/shared/office/types.js';
@@ -193,4 +193,63 @@ test('a facing is not a row number — the mapping is stated, not assumed', () =
   assert.equal(sheetRowForDir(Direction.LEFT), 3);
   assert.notEqual(sheetRowForDir(Direction.UP), Direction.UP);
   assert.notEqual(sheetRowForDir(Direction.LEFT), Direction.LEFT);
+});
+
+test('a pose with no art of its own borrows it, and every resolver borrows the same', () => {
+  // The point of the chain: a new pose costs no art. `drink` borrows `coffee`, `feed` borrows
+  // `drink` and therefore `coffee` too, and a sheet with none of them still lands on idle and then
+  // the stand column. So a pose can be added to the engine without touching a single sheet.
+  assert.deepEqual(poseChain('drink'), ['drink', 'coffee', 'idle']);
+  assert.deepEqual(poseChain('feed'), ['feed', 'drink', 'coffee', 'idle'], 'the chain is transitive');
+  assert.deepEqual(poseChain('idle'), ['idle'], 'idle does not borrow from itself');
+  assert.deepEqual(poseChain('walk'), ['walk', 'idle']);
+
+  // A sheet that has coffee art but no drink art: the drink pose must draw the coffee columns,
+  // and the LENGTH must come from the same track — otherwise the frame counter advances over one
+  // track and the renderer draws out of another, which is an animation playing the wrong pictures
+  // with nothing to point at.
+  const withCoffee: CharacterSpec = {
+    frame: { w: 16, h: 32 },
+    tracks: [
+      { name: 'walk', frames: 3, play: 'pingpong' },
+      { name: 'coffee', frames: 2, play: 'loop' },
+    ],
+  };
+  const cols = (pose: string): number[] =>
+    Array.from({ length: posePlaybackLength(withCoffee, pose, 5) }, (_, f) => poseFrame(withCoffee, pose, f, 5).col);
+  assert.deepEqual(cols('coffee'), [3, 4], 'the lender itself');
+  assert.deepEqual(cols('drink'), [3, 4], 'drink borrowed the coffee columns');
+  assert.deepEqual(cols('feed'), [3, 4], 'feed borrowed them through drink');
+
+  // And with no coffee either, the borrow ends at the stand column rather than drawing a gap.
+  const walkOnly: CharacterSpec = { frame: { w: 16, h: 32 }, tracks: [{ name: 'walk', frames: 3, play: 'pingpong' }] };
+  assert.deepEqual(
+    Array.from({ length: posePlaybackLength(walkOnly, 'feed', 3) }, (_, f) => poseFrame(walkOnly, 'feed', f, 3).col),
+    [standColumn(walkOnly)],
+  );
+});
+
+test('the borrow table has no cycles', () => {
+  // `poseChain` carries a visited set, so a link back cannot hang — it truncates, which is worse
+  // in a quiet way: two poses would each borrow from the other and neither would be wrong enough
+  // to notice. The table is read from source because it is private on purpose; what is asserted is
+  // the graph, not the function that walks it.
+  const src = readFileSync(
+    join(import.meta.dirname, '..', '..', 'shared', 'src', 'office', 'sprites', 'poseFrames.ts'),
+    'utf8',
+  );
+  const block = src.match(/const POSE_FALLBACK: Readonly<Record<string, string>> = \{([\s\S]*?)\};/);
+  assert.ok(block, 'POSE_FALLBACK not found — did it move or change shape?');
+  const links = new Map([...block[1].matchAll(/(\w+):\s*'(\w+)'/g)].map((m) => [m[1], m[2]]));
+  assert.ok(links.size > 0, 'parsed no links out of POSE_FALLBACK');
+
+  for (const start of links.keys()) {
+    const seen = new Set<string>();
+    let at: string | undefined = start;
+    while (at) {
+      assert.equal(seen.has(at), false, `POSE_FALLBACK cycles: ${[...seen, at].join(' → ')}`);
+      seen.add(at);
+      at = links.get(at);
+    }
+  }
 });

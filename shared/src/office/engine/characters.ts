@@ -13,10 +13,11 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
-import type { WallEdges, GroundMap } from '../types.js';
+import type {
+  ApplianceKind, WallEdges, GroundMap } from '../types.js';
 import { isReadingToolName } from '../toolUtils.js';
 import type { Character, CharacterPose, InteractionPoint } from '../types.js';
-import { ControllerKind, CharacterPose as Pose, CharacterState, Direction } from '../types.js';
+import { APPLIANCES, ControllerKind, CharacterPose as Pose, CharacterState, Direction } from '../types.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
  *  from the active HookProvider via the `providerCapabilities` message. */
@@ -326,9 +327,17 @@ export function updateCharacter(
   }
 }
 
-/** Derive a character's animation pose from its state. Server-side: this is the
- *  only place that reads stationId / tool, so the renderer can stay pose-only. */
-export function getCharacterPose(ch: Character): CharacterPose {
+/**
+ * Derive a character's animation pose from its state. Server-side: this is the
+ * only place that reads stationId / tool, so the renderer can stay pose-only.
+ *
+ * `appliance` is the kind of the point the character is holding, when it is holding one and the
+ * caller knows — the server always does (`os.points.get(ch.atPointId)?.appliance`). It decides
+ * WHICH standing pose: a coffee machine gives `coffee`, a fountain `drink`. Without it a held
+ * point reads as plain idle rather than defaulting to coffee, which is what this did for every
+ * point of any kind, seats included.
+ */
+export function getCharacterPose(ch: Character, appliance?: ApplianceKind): CharacterPose {
   switch (ch.state) {
     case CharacterState.WALK:
       return Pose.WALK;
@@ -338,8 +347,10 @@ export function getCharacterPose(ch: Character): CharacterPose {
       return isReadingTool(ch.currentTool) ? Pose.READING : Pose.TYPING;
     case CharacterState.IDLE:
     default:
-      // Standing at an interaction station (coffee machine, …) vs plain idle.
-      return ch.atPointId ? Pose.COFFEE : Pose.IDLE;
+      // Standing at an appliance vs plain idle. The appliance decides the pose; a point with no
+      // appliance (a seat) or an unknown one is just standing there.
+      if (!ch.atPointId || !appliance) return Pose.IDLE;
+      return (APPLIANCES[appliance].pose as CharacterPose) ?? Pose.IDLE;
   }
 }
 

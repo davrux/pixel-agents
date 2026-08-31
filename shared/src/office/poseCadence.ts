@@ -41,6 +41,10 @@ export const CHARACTER_POSE_FRAME_MS: Readonly<Record<string, number>> = {
   typing: TYPE_FRAME_DURATION_SEC * 1000,
   reading: TYPE_FRAME_DURATION_SEC * 1000,
   coffee: COFFEE_FRAME_DURATION_SEC * 1000,
+  /** A sip at a fountain, at the coffee cadence — the same gesture, and one number until somebody
+   *  has a reason for two. The ART is borrowed from coffee too (POSE_FALLBACK), but that is a
+   *  separate decision: the cadence belongs to the ACTION, the frames to whatever is drawn. */
+  drink: COFFEE_FRAME_DURATION_SEC * 1000,
   sit: TYPE_FRAME_DURATION_SEC * 1000,
 };
 
@@ -55,6 +59,8 @@ export const PET_POSE_FRAME_MS: Readonly<Record<string, number>> = {
   idle: PET_IDLE_FRAME_DURATION_SEC * 1000,
   sit: PET_TAIL_WAG_DURATION_SEC * 1000,
   drink: PET_DRINK_FRAME_DURATION_SEC * 1000,
+  /** Eating from a bowl, at the drinking cadence. Same reasoning as a character's `drink`. */
+  feed: PET_DRINK_FRAME_DURATION_SEC * 1000,
   talk: PET_TALK_FRAME_DURATION_SEC * 1000,
 };
 

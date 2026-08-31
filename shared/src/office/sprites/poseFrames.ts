@@ -77,6 +77,52 @@ export function standColumn(spec: CharacterSpec): number {
 }
 
 /**
+ * Which pose a pose borrows its art from when it was never drawn.
+ *
+ * The point is that a NEW pose costs no art: `drink` looks enough like `coffee` (stand there,
+ * hold something) that a sheet with coffee frames animates a drink pose for free, and a sheet
+ * with neither still lands on `idle` and then the stand column. So a pose can be added to the
+ * engine without touching a single sheet, and any sheet that later gains the art inherits it
+ * everywhere it is borrowed.
+ *
+ * Linked rather than spelled out per pose: `feed → drink → coffee` falls out of two entries, and
+ * changing what `drink` borrows from does not require remembering that `feed` borrows from it.
+ * That is also why `poseChain` carries a visited set — a link back would otherwise loop, and
+ * `poseFrames.int.test.ts` walks every chain to prove none does.
+ *
+ * What is borrowed is only the ART. The CADENCE stays the pose's own (`poseCadence.ts`), because
+ * the action decides the tempo: a drink played at the coffee cadence would be indistinguishable
+ * from a coffee break, which is the opposite of what the borrow is for.
+ */
+const POSE_FALLBACK: Readonly<Record<string, string>> = {
+  drink: 'coffee',
+  feed: 'drink',
+};
+
+/**
+ * The track names to try, in order: the pose itself, whatever it borrows from, then `idle`.
+ *
+ * Every resolver walks THIS — the column (`poseFrame`), the playback length
+ * (`posePlaybackLength`) and the reference pixel path (`spriteForPose`). It used to be three
+ * hand-mirrored `if` chains, and the third had already drifted: it did not know about `sit` at
+ * all. A resolver that walked a different chain than the one the length came from would put the
+ * server's frame counter and the drawn column out of step, which is invisible until an animation
+ * plays the wrong pictures.
+ */
+export function poseChain(pose: string): string[] {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  let name: string | undefined = pose;
+  while (name && !seen.has(name)) {
+    seen.add(name);
+    chain.push(name);
+    name = POSE_FALLBACK[name];
+  }
+  if (!seen.has('idle')) chain.push('idle');
+  return chain;
+}
+
+/**
  * A track's columns in playback order, or null when the track is absent or its columns
  * are not in the sheet. Ping-pong with more than two frames plays 0 → 1 → 2 → 1, which
  * is why three drawn steps make a four-step cycle.
@@ -113,11 +159,16 @@ export function poseFrame(
 
   const own = sequence(table.get(pose), available);
   if (own) return { col: wrap(own), synthSit: false };
-  // `sit` is the one pose the engine fills in when it was never drawn.
+  // `sit` is the one pose the engine fills in when it was never drawn, and it comes BEFORE the
+  // borrow chain on purpose: a sheet with an idle track would otherwise hand a seated character
+  // its standing idle frames instead of the lowered stand column. A transform, not a track, which
+  // is why it is not in POSE_FALLBACK.
   if (pose === 'sit') return { col: Math.min(stand, Math.max(0, available - 1)), synthSit: true };
-  if (pose !== 'idle') {
-    const idle = sequence(table.get('idle'), available);
-    if (idle) return { col: wrap(idle), synthSit: false };
+  // Then whatever this pose borrows from, in order (see poseChain). The first entry is the pose
+  // itself, already tried above.
+  for (const name of poseChain(pose).slice(1)) {
+    const borrowed = sequence(table.get(name), available);
+    if (borrowed) return { col: wrap(borrowed), synthSit: false };
   }
   return { col: Math.min(stand, Math.max(0, available - 1)), synthSit: false };
 }
@@ -135,10 +186,13 @@ export function posePlaybackLength(spec: CharacterSpec | undefined, pose: string
   const table = slots(s);
   const own = sequence(table.get(pose), available);
   if (own) return own.length;
-  if (pose === 'sit') return 1;
-  if (pose !== 'idle') {
-    const idle = sequence(table.get('idle'), available);
-    if (idle) return idle.length;
+  if (pose === 'sit') return 1; // the synthesized seated frame is one frame
+  // The SAME chain poseFrame walks. If these two ever disagree, the frame counter advances over
+  // one track's length while the renderer draws out of another — an animation playing the wrong
+  // pictures, with nothing to point at.
+  for (const name of poseChain(pose).slice(1)) {
+    const borrowed = sequence(table.get(name), available);
+    if (borrowed) return borrowed.length;
   }
   return 1;
 }

@@ -111,6 +111,55 @@ it is cheap on purpose:
   controller. A role is what a pawn is doing; a controller is who decides. Inflating one into the
   other is how you get eight kinds and no dispatch.
 
+**An appliance decides what happens there, and who may.** `APPLIANCES` (`office/types.ts`) is the
+one table: per `ApplianceKind` it gives the POSE adopted there and whether a character and a pet may
+use it.
+
+| kind | pose | character | pet |
+|---|---|---|---|
+| `coffee` | `coffee` | yes | no |
+| `drink` | `drink` | yes | yes |
+| `pet_feed` | `feed` | no | yes |
+
+A tile declares its kind through `actionPose` (default `coffee` — and `buildPoints` defaults it
+again, because an action may arrive as `{ kind: 'appliance' }` with no pose at all and storing
+`undefined` would leave that appliance usable by nobody). **Where a map has none of its kind, a
+pawn simply never goes** — the absence is the answer, not a special case. `pet_feed` is named for
+whom it feeds rather than for the action, deliberately: drinking is not a pet thing, anyone may use
+a fountain, and a bowl is the only one of the three that is species-specific.
+
+Occupancy stays **per stand tile**: `buildPoints` derives one point per adjacent walkable tile, so
+several pawns use one appliance at once, each holding its own tile. There is no per-appliance
+exclusivity and none is wanted — two dogs at one bowl is fine.
+
+That replaced a lookup filtering by nothing at all: both sides walked every entry in `points`,
+which holds seats as well as appliance tiles, so an agent on a coffee break could stand on a free
+desk chair and a "drinking" pet could claim the coffee machine and block an agent out of it.
+`appliances.int.test.ts` pins the matrix and the negative that matters — a placed coffee machine
+never makes a pet thirsty.
+
+**A pose borrows art from another pose rather than requiring its own** (`POSE_FALLBACK` +
+`poseChain`, `sprites/poseFrames.ts`). `feed → drink → coffee → idle → the stand column`: a pose can
+be added to the engine without touching a single sheet, and a sheet that later gains coffee frames
+lends them to drink and feed for free. Three rules keep it honest:
+
+- **All three resolvers walk the same chain** — the column (`poseFrame`), the playback length
+  (`posePlaybackLength`) and the reference pixel path (`spriteForPose`). They were three hand-mirrored
+  `if` chains and the third had already drifted (it never learned about `sit`). A resolver walking a
+  different chain than the length came from puts the frame counter and the drawn column out of step,
+  which shows up as an animation playing the wrong pictures with nothing to point at.
+- **Only the ART is borrowed.** The cadence stays the pose's own (`poseCadence.ts`), because the
+  action decides the tempo — a drink at the coffee cadence would be indistinguishable from a coffee
+  break, which is the opposite of what the borrow is for.
+- **`sit` is not in the table.** It is a transform (the stand column drawn lower, `synthSit`), not
+  another track, and it resolves BEFORE the chain — otherwise a sheet with an idle track would hand
+  a seated character its standing frames.
+
+The chain is linked rather than spelled out per pose, so changing what `drink` borrows does not
+require remembering that `feed` borrows through it; `poseChain` carries a visited set and
+`poseFrames.int.test.ts` walks the table to prove it is acyclic. Until frames exist, a **marker**
+carries the state: ☕ at a coffee machine, 💧 at a fountain, both on the same sip loop.
+
 Two art gaps live on the pawn side and are documented placeholders, not bugs: a character's
 `coffee` is declared in `DEFAULT_CHARACTER_SPEC` with no frames drawn (the ☕ head marker is what
 you actually see — `markerSpecs`), and a pet's `drink` has none either. Both fall back to the stand

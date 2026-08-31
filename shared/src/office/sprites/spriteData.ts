@@ -1,5 +1,5 @@
 import { PALETTE_COUNT } from '../constants.js';
-import { posePlaybackLength } from './poseFrames.js';
+import { poseChain, posePlaybackLength } from './poseFrames.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
 import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, resolvePetConfig } from './characterSpec.js';
@@ -246,13 +246,17 @@ export function spriteForPose(
   frame: number,
   sprites: CharacterSprites,
 ): SpriteData {
-  // A pose uses its same-named track when present. When the action has no
-  // dedicated sequence, fall back to the `idle` track (every entity's neutral
-  // animation); finally the bare stand frame if even idle is undrawn.
-  const seq = sprites.byTrack[pose]?.[dir];
-  if (seq && seq.length > 0) return seq[frameIndex(frame, seq.length)];
-  const idle = pose !== 'idle' ? sprites.byTrack['idle']?.[dir] : undefined;
-  if (idle && idle.length > 0) return idle[frameIndex(frame, idle.length)];
+  // A pose uses its same-named track when present; otherwise whatever it borrows from, in order,
+  // ending at `idle` (every entity's neutral animation) and then the bare stand frame.
+  //
+  // `poseChain` is shared with poseFrames.ts's two resolvers rather than restated here. It used to
+  // be restated, and had already drifted: this path never learned about `sit`, so the reference
+  // implementation and the index model disagreed about one pose. poseFrames.int.test.ts compares
+  // the two across every bundled sheet, which is the only reason that stayed harmless.
+  for (const name of poseChain(pose)) {
+    const seq = sprites.byTrack[name]?.[dir];
+    if (seq && seq.length > 0) return seq[frameIndex(frame, seq.length)];
+  }
   // Every caller feeds this straight to the renderer, so it must always answer with
   // pixels. `dir` comes off synced state, and a client decoding a schema it doesn't
   // share reads it as any uint8 — an out-of-range one used to return undefined and

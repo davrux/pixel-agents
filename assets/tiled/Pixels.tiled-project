@@ -1,247 +1,406 @@
 {
-    "automappingRulesFile": "",
-    "commands": [],
-    "compatibilityVersion": 1100,
-    "extensionsPath": "extensions",
-    "folders": [
-        "."
-    ],
-    "properties": [],
-    "propertyTypes": [
+  "automappingRulesFile": "",
+  "commands": [],
+  "compatibilityVersion": 1100,
+  "extensionsPath": "extensions",
+  "folders": [
+    "."
+  ],
+  "properties": [],
+  "propertyTypes": [
+    {
+      "id": 3,
+      "name": "FurnitureTile",
+      "type": "class",
+      "useAs": [
+        "tile"
+      ],
+      "color": "#ffa0ffa0",
+      "drawFill": true,
+      "members": [
         {
-            "id": 3,
-            "name": "FurnitureTile",
-            "type": "class",
-            "useAs": [
-                "tile"
-            ],
-            "color": "#ffa0ffa0",
-            "drawFill": true,
-            "members": [
-                { "name": "id", "type": "string", "value": "" },
-                { "name": "label", "type": "string", "value": "" },
-                { "name": "canSitOn", "type": "bool", "value": false },
-                { "name": "sitFacing", "type": "string", "value": "", "propertyType": "SitFacing" },
-                { "name": "petCanSitOn", "type": "bool", "value": false },
-                { "name": "canWalkOver", "type": "bool", "value": false },
-                { "name": "backgroundTiles", "type": "int", "value": 0 },
-                { "name": "onState", "type": "string", "value": "" },
-                { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
-                { "name": "actionVideo", "type": "bool", "value": false },
-                { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" },
-                { "name": "meetingRoomName", "type": "string", "value": "" }
-            ]
+          "name": "id",
+          "type": "string",
+          "value": ""
         },
         {
-            "id": 21,
-            "name": "DecalTile",
-            "type": "class",
-            "useAs": [
-                "tile"
-            ],
-            "color": "#ffc8a0ff",
-            "drawFill": true,
-            "members": [
-                { "name": "id", "type": "string", "value": "" },
-                { "name": "label", "type": "string", "value": "" }
-            ]
+          "name": "label",
+          "type": "string",
+          "value": ""
         },
         {
-            "id": 4,
-            "name": "FurnitureObject",
-            "type": "class",
-            "useAs": [
-                "object"
-            ],
-            "color": "#ffa0ffa0",
-            "drawFill": false,
-            "members": [
-                { "name": "approachSides", "type": "string", "value": "", "propertyType": "ApproachSide" },
-                { "name": "approachThrough", "type": "bool", "value": false },
-                { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
-                { "name": "actionVideo", "type": "bool", "value": false },
-                { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" },
-                { "name": "meetingRoomName", "type": "string", "value": "" },
-                { "name": "canSitOn", "type": "bool", "value": false },
-                { "name": "sitFacing", "type": "string", "value": "", "propertyType": "SitFacing" },
-                { "name": "petCanSitOn", "type": "bool", "value": false },
-                { "name": "canWalkOver", "type": "bool", "value": false },
-                { "name": "backgroundTiles", "type": "int", "value": 0 },
-                { "name": "onState", "type": "string", "value": "" }
-            ]
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
         },
         {
-            "id": 5,
-            "name": "ActionArea",
-            "type": "class",
-            "useAs": [
-                "object"
-            ],
-            "color": "#ffffd28a",
-            "drawFill": false,
-            "members": [
-                { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
-                { "name": "actionVideo", "type": "bool", "value": false },
-                { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" },
-                { "name": "meetingRoomName", "type": "string", "value": "" }
-            ]
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertyType": "SitFacing"
         },
         {
-            "id": 6,
-            "name": "ActionKind",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": false,
-            "values": [
-                "",
-                "meetingRoom",
-                "meetingManager",
-                "iframe",
-                "appliance",
-                "arcade",
-                "timeClock",
-                "portal",
-                "toggle",
-                "spawnPoint",
-                "talkingObject"
-            ]
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
         },
         {
-            "id": 7,
-            "name": "ApplianceKind",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": false,
-            "values": [
-                "",
-                "coffee"
-            ]
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
         },
         {
-            "id": 8,
-            "name": "SitFacing",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": false,
-            "values": [
-                "",
-                "N",
-                "E",
-                "S",
-                "W"
-            ]
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
         },
         {
-            "id": 11,
-            "name": "ApproachSide",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": true,
-            "values": [
-                "N",
-                "S",
-                "E",
-                "W"
-            ]
+          "name": "onState",
+          "type": "string",
+          "value": ""
         },
         {
-            "id": 13,
-            "name": "Image",
-            "type": "class",
-            "useAs": [
-                "object"
-            ],
-            "color": "#ffa0e0ff",
-            "drawFill": false,
-            "members": [
-                { "name": "imageId", "type": "string", "value": "" }
-            ]
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertyType": "ActionKind"
         },
         {
-            "id": 14,
-            "name": "GroundLayer",
-            "type": "class",
-            "useAs": [
-                "layer"
-            ],
-            "color": "#ffa0a0a4",
-            "drawFill": false,
-            "members": []
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
         },
         {
-            "id": 20,
-            "name": "WallFaceLayer",
-            "type": "class",
-            "useAs": [
-                "layer"
-            ],
-            "color": "#ffd8b48a",
-            "drawFill": false,
-            "members": []
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
         },
         {
-            "id": 19,
-            "name": "WallLatticeLayer",
-            "type": "class",
-            "useAs": [
-                "layer"
-            ],
-            "color": "#ff8ab4d8",
-            "drawFill": false,
-            "members": []
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertyType": "ApplianceKind"
         },
         {
-            "id": 15,
-            "name": "CollisionLayer",
-            "type": "class",
-            "useAs": [
-                "layer"
-            ],
-            "color": "#ffe0342a",
-            "drawFill": false,
-            "members": []
-        },
-        {
-            "id": 22,
-            "name": "DecalLayer",
-            "type": "class",
-            "useAs": [
-                "layer"
-            ],
-            "color": "#ffc8a0ff",
-            "drawFill": false,
-            "members": [
-                { "name": "occludes", "type": "bool", "value": false }
-            ]
-        },
-        {
-            "id": 16,
-            "name": "Map",
-            "type": "class",
-            "useAs": [
-                "map"
-            ],
-            "color": "#ffa0a0a4",
-            "drawFill": false,
-            "members": [
-                { "name": "mapName", "type": "string", "value": "" }
-            ]
-        },
-        {
-            "id": 17,
-            "name": "ImageTile",
-            "type": "class",
-            "useAs": [
-                "tile"
-            ],
-            "color": "#ffa0e0ff",
-            "drawFill": true,
-            "members": [
-                { "name": "imageId", "type": "string", "value": "" }
-            ]
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
-    ]
+      ]
+    },
+    {
+      "id": 21,
+      "name": "DecalTile",
+      "type": "class",
+      "useAs": [
+        "tile"
+      ],
+      "color": "#ffc8a0ff",
+      "drawFill": true,
+      "members": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "FurnitureObject",
+      "type": "class",
+      "useAs": [
+        "object"
+      ],
+      "color": "#ffa0ffa0",
+      "drawFill": false,
+      "members": [
+        {
+          "name": "approachSides",
+          "type": "string",
+          "value": "",
+          "propertyType": "ApproachSide"
+        },
+        {
+          "name": "approachThrough",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertyType": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertyType": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertyType": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "ActionArea",
+      "type": "class",
+      "useAs": [
+        "object"
+      ],
+      "color": "#ffffd28a",
+      "drawFill": false,
+      "members": [
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertyType": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertyType": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "ActionKind",
+      "type": "enum",
+      "storageType": "string",
+      "valuesAsFlags": false,
+      "values": [
+        "",
+        "meetingRoom",
+        "meetingManager",
+        "iframe",
+        "appliance",
+        "arcade",
+        "timeClock",
+        "portal",
+        "toggle",
+        "spawnPoint",
+        "talkingObject"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "ApplianceKind",
+      "type": "enum",
+      "storageType": "string",
+      "valuesAsFlags": false,
+      "values": [
+        "",
+        "coffee",
+        "drink",
+        "pet_feed"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "SitFacing",
+      "type": "enum",
+      "storageType": "string",
+      "valuesAsFlags": false,
+      "values": [
+        "",
+        "N",
+        "E",
+        "S",
+        "W"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "ApproachSide",
+      "type": "enum",
+      "storageType": "string",
+      "valuesAsFlags": true,
+      "values": [
+        "N",
+        "S",
+        "E",
+        "W"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Image",
+      "type": "class",
+      "useAs": [
+        "object"
+      ],
+      "color": "#ffa0e0ff",
+      "drawFill": false,
+      "members": [
+        {
+          "name": "imageId",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "GroundLayer",
+      "type": "class",
+      "useAs": [
+        "layer"
+      ],
+      "color": "#ffa0a0a4",
+      "drawFill": false,
+      "members": []
+    },
+    {
+      "id": 20,
+      "name": "WallFaceLayer",
+      "type": "class",
+      "useAs": [
+        "layer"
+      ],
+      "color": "#ffd8b48a",
+      "drawFill": false,
+      "members": []
+    },
+    {
+      "id": 19,
+      "name": "WallLatticeLayer",
+      "type": "class",
+      "useAs": [
+        "layer"
+      ],
+      "color": "#ff8ab4d8",
+      "drawFill": false,
+      "members": []
+    },
+    {
+      "id": 15,
+      "name": "CollisionLayer",
+      "type": "class",
+      "useAs": [
+        "layer"
+      ],
+      "color": "#ffe0342a",
+      "drawFill": false,
+      "members": []
+    },
+    {
+      "id": 22,
+      "name": "DecalLayer",
+      "type": "class",
+      "useAs": [
+        "layer"
+      ],
+      "color": "#ffc8a0ff",
+      "drawFill": false,
+      "members": [
+        {
+          "name": "occludes",
+          "type": "bool",
+          "value": false
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Map",
+      "type": "class",
+      "useAs": [
+        "map"
+      ],
+      "color": "#ffa0a0a4",
+      "drawFill": false,
+      "members": [
+        {
+          "name": "mapName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "ImageTile",
+      "type": "class",
+      "useAs": [
+        "tile"
+      ],
+      "color": "#ffa0e0ff",
+      "drawFill": true,
+      "members": [
+        {
+          "name": "imageId",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    }
+  ]
 }

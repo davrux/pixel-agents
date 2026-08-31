@@ -1416,7 +1416,7 @@
         {
           "name": "actionKind",
           "type": "string",
-          "value": "",
+          "value": "appliance",
           "propertytype": "ActionKind"
         },
         {
@@ -1432,7 +1432,7 @@
         {
           "name": "actionPose",
           "type": "string",
-          "value": "",
+          "value": "drink",
           "propertytype": "ApplianceKind"
         },
         {

@@ -57,6 +57,7 @@ import {
 } from '../sprites/spriteData.js';
 import type {
   Action,
+  ApplianceKind,
   Character,
   FurnitureCatalogEntry,
   FurnitureInstance,
@@ -69,6 +70,7 @@ import type {
   GroundMap,
 } from '../types.js';
 import {
+  APPLIANCES_FOR,
   CharacterState,
   ControllerKind,
   Direction,
@@ -574,7 +576,7 @@ export class OfficeState {
    * (Re)build the whole points map: every sittable tile as a `sit` point, plus one
    * `stand` point PER walkable tile adjacent to each appliance (not just the
    * first) — so multiple visitors spread out around it instead of stacking on a
-   * single fixed tile. findFreeStation() picks randomly among every free entry
+   * single fixed tile. findFreeAppliance() picks randomly among every free entry
    * across every appliance, so registering more entries per appliance is all that
    * is needed for that to also randomise position around one appliance.
    *
@@ -590,7 +592,8 @@ export class OfficeState {
       // effectiveAction, not the raw catalog flag — an item's own Action
       // override (the editor's Action… button) must be able to turn ANY
       // furniture into a station, not just ones the catalog itself flags.
-      if (effectiveAction(item, entry)?.kind !== 'appliance') continue;
+      const action = effectiveAction(item, entry);
+      if (action?.kind !== 'appliance') continue;
       const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.approachSides).filter(
         (c) => !this.isPointTile(c.col, c.row),
       );
@@ -603,6 +606,15 @@ export class OfficeState {
           facingDir: spot.facing,
           posture: 'stand',
           occupantId: null,
+          // Which appliance this belongs to, so a lookup can want one kind and get only that.
+          //
+          // Defaulted, not trusted: an action may arrive as `{ kind: 'appliance' }` with no pose —
+          // the Tiled importer fills in `coffee` (actionProps.ts) but a catalog entry need not, and
+          // a placement override need not either. Storing `undefined` here would leave that
+          // appliance usable by NOBODY, since every lookup asks for a kind it allows. Coffee is
+          // the same default the importer uses, so an appliance that never said what it is keeps
+          // behaving as it did.
+          appliance: action.pose ?? 'coffee',
         });
       });
     }
@@ -615,9 +627,18 @@ export class OfficeState {
     return false;
   }
 
-  private findFreeStation(): string | null {
+  /**
+   * A free stand point belonging to an appliance of `kind`, at random among all of them.
+   *
+   * The `appliance === kind` test is the whole filter and it is doing two jobs: it picks the right
+   * KIND, and it excludes seats by construction (a seat carries no appliance). Before this, the
+   * search looked at neither — it walked every point in the map, so an agent on a coffee break
+   * could march over to a free desk chair and stand on it, and a pet could claim a coffee machine.
+   */
+  private findFreeAppliance(kinds: readonly ApplianceKind[]): string | null {
     const free: string[] = [];
     for (const [uid, s] of this.points) {
+      if (!s.appliance || !kinds.includes(s.appliance)) continue;
       if (s.occupantId === null && !this.petStationClaims.has(uid)) free.push(uid);
     }
     if (free.length === 0) return null;
@@ -625,8 +646,10 @@ export class OfficeState {
   }
 
   /** Any appliance station free for a pet to claim (cheap existence check). */
-  private hasFreeStation(): boolean {
+  /** Whether any appliance of `kind` has a free stand point — the affordance behind "may I go?". */
+  private hasFreeAppliance(kinds: readonly ApplianceKind[]): boolean {
     for (const [uid, s] of this.points) {
+      if (!s.appliance || !kinds.includes(s.appliance)) continue;
       if (s.occupantId === null && !this.petStationClaims.has(uid)) return true;
     }
     return false;
@@ -640,7 +663,7 @@ export class OfficeState {
     if (ch.path.length > 0 || ch.coffeeCooldown > 0 || this.points.size === 0) return;
     if (Math.random() >= COFFEE_BREAK_CHANCE) return;
 
-    const uid = this.findFreeStation();
+    const uid = this.findFreeAppliance(APPLIANCES_FOR.character);
     if (!uid) return;
     const station = this.points.get(uid)!;
     const path = this.withOwnSeatUnblocked(ch, () =>
@@ -2215,8 +2238,10 @@ export class OfficeState {
       // Shoo-cat: a dog chases a nearby cat; a cat flees a nearby dog.
       canChase: b.chaseCats && pet.kind === PetKindEnum.DOG && this.nearestLivingPetOfKind(pet, PetKindEnum.CAT) !== null,
       threatened: b.fleeDogs && pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
-      // Coffee: any kind may visit a free appliance station.
-      canDrink: b.drink && this.hasFreeStation(),
+      // A pet uses the appliances pets may use — a fountain or a bowl, never a coffee machine —
+      // and only if the map has one. None placed, no visit: the absence is the answer, not a
+      // special case. Which of the two it lands at decides what it does there (see APPLIANCES).
+      canDrink: b.drink && this.hasFreeAppliance(APPLIANCES_FOR.pet),
       // Talk: any kind may approach an agent that no other pet is chatting with.
       canTalk: b.talk && this.hasTalkableAgent(),
     };
@@ -2546,15 +2571,18 @@ export class OfficeState {
    * Find + claim a free interaction target reachable from the pet for `action`:
    *  - 'sit'  → any free chair seat, or a free desk surface column (no computer
    *             or coffee mug on it) the pet rests on top of — any kind
-   *  - 'drink' → a free appliance station (coffee), any kind
+   *  - 'drink' → a free WATER bowl (never a coffee machine), any kind
    * Returns the claimed target (with a path), or null.
    */
   private findFreePetTarget(pet: Pet, action: PetAction): PetTarget | null {
     const candidates: PetTarget[] = [];
 
-    // Appliance stations (coffee) — stand on the station tile.
+    // Water bowls — stand on the bowl's tile. A pet never uses a coffee machine, and the
+    // `appliance === 'water'` test is also what keeps it off seats: this loop used to walk every
+    // point in the map, so a "drinking" pet could claim a desk chair and block an agent from it.
     if (action === 'drink') {
       for (const [uid, s] of this.points) {
+        if (!s.appliance || !APPLIANCES_FOR.pet.includes(s.appliance)) continue;
         if (s.occupantId !== null || this.petStationClaims.has(uid)) continue;
         const path = findPath(pet.tileCol, pet.tileRow, s.col, s.row, this.tileMap, this.blockedTiles, undefined, this.walls);
         const reachable = path.length > 0 || (pet.tileCol === s.col && pet.tileRow === s.row);
@@ -2565,6 +2593,7 @@ export class OfficeState {
           seatId: null,
           furnitureUid: null,
           stationId: uid,
+          appliance: s.appliance,
           agentId: null,
           sitCol: s.col,
           sitRow: s.row,

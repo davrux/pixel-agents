@@ -54,6 +54,9 @@ export const CharacterPose = {
   TYPING: 'typing',
   READING: 'reading',
   COFFEE: 'coffee',
+  /** At a `drink` appliance (a fountain). Borrows the coffee art until drink frames exist — see
+   *  POSE_FALLBACK — and shows a 💧 marker meanwhile, the way coffee shows ☕. */
+  DRINK: 'drink',
   SIT: 'sit', // sit-in-place; uses a synthesized seated frame until art is authored
 } as const;
 export type CharacterPose = (typeof CharacterPose)[keyof typeof CharacterPose];
@@ -99,6 +102,12 @@ export interface InteractionPoint {
   posture: Posture;
   /** Character id currently holding it, or null when free */
   occupantId: number | null;
+  /**
+   * For a `stand` point derived from an appliance: which appliance it belongs to. Absent on a
+   * seat, which is what makes "only points of my kind" a single condition rather than a posture
+   * check plus a kind check — a seat can never match an appliance kind.
+   */
+  appliance?: ApplianceKind;
 }
 
 // ── Pets ─────────────────────────────────────────────────────
@@ -142,7 +151,11 @@ export const PetState = {
   WANDER: 'wander', // walking along a path
   IDLE: 'idle', // standing still, deciding next move
   SIT: 'sit', // sitting at claimed furniture, tail wagging
-  DRINK: 'drink', // standing at a claimed appliance station (coffee), idle pose
+  DRINK: 'drink', // standing at a claimed `drink` appliance (a fountain)
+  /** Standing at a claimed `pet_feed` appliance (a bowl). A separate STATE rather than a synced
+   *  field for the appliance, because `state` is already a synced string: a new value costs no
+   *  schema change, and an older client maps an unknown state to the idle pose. */
+  FEED: 'feed',
   TALK: 'talk', // standing next to a claimed agent, facing it (talk pose)
   DESPAWN: 'despawn', // fade-out, then delete
 } as const;
@@ -172,7 +185,9 @@ export interface Pet {
    *  Kept as a literal union (mirrors PetAction) to avoid an engine→types cycle. */
   targetAction: 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk' | null;
   targetSeatId: string | null;
-  /** Claimed appliance station uid (coffee), or null. */
+  /** Which appliance the claimed station is, or null — decides FEED vs DRINK on arrival. */
+  targetAppliance: ApplianceKind | null;
+  /** Claimed appliance station uid, or null. */
   targetStationId: string | null;
   /** Claimed agent id being talked to, or null. */
   targetAgentId: number | null;
@@ -280,7 +295,41 @@ export interface FurnitureInstance {
 /** A furniture item's interaction affordance: marks it as an appliance station
  *  a pet (or agent) walks up to and uses. Coffee for now; extensible (fridge,
  *  water cooler, …). Empty/undefined = ordinary furniture. */
-export type ApplianceKind = 'coffee';
+/**
+ * What an appliance IS, and therefore who uses it.
+ *
+ * Each side uses only its own and nothing else: an agent goes to a `coffee` machine, a pet to a
+ * `water` bowl, and if the map has none of its kind it simply never goes. That symmetry replaced
+ * a lookup that filtered by nothing at all — a pet "drinking" would claim a coffee machine (or,
+ * because the search did not even check `posture`, a desk chair) and block an agent from it.
+ *
+ * A tile says which it is through `actionPose`, defaulting to `coffee`, so every appliance drawn
+ * before this stays a coffee machine.
+ */
+export type ApplianceKind = 'coffee' | 'drink' | 'pet_feed';
+
+/**
+ * What each appliance is for: the pose you adopt there, and who may use it at all.
+ *
+ * One table because the two facts are one decision. `pet_feed` is a bowl and named for whom it
+ * feeds, deliberately: `drink` would have been too general — drinking is not a pet thing, anyone
+ * can use a fountain, and a bowl is the only one of the three that is species-specific.
+ *
+ * A tile declares its kind through `actionPose`, defaulting to `coffee`, so every appliance drawn
+ * before this stays a coffee machine. Adding a fourth is an entry here plus the art; the lookups
+ * read this table and need no case of their own.
+ */
+export const APPLIANCES: Readonly<Record<ApplianceKind, { pose: string; character: boolean; pet: boolean }>> = {
+  coffee: { pose: 'coffee', character: true, pet: false },
+  drink: { pose: 'drink', character: true, pet: true },
+  pet_feed: { pose: 'feed', character: false, pet: true },
+};
+
+/** The appliance kinds a character may use, and the ones a pet may. */
+export const APPLIANCES_FOR = {
+  character: (Object.keys(APPLIANCES) as ApplianceKind[]).filter((k) => APPLIANCES[k].character),
+  pet: (Object.keys(APPLIANCES) as ApplianceKind[]).filter((k) => APPLIANCES[k].pet),
+} as const;
 
 /**
  * A generic action attachable to any placed furniture instance

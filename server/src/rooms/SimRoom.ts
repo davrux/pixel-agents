@@ -1938,7 +1938,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.state.characters.set(key, cs);
       }
       writeEntityTransform(cs, ch);
-      cs.pose = getCharacterPose(ch);
+      // The appliance the character is standing at, if any — it decides which standing pose
+      // (coffee machine vs fountain). The server is the only side that knows, which is why the
+      // pose is derived here and synced rather than re-derived on the client.
+      cs.pose = getCharacterPose(ch, ch.atPointId ? this.os.points.get(ch.atPointId)?.appliance : undefined);
       // cs.frame intentionally not synced — animation phase is client-timed.
       cs.skin = ch.skin;
       cs.isActive = ch.isActive;
