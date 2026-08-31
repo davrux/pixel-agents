@@ -1029,9 +1029,12 @@ export class MatrixStore {
     // away is work per thread per tick for a string nobody reads.
     let newestThreadReply: MatrixEvent | null = null;
     for (const thread of room.getThreads()) {
-      const last = thread.replyToEvent;
-      if (!last || last.getId() === thread.id || last.status === EventStatus.CANCELLED) continue;
-      if (last.getTs() <= lastTs) continue;
+      // `lastThreadReply`, not `thread.replyToEvent` — see its own comment for
+      // why: the SDK getter can still answer with our own reply after someone
+      // else's has landed, which here would leave the room list crediting the
+      // wrong sender for a room's own newest activity.
+      const last = this.lastThreadReply(room, thread);
+      if (!last || last.getTs() <= lastTs) continue;
       if (!newestThreadReply || last.getTs() > newestThreadReply.getTs()) newestThreadReply = last;
     }
     if (newestThreadReply) {
@@ -1596,10 +1599,8 @@ export class MatrixStore {
       userId ? room.getMember(userId)?.name ?? userId : '';
     const rootEv = thread.rootEvent;
     const rootMapped = rootEv ? this.classify(rootEv) : null;
-    // `replyToEvent` falls back to the root when a thread's every reply has been
-    // redacted, which would otherwise print the root twice.
-    const last = thread.replyToEvent;
-    const lastMapped = last && last.getId() !== thread.id ? this.classify(last) : null;
+    const last = this.lastThreadReply(room, thread);
+    const lastMapped = last ? this.classify(last) : null;
     return {
       rootId: thread.id,
       count: thread.length,
@@ -1612,6 +1613,35 @@ export class MatrixStore {
       unread: room.getThreadUnreadNotificationCount(thread.id, sdk.NotificationCountType.Total),
       highlight: room.getThreadUnreadNotificationCount(thread.id, sdk.NotificationCountType.Highlight),
     };
+  }
+
+  /**
+   * The newest reply in a thread, walking the events already loaded for it
+   * rather than trusting `Thread.replyToEvent`.
+   *
+   * That SDK getter is `lastPendingEvent ?? lastEvent ?? lastReply()`, and the
+   * first of those is exactly our OWN not-yet-confirmed sends — so a session
+   * that has ever replied in a thread can have this getter answer with our own
+   * message even after somebody else has replied since, for as long as the
+   * SDK's bookkeeping takes to settle (the SDK's own source calls this "looks
+   * suspicious" in a comment on `lastEvent`). This instead walks exactly the
+   * events `threadTimeline()` draws — confirmed timeline plus our own pending
+   * echoes, same order — so the summary can never show something other than
+   * what opening the thread would show as its last row.
+   */
+  private lastThreadReply(room: Room, thread: Thread): MatrixEvent | null {
+    const events = [
+      ...thread.events,
+      ...room.getPendingEvents().filter((ev) => ev.threadRootId === thread.id),
+    ];
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i]!;
+      if (ev.status === EventStatus.CANCELLED) continue;
+      if (ev.getId() === thread.id) continue; // the root itself
+      if (ev.getType() === sdk.EventType.Reaction || isEditRelation(ev)) continue;
+      return ev;
+    }
+    return null;
   }
 
   /** Every thread this session knows about in a room, newest activity first.
