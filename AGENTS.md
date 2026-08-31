@@ -195,6 +195,49 @@ ones back on the next save. `petChase.int.test.ts` pins the table, the derivatio
 mutual case, against a hypothetical table, so the property holds before anyone edits `CHASES`) and
 that the engine reads nothing else.
 
+**A chase ENDS in a cloud, and geometry is what catches.** A hunter that corners its quarry puts
+both animals in `PetState.SCUFFLE` for `PET_SCUFFLE_DURATION_SEC`; the client draws one comic puff
+between them and hides both. Before this a chase had no ending at all — `navigateReaction` pathed
+once to the tile the quarry stood on, the hunter walked there, found nobody and idled for up to
+eight seconds, so it lost by construction. Five rules, and each is a decision rather than a detail:
+
+- **One speed for every pet, and it stays that way.** A hunter re-aims every
+  `PET_REACTION_REPATH_SEC` (`pet.reaction` outlives the single path it used to walk) — and the
+  quarry re-picks its escape on the SAME cadence, deliberately, because reacting twice as often is
+  a speed advantage wearing a different hat. So a catch means walls, furniture or a dead end. A dog
+  that outruns a cat would be zoologically false and would take the tension out of the chase.
+- **Pursuit earns it.** The catch needs `pet.reaction === 'chase'`; a dog wandering past a sitting
+  cat starts nothing, or the world would be wall-to-wall clouds.
+- **A cloud is a PAIR, and the server says who is in it.** Both animals point at each other through
+  `PetSync.scufflePartnerId` (synced — `PROTOCOL_VERSION` 13). The client could have guessed the
+  pairing from adjacency; that guess draws two clouds on one spot the moment three animals line up,
+  and the pairing is a decision, not presentation. `beginScuffle` sets both sides in one call so a
+  half-formed pair cannot exist, `resolveScuffles` ends a cloud whose partner despawned (one animal
+  left in one is invisible, since the renderer needs both ends to place a picture), and a third
+  animal cannot join.
+- **The cooldown is checked twice, and that is not belt and braces.** `PET_SCUFFLE_COOLDOWN_SEC`
+  gates the affordance (so the brain is not even offered a chase) AND the catch itself — the
+  affordance only advises, so anything else that makes a pet chase would otherwise re-catch the same
+  quarry on the tick after a cloud cleared, which is the endless loop of clouds the cooldown exists
+  to prevent. Only chasing is gated: the quarry may run at once, and that asymmetry is how it gets
+  away.
+- **The cloud is art, not a pawn.** `office/effects.ts` names the sheet (`SCUFFLE_SHEET`), the
+  server serves it as a third kind on the art route (`/art/effect/<id>`, ids resolved against
+  `EFFECT_SHEETS` and never used as a path) and the client fetches it in the loading phase — no
+  message, since the id is a constant of the build. It is drawn from the same runtime atlas as
+  every other sheet, its frame phase is client-side (presentation timing, invariant 2) and its
+  cadence still lives in `PET_POSE_FRAME_MS` because there is one table for that. `petPose` returns
+  `idle` for a scuffling pet, so a client whose cloud art failed to load shows two animals standing
+  rather than nothing at all.
+
+The sheet is drawn by `scripts/draw-scuffle-cloud.sh` (deterministic — a seeded LCG, so `--check`
+means something) and committed. It is ordinary art: redraw the PNG by hand and nothing downstream
+knows or cares. What the script learned the hard way, in case the next effect needs it: seven
+overlapping circles give a potato and a potato reads as smoke, so the silhouette is a polar star
+with rounded valleys; and a mark in a single dark colour is invisible on a dark floor, so the paw
+and tail that poke out get the cloud's own light-fill-plus-dark-edge, and they start INSIDE the
+silhouette or they read as debris flying past.
+
 ## Architecture invariants
 
 1. **The server simulates.** Movement, seating, stations, the FSM, poses — all of

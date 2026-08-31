@@ -29,9 +29,15 @@
  * crafted id can only miss.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { Express, Request, Response } from 'express';
 
+import { EFFECT_SHEETS } from '@pixel/shared/office/effects';
+
 import { appStore } from './appStore.js';
+import { ASSETS_ROOT } from './assets.js';
 import { getMergedBundle } from './assetOverrides.js';
 import {
   CHARACTER_DIRECTIONS,
@@ -138,8 +144,40 @@ function characterSource(id: string): ArtSource | null {
   };
 }
 
+/**
+ * An effect sheet — the scuffle cloud today (see shared/office/effects.ts).
+ *
+ * Unlike a character or a pet, this art has no entry in the bundle and no override: it is a file
+ * that ships with the build, so the source is the file. Two rules keep that from becoming a hole:
+ * the id is looked up in EFFECT_SHEETS and never used as a path component (a crafted id can only
+ * miss, exactly as for the other kinds), and the bytes are cached by id so a join does not re-read
+ * the disk. No write path exists — an effect is not editable in the app.
+ */
+const effectBytes = new Map<string, Buffer>();
+
+function effectSource(id: string): ArtSource | null {
+  const sheet = EFFECT_SHEETS.find((e) => e.id === id);
+  if (!sheet) return null;
+  let png = effectBytes.get(sheet.id);
+  if (!png) {
+    try {
+      png = readFileSync(join(ASSETS_ROOT, 'assets', 'effects', `${sheet.id}.png`));
+    } catch {
+      return null; // missing art is a 404, never a crash on a request
+    }
+    effectBytes.set(sheet.id, png);
+  }
+  return { entry: { png }, png };
+}
+
 function sourceFor(kind: string, id: string): ArtSource | null {
-  return kind === 'pet' ? petSource(id) : kind === 'character' ? characterSource(id) : null;
+  return kind === 'pet'
+    ? petSource(id)
+    : kind === 'character'
+      ? characterSource(id)
+      : kind === 'effect'
+        ? effectSource(id)
+        : null;
 }
 
 /** Encoded sheets by `kind/id/hash`. Bounded: the roster is small and an entry is

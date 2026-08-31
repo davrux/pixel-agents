@@ -83,6 +83,21 @@ export class PetSync extends PawnSync {
   @type('number') effectTimer = 0;
   /** Vertical render lift (px) while resting on a desk surface (0 otherwise). */
   @type('uint16') restLift = 0;
+  /**
+   * The pet this one is scuffling with while `state` is 'scuffle', else 0 (no pet has id 0).
+   *
+   * Synced rather than inferred, because who is paired with whom is the server's decision — the
+   * client could guess it from "two adjacent pets are both scuffling", and that guess is wrong the
+   * moment three animals stand in a row. It also decides where ONE cloud is drawn, so a wrong guess
+   * is two clouds on top of each other.
+   *
+   * `int32`, the same type as `PawnSync.id`, because that is what it holds. It was `uint16` for one
+   * afternoon and the live world caught it: pet ids start at 1 000 000, so the cat with id 1000007
+   * arrived at the client as 16967 (1000007 mod 65536). Nothing crashed — the client verifies that
+   * both ends name each other, so it simply drew no cloud, and every unit test passed because a
+   * test builds pets with ids 1, 2 and 3. A field that holds an id gets the id's type.
+   */
+  @type('int32') scufflePartnerId = 0;
 }
 
 /** A placed furniture tile after auto-on/animation has been applied. */

@@ -24,6 +24,7 @@ import {
   PET_WALK_FRAME_DURATION_SEC,
   TYPE_FRAME_DURATION_SEC,
   WALK_FRAME_DURATION_SEC,
+  SCUFFLE_FRAME_DURATION_SEC,
 } from './constants.js';
 
 /** What the two kinds of art are animated as. The pet one is server-driven. */
@@ -62,6 +63,13 @@ export const PET_POSE_FRAME_MS: Readonly<Record<string, number>> = {
   /** Eating from a bowl, at the drinking cadence. Same reasoning as a character's `drink`. */
   feed: PET_DRINK_FRAME_DURATION_SEC * 1000,
   talk: PET_TALK_FRAME_DURATION_SEC * 1000,
+  /**
+   * The scuffle CLOUD, not a pet pose — the pets are hidden behind it. It belongs in this table
+   * anyway, because there is one table for how fast frames advance and a renderer must read it
+   * rather than keep a number of its own; that duplication is what cost every sheet author a walk
+   * cycle judged at half speed (see the header).
+   */
+  scuffle: SCUFFLE_FRAME_DURATION_SEC * 1000,
 };
 
 /**

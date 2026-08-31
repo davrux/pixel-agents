@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import {
+  Direction,
   TILE_SIZE,
   TileType,
   CharacterState,
@@ -47,9 +48,12 @@ import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
 } from '@pixel/shared/office/sprites/spriteData.js';
+import { SCUFFLE_SHEET } from '@pixel/shared/office/effects.js';
+import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
 import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
 import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
+import { effectSheetId } from '../art/effects';
 import { sheetCellFrame, sheetCellPixels, sheetColumns, sheetFrameSize } from '../art/sheetStore';
 import {
   spriteTexture,
@@ -542,20 +546,90 @@ export class PhaserRenderer {
     return { key };
   }
 
+  /** One cloud per scuffling pair, keyed `<lowId>:<highId>`; destroyed when the pair ends. */
+  private readonly scuffleClouds = new Map<string, Phaser.GameObjects.Image>();
+
   private removeMatrixTexture(id: number): void {
     const key = this.matrixKeys.get(id);
     if (key && this.scene.textures.exists(key)) this.scene.textures.remove(key);
     this.matrixKeys.delete(id);
   }
 
+  /**
+   * The scuffle clouds: one picture per PAIR, drawn between the two animals, with both of them
+   * hidden behind it.
+   *
+   * Who is paired with whom is synced (`scufflePartnerId`) rather than inferred from adjacency,
+   * because it is the server's decision — and because a guess is wrong the moment three animals
+   * stand in a row, which would put two clouds on top of each other. The pair is still VERIFIED
+   * here: both ends must name each other, so a half-arrived patch draws nothing rather than a cloud
+   * hanging off one pet.
+   *
+   * The frame phase comes from the scene clock, which is presentation timing (AGENTS.md
+   * invariant 2) — the cadence is the one in `poseFrameMs`, never a number of this file's own.
+   */
+  private syncScuffleClouds(pets: readonly Pet[]): Set<number> {
+    const hidden = new Set<number>();
+    const byId = new Map(pets.map((p) => [p.id, p]));
+    const live = new Set<string>();
+    const frameMs = poseFrameMs('scuffle', 'pet') || 100;
+    const frame = Math.floor(this.scene.time.now / frameMs) % SCUFFLE_SHEET.frames;
+
+    for (const pet of pets) {
+      if (pet.state !== PetState.SCUFFLE || !pet.scufflePartnerId) continue;
+      const other = byId.get(pet.scufflePartnerId);
+      if (!other || other.state !== PetState.SCUFFLE || other.scufflePartnerId !== pet.id) continue;
+      const [a, b] = pet.id < other.id ? [pet, other] : [other, pet];
+      const key = `${a.id}:${b.id}`;
+      if (live.has(key)) continue; // the pair is symmetric, so it comes round twice
+      const tex = sheetCellFrame(this.scene, effectSheetId(SCUFFLE_SHEET.id), Direction.DOWN, frame);
+      // No art, no hiding: without the cloud the two animals standing there is the old behaviour,
+      // where hiding them would leave nothing at all.
+      if (!tex) continue;
+      live.add(key);
+      let img = this.scuffleClouds.get(key);
+      if (!img) {
+        img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1);
+        this.scuffleClouds.set(key, img);
+      }
+      img.setTexture(tex.key, tex.frame);
+      // Between them, and a little low: the sheet's mass sits above its own bottom edge, so this
+      // lands it over two bodies rather than over their heads.
+      img.setPosition((a.x + b.x) / 2, (a.y + b.y) / 2 + TILE_SIZE / 2);
+      // Just in front of whichever animal is lower, so nothing pokes through the cloud.
+      img.setDepth(Math.max(a.y, b.y) + TILE_SIZE / 2 + PET_Z_SORT_OFFSET + 0.1);
+      img.setVisible(true);
+      hidden.add(a.id);
+      hidden.add(b.id);
+    }
+
+    // A pair that ended (the timer ran out, one animal despawned) takes its picture with it —
+    // a GameObject nobody destroys is a leak, and one keyed by a pair of ids grows forever.
+    for (const [key, img] of this.scuffleClouds) {
+      if (!live.has(key)) {
+        img.destroy();
+        this.scuffleClouds.delete(key);
+      }
+    }
+    return hidden;
+  }
+
   private syncPets(): void {
     const seen = new Set<number>();
-    for (const pet of this.state.getPets()) {
+    const pets = this.state.getPets();
+    const inCloud = this.syncScuffleClouds(pets);
+    for (const pet of pets) {
       seen.add(pet.id);
       let img = this.pets.get(pet.id);
       if (!img) {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1);
         this.pets.set(pet.id, img);
+      }
+      // Behind the cloud: hidden, not destroyed — the pair separates in a second and a
+      // destroyed image would have to be rebuilt for both of them.
+      if (inCloud.has(pet.id)) {
+        img.setVisible(false);
+        continue;
       }
       // Same as characters: a cell of the pet's sheet, resolved by pose (petPose) and
       // direction, never decoded into pixels here.

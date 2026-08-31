@@ -21,6 +21,9 @@ import {
   PET_TALK_MAX_SEC,
   PET_TALK_MIN_SEC,
   PET_WALK_FRAME_DURATION_SEC,
+  PET_REACTION_REPATH_SEC,
+  PET_SCUFFLE_COOLDOWN_SEC,
+  PET_SCUFFLE_DURATION_SEC,
   PET_WALK_SPEED_PX_PER_SEC,
   PET_WANDER_PAUSE_MAX_SEC,
   PET_WANDER_PAUSE_MIN_SEC,
@@ -147,6 +150,11 @@ export function createPet(
     tileRow: spawnTile.row,
     path: [],
     moveProgress: 0,
+    reaction: null,
+    reactionTimer: 0,
+    scufflePartnerId: null,
+    scuffleTimer: 0,
+    chaseCooldown: 0,
     frame: 0,
     frameTimer: 0,
     wanderTimer: randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC),
@@ -168,10 +176,65 @@ export function createPet(
   };
 }
 
+/**
+ * Put two pets in a cloud together. Symmetric by construction — one call sets both sides, so a
+ * half-formed pair (one animal in a cloud, pointing at somebody who is not in one) cannot exist
+ * because somebody forgot the second assignment.
+ *
+ * Called from OfficeState, which is the only place that can see both animals; the transition itself
+ * lives here with the rest of the FSM.
+ */
+export function beginScuffle(a: Pet, b: Pet): void {
+  for (const [pet, other] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    pet.path = [];
+    snapToTile(pet);
+    pet.reaction = null;
+    pet.state = PetState.SCUFFLE;
+    pet.scufflePartnerId = other.id;
+    pet.scuffleTimer = PET_SCUFFLE_DURATION_SEC;
+    pet.frame = 0;
+    pet.frameTimer = 0;
+    // Face each other, so the beat after the cloud clears reads as two animals sizing each other up
+    // rather than as two animals who happen to stand nearby.
+    const dx = other.tileCol - pet.tileCol;
+    const dy = other.tileRow - pet.tileRow;
+    pet.dir =
+      Math.abs(dx) >= Math.abs(dy)
+        ? dx >= 0
+          ? Direction.RIGHT
+          : Direction.LEFT
+        : dy >= 0
+          ? Direction.DOWN
+          : Direction.UP;
+  }
+}
+
+/**
+ * End a scuffle for a pet whose partner is no longer in one — it despawned, aged out, or was
+ * deleted. The cloud is a PAIR, so one animal left in it would stand invisible behind a picture
+ * nobody draws (the renderer needs both to place a cloud between them) until its lifespan ran out.
+ */
+export function endScuffleAlone(pet: Pet): void {
+  pet.scufflePartnerId = null;
+  pet.scuffleTimer = 0;
+  pet.state = PetState.IDLE;
+  pet.wanderTimer = 0;
+  pet.frame = 0;
+  pet.frameTimer = 0;
+}
+
 /** Begin a pet's despawn: release any claim and start the fade-out. */
 export function beginPetDespawn(pet: Pet, ctx: Pick<PetUpdateContext, 'releaseClaim'>): void {
   if (pet.state === PetState.DESPAWN) return;
   ctx.releaseClaim(pet);
+  // Leave no dangling pair behind: the partner notices on the next tick (resolveScuffles) and gets
+  // out of its cloud, but this side must stop claiming a partner it can no longer be one for.
+  pet.scufflePartnerId = null;
+  pet.scuffleTimer = 0;
+  pet.reaction = null;
   pet.state = PetState.DESPAWN;
   pet.effect = 'despawn';
   pet.effectTimer = 0;
@@ -204,6 +267,8 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
     pet.effectTimer += dt;
     return; // OfficeState deletes the pet when the fade completes
   }
+
+  if (pet.chaseCooldown > 0) pet.chaseCooldown = Math.max(0, pet.chaseCooldown - dt);
 
   // Age the pet; trigger natural despawn at end of life
   pet.lifespanTimer += dt;
@@ -253,10 +318,15 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           break;
         }
       } else if (action === 'chase' || action === 'flee') {
-        // Reactive directed movement (toward a cat / away from a dog). No claim;
-        // on arrival the pet just returns to idle and may react again.
+        // Reactive directed movement: toward what this one hunts, away from what hunts it (CHASES /
+        // fleesFrom decide which). No claim — but the reaction is REMEMBERED, so WANDER re-aims it
+        // every PET_REACTION_REPATH_SEC. It used to be a single path to wherever the quarry stood
+        // at this instant, walked to the end; the hunter then idled for up to 8 seconds and the
+        // chase was lost by construction, with nothing to catch and no way to catch it.
         const path = ctx.navigateReaction?.(pet, action) ?? null;
         if (path && path.length > 0) {
+          pet.reaction = action;
+          pet.reactionTimer = PET_REACTION_REPATH_SEC;
           pet.path = path;
           pet.moveProgress = 0;
           pet.state = PetState.WANDER;
@@ -264,7 +334,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           pet.frameTimer = 0;
           break;
         }
-        // No reachable target — fall through to a random wander.
+        // Nothing reachable — fall through to a random wander.
       }
       // Random wander
       const { walkableTiles, tileMap, blockedTiles, walls } = ctx;
@@ -286,8 +356,39 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
     case PetState.WANDER: {
       advancePetFrame(pet, ctx, PET_WALK_FRAME_DURATION_SEC, 4);
 
+      // Re-aim a chase or an escape at what the other animal is doing NOW. Both sides do this on
+      // the same cadence on purpose: whoever reacts more often closes distance faster, which would
+      // be a speed advantage under another name, and the decision was that only geometry — walls,
+      // furniture, dead ends — may end a chase.
+      if (pet.reaction) {
+        pet.reactionTimer -= dt;
+        if (pet.reactionTimer <= 0) {
+          pet.reactionTimer = PET_REACTION_REPATH_SEC;
+          const next = ctx.navigateReaction?.(pet, pet.reaction) ?? null;
+          if (next && next.length > 0) {
+            pet.path = next;
+            pet.moveProgress = 0;
+          } else {
+            // The other animal is gone, out of range, or unreachable: stop reacting and let the
+            // next idle decision start something else.
+            pet.reaction = null;
+            pet.path = [];
+          }
+        }
+      }
+
       if (pet.path.length === 0) {
         snapToTile(pet);
+        // A reaction that ran out of path re-decides at once rather than standing around for up to
+        // eight seconds, which is the pause a wander earns and a chase does not.
+        if (pet.reaction) {
+          pet.reaction = null;
+          pet.state = PetState.IDLE;
+          pet.wanderTimer = 0;
+          pet.frame = 0;
+          pet.frameTimer = 0;
+          break;
+        }
         // Arrived: if we were heading to a claimed target's sit tile, sit
         if (
           pet.targetKind &&
@@ -311,6 +412,26 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
 
       // Move toward next tile in path (shared entity movement).
       stepAlongPath(pet, dt, PET_WALK_SPEED_PX_PER_SEC);
+      break;
+    }
+
+    case PetState.SCUFFLE: {
+      // The cloud's own frames are the CLIENT's business (presentation timing, AGENTS.md
+      // invariant 2) — the pets are hidden behind it, so nothing here advances a pet frame. What
+      // the server owns is how long it lasts and what it leaves behind.
+      pet.scuffleTimer -= dt;
+      if (pet.scuffleTimer <= 0) {
+        pet.scufflePartnerId = null;
+        pet.scuffleTimer = 0;
+        pet.reaction = null;
+        // Only the chase is held back. The quarry may flee immediately, and that asymmetry is what
+        // lets it get away instead of being caught again two seconds later on the same tile.
+        pet.chaseCooldown = PET_SCUFFLE_COOLDOWN_SEC;
+        pet.state = PetState.IDLE;
+        pet.wanderTimer = 0;
+        pet.frame = 0;
+        pet.frameTimer = 0;
+      }
       break;
     }
 
@@ -441,6 +562,10 @@ export function petPose(pet: Pet): string {
 
     case PetState.TALK:
       return 'talk';
+    case PetState.SCUFFLE:
+      // The cloud hides both animals, so this is only what shows if its sheet failed to load —
+      // standing still is the right fallback, and better than an invisible pet.
+      return 'idle';
     default:
       return 'idle';
   }

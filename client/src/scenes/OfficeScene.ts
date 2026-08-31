@@ -19,6 +19,7 @@ import {
   TOOL_OVERLAY_VERTICAL_OFFSET,
 } from '@pixel/shared/office/constants.js';
 import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
+import { loadEffectSheets } from '../art/effects.js';
 import {
   CharacterState,
   ControllerKind,
@@ -619,6 +620,9 @@ export class OfficeScene extends Phaser.Scene {
         loading.advance('furniture atlas');
         return r;
       });
+      // The effect sheets (today: the scuffle cloud) — 655 bytes, constant ids, no message needed.
+      // Started here so it overlaps the world wait, awaited below so the first frame has it.
+      const effectsPromise = loadEffectSheets();
 
       loading.say('waiting for the world');
       const waited = await Promise.race([
@@ -634,6 +638,7 @@ export class OfficeScene extends Phaser.Scene {
       ]);
       const atlas = await atlasPromise;
       if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
+      await effectsPromise;
       // Sheets AFTER the map, because the map says which are needed: a ground or wall
       // cell can only name a set the layout lists. Everything else it draws comes from
       // the atlas or its own ref image.
@@ -1040,6 +1045,7 @@ export class OfficeScene extends Phaser.Scene {
     rp.effect = ((ps.effect as string) || null) as never;
     rp.effectTimer = ps.effectTimer as number;
     rp.restLift = ps.restLift as number;
+    rp.scufflePartnerId = ((ps.scufflePartnerId as number) || null) as never;
   }
 
   /** Rebuild the local furniture list from synced state. Returns false when

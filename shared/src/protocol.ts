@@ -68,8 +68,14 @@ export const WORLD_ROOM = 'world';
  *     either spelling, so an older build's world still behaves, but its EDITOR would read the new
  *     names as absent, show every switch off, and write the old names back on the next save —
  *     silently turning off the behaviours somebody had configured.
+ * 13 — a chase can now END: when a hunter corners its quarry both pets enter `PetState.SCUFFLE` and
+ *     a comic cloud is drawn over the pair. `PetSync.scufflePartnerId` says who is paired with whom
+ *     — synced rather than inferred, because that is the server's decision and a client guessing it
+ *     from adjacency draws two clouds on top of each other the moment three animals line up. An
+ *     older build reads the new field as undefined and the new state as unknown, so it would draw
+ *     both animals standing idle on top of each other with no explanation.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

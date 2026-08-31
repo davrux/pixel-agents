@@ -14,6 +14,7 @@ import {
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   PET_EFFECT_DURATION_SEC,
   PET_FLEE_RANGE_TILES,
+  PET_CATCH_RADIUS_TILES,
   PET_SHOO_RADIUS_TILES,
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
@@ -87,7 +88,7 @@ import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import { announceDue, hourChimes, QuoteSchedule, talkingObjects, type SpokenLine } from './talkingObjects.js';
 import type { PetAction, PetAffordances, PetTarget } from './pets.js';
-import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
+import { beginPetDespawn, beginScuffle, createPet, endScuffleAlone, petPose, updatePet } from './pets.js';
 
 /** Union of every source of non-walkable tiles: furniture footprints and
  *  tiles the layout itself marks blocked (layout.tileBlocked, independent of
@@ -2239,7 +2240,7 @@ export class OfficeState {
       canRest: b.rest && this.hasRestAffordance(pet),
       // Who hunts whom comes from one table, and fleeing is the same table read backwards — see
       // CHASES / fleesFrom. Nothing here names a species, so a new pairing is a word in that table.
-      canChase: b.chase && this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]) !== null,
+      canChase: b.chase && pet.chaseCooldown <= 0 && this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]) !== null,
       threatened: b.flee && this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind)) !== null,
       // A pet uses the appliances pets may use — a fountain or a bowl, never a coffee machine —
       // and only if the map has one. None placed, no visit: the absence is the answer, not a
@@ -2356,19 +2357,56 @@ export class OfficeState {
     return null;
   }
 
-  /** Nearest non-despawning pet of any of `kinds` within PET_SHOO_RADIUS_TILES (tile
-   *  Chebyshev distance) of `pet`, or null. Used for chase/flee detection. */
-  private nearestLivingPetOfKinds(pet: Pet, kinds: readonly PetKindEnum[]): Pet | null {
+  /**
+   * Catch a quarry, and keep every cloud a PAIR.
+   *
+   * Here rather than in `updatePet` because it is the only question in the pet FSM that needs two
+   * animals at once — the same reason `nearestLivingPetOfKinds` lives here. Runs once per tick, not
+   * once per pet.
+   *
+   * The catch condition is deliberately narrow: the hunter must be ACTIVELY chasing. A dog that
+   * happens to wander past a sitting cat does not start a brawl, or the world would be nothing but
+   * clouds; what earns one is having pursued and cornered.
+   */
+  private resolveScuffles(): void {
+    // Pairs first: a partner that despawned, aged out or was deleted leaves one animal standing
+    // invisible behind a cloud the renderer will not draw (it needs both ends to place one).
+    for (const pet of this.pets.values()) {
+      if (pet.state !== PetState.SCUFFLE) continue;
+      const partner = pet.scufflePartnerId === null ? undefined : this.pets.get(pet.scufflePartnerId);
+      if (!partner || partner.state !== PetState.SCUFFLE || partner.scufflePartnerId !== pet.id) {
+        endScuffleAlone(pet);
+      }
+    }
+
+    for (const hunter of this.pets.values()) {
+      if (hunter.reaction !== 'chase' || hunter.state === PetState.SCUFFLE) continue;
+      // The cooldown belongs HERE as well as in the affordance, and that is not belt and braces:
+      // the affordance only advises the brain, so anything that makes a pet chase anyway — another
+      // decider, a test, a future controller — would otherwise re-catch the same quarry on the tick
+      // after a cloud cleared, which is the endless loop of clouds the cooldown exists to prevent.
+      if (hunter.chaseCooldown > 0) continue;
+      const quarry = this.nearestLivingPetOfKinds(hunter, CHASES[hunter.kind], PET_CATCH_RADIUS_TILES);
+      // A quarry already in somebody else's cloud is not available: a scuffle is a pair, so a
+      // second dog joining would need a third partner id and there is nothing to point it at.
+      if (!quarry || quarry.state === PetState.SCUFFLE) continue;
+      beginScuffle(hunter, quarry);
+    }
+  }
+
+  /** Nearest non-despawning pet of any of `kinds` within `radius` tiles (Chebyshev
+   *  distance) of `pet`, or null. Used for chase/flee detection and for the catch. */
+  private nearestLivingPetOfKinds(pet: Pet, kinds: readonly PetKindEnum[], radius = PET_SHOO_RADIUS_TILES): Pet | null {
     // An empty relation is the common case (a duck hunts nothing, a dog runs from nothing), and
     // this is per pet per tick — so answer before walking the collection.
     if (kinds.length === 0) return null;
     let best: Pet | null = null;
-    let bestDist = PET_SHOO_RADIUS_TILES + 1;
+    let bestDist = radius + 1;
     for (const other of this.pets.values()) {
       if (other.id === pet.id || !kinds.includes(other.kind)) continue;
       if (other.state === PetState.SPAWN || other.state === PetState.DESPAWN) continue;
       const dist = Math.max(Math.abs(other.tileCol - pet.tileCol), Math.abs(other.tileRow - pet.tileRow));
-      if (dist <= PET_SHOO_RADIUS_TILES && dist < bestDist) {
+      if (dist <= radius && dist < bestDist) {
         best = other;
         bestDist = dist;
       }
@@ -2442,6 +2480,8 @@ export class OfficeState {
       // longer custom tracks aren't truncated by a hardcoded modulo.
       posePlaybackLength: (pet: Pet) => getPetPosePlaybackLength(pet.kind, pet.variant, petPose(pet)),
     };
+
+    this.resolveScuffles();
 
     const toDelete: number[] = [];
     for (const pet of this.pets.values()) {

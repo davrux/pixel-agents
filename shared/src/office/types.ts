@@ -195,6 +195,15 @@ export const PetState = {
    *  schema change, and an older client maps an unknown state to the idle pose. */
   FEED: 'feed',
   TALK: 'talk', // standing next to a claimed agent, facing it (talk pose)
+  /**
+   * In a comic cloud with the pet named by `scufflePartnerId` — a hunter caught its quarry.
+   *
+   * Both animals hold this state and point at each other, and the CLOUD is not a pawn: it is one
+   * shared sheet the client draws over the pair (see office/effects.ts). A new value in a synced
+   * string costs no schema change; the partner id does, and it is synced anyway because who is
+   * paired with whom is the server's decision, not something a client should infer from positions.
+   */
+  SCUFFLE: 'scuffle',
   DESPAWN: 'despawn', // fade-out, then delete
 } as const;
 export type PetState = (typeof PetState)[keyof typeof PetState];
@@ -213,6 +222,20 @@ export interface Pet {
   tileRow: number;
   path: Array<{ col: number; row: number }>;
   moveProgress: number;
+  /**
+   * The reaction this pet is currently acting on: 'chase' toward its quarry, 'flee' from its
+   * hunter, or null. It outlives the single path the old code walked, which is what lets a hunter
+   * re-aim instead of marching to a position its quarry has long left.
+   */
+  reaction: 'chase' | 'flee' | null;
+  /** Seconds until the reaction re-aims (see PET_REACTION_REPATH_SEC). */
+  reactionTimer: number;
+  /** The pet this one is scuffling with, or null. Synced, so the client can draw ONE cloud. */
+  scufflePartnerId: number | null;
+  /** Seconds of cloud left. */
+  scuffleTimer: number;
+  /** Seconds until this pet may start a chase again (set when a scuffle ends). */
+  chaseCooldown: number;
   frame: number;
   frameTimer: number;
   /** Countdown to next wander decision while idle */

@@ -53,6 +53,37 @@ export const PET_SIT_CHANCE = 0.4; // chance a wander decision targets furniture
 // bolts so it doesn't sprint across the whole office.
 export const PET_SHOO_RADIUS_TILES = 5;
 export const PET_FLEE_RANGE_TILES = 7;
+/**
+ * The scuffle: how a chase ENDS.
+ *
+ * Before this, a chase had no ending at all — the hunter pathed once to where its quarry stood,
+ * walked there, found nothing and idled for up to 8 seconds before deciding again, so it lost by
+ * construction. Two numbers fix that without giving anybody a speed advantage, which was the
+ * decision: a dog that outruns a cat is zoologically false, and being CORNERED is the honest reason
+ * a cat gets caught.
+ *
+ * `PET_REACTION_REPATH_SEC` is how often a hunter re-aims at where its quarry actually is now — and
+ * the quarry re-picks its escape on the SAME cadence, deliberately. An asymmetry there would be a
+ * speed advantage wearing a different hat: whoever reacts twice as often closes distance twice as
+ * fast. So geometry decides, and geometry means walls, furniture and dead ends.
+ *
+ * `PET_CATCH_RADIUS_TILES = 1` counts diagonals (Chebyshev), because two pets standing corner to
+ * corner look adjacent and a cloud between them reads right.
+ */
+export const PET_REACTION_REPATH_SEC = 0.5;
+export const PET_CATCH_RADIUS_TILES = 1;
+/** How long the cloud lasts. Long enough to read as a scrap, short enough not to become the scene. */
+export const PET_SCUFFLE_DURATION_SEC = 1.5;
+/**
+ * How long a pet that has just scuffled may not start a chase.
+ *
+ * Without it the two separate, the hunter's affordance is true again on the next decision, and the
+ * pair falls into an endless loop of clouds on one spot. The quarry is NOT held back by it: it may
+ * flee immediately, which together with the hunter's pause is what lets it actually get away.
+ */
+export const PET_SCUFFLE_COOLDOWN_SEC = 12;
+/** How fast the cloud's four frames cycle: brisk, because a scrap is not a walk cycle. */
+export const SCUFFLE_FRAME_DURATION_SEC = 0.09;
 // Coffee (N3.3c): chance an idle pet heads to a free appliance station, and how
 // long it stands there once arrived.
 export const PET_DRINK_CHANCE = 0.15;

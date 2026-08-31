@@ -130,6 +130,7 @@ const BOUNDED_FIELDS = new Map([
   ['client/src/scenes/OfficeScene.ts:loadedSheets', 'one name per tileset the layout named — the loading phase fetches each once'],
   ['client/src/render/sprites.ts:refAttempts', 'one entry per reference image the layout names, so it is fetched once'],
   ['shared/src/office/colorize.ts:colorizeCache', 'keyed by sprite identity + colour; the palette is the map\'s'],
+  ['server/src/artApi.ts:effectBytes', 'one PNG per entry in EFFECT_SHEETS — an id that is not in that table is never inserted, so the table is the bound'],
   // Warn-once sets: one entry per id that has already been complained about. Bounded by
   // the id space, and the alternative is a warning per frame.
   ['client/src/render/sprites.ts:staleInAtlas', 'ids warned about once — bounded by the catalog'],

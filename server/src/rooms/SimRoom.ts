@@ -1995,6 +1995,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ps.effect = pet.effect ?? '';
       ps.effectTimer = pet.effectTimer;
       ps.restLift = pet.restLift;
+      // 0 = nobody: no pet has id 0, so the zero value cannot be mistaken for a partner.
+      ps.scufflePartnerId = pet.scufflePartnerId ?? 0;
     }
     for (const key of [...this.state.pets.keys()]) {
       if (!live.has(key)) this.state.pets.delete(key);
