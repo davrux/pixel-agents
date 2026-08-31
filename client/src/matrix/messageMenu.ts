@@ -1,6 +1,6 @@
 /**
- * Matrix chat panel: the per-message options menu (react / reply / edit /
- * delete).
+ * Matrix chat panel: the per-message options menu (react / reply / reply in
+ * thread / edit / delete).
  *
  * One small popover, opened from a row's ⋯ button and anchored to it. It owns
  * nothing but itself: what it may offer is decided by the caller (see
@@ -29,7 +29,15 @@ export interface MessageMenuSpec {
   container: HTMLElement;
   /** Which entries to draw. An all-false spec would draw an empty menu, so
    *  callers must not open one (the ⋯ button is hidden in that case). */
-  can: { react: boolean; copy: boolean; copyImage: boolean; reply: boolean; edit: boolean; remove: boolean };
+  can: {
+    react: boolean;
+    copy: boolean;
+    copyImage: boolean;
+    reply: boolean;
+    thread: boolean;
+    edit: boolean;
+    remove: boolean;
+  };
   /** A quick reaction was picked. */
   onReact(key: string): void;
   /** "Any emoji…" was picked — the caller asks for one and reacts with it. */
@@ -39,6 +47,8 @@ export interface MessageMenuSpec {
   /** Copy the message's picture to the clipboard. */
   onCopyImage(): void;
   onReply(): void;
+  /** Open the thread rooted at this message — starting it if there is none. */
+  onReplyInThread(): void;
   onEdit(): void;
   onDelete(): void;
   /** The menu closed. Always called exactly once, whether it was dismissed or
@@ -131,6 +141,7 @@ export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
   if (spec.can.copy) addRow('⧉', 'Copy text', () => spec.onCopy());
   if (spec.can.copyImage) addRow('⧉', 'Copy image', () => spec.onCopyImage());
   if (spec.can.reply) addRow('↩', 'Reply', () => spec.onReply());
+  if (spec.can.thread) addRow('🧵', 'Reply in thread', () => spec.onReplyInThread());
   if (spec.can.edit) addRow('✎', 'Edit', () => spec.onEdit());
   if (spec.can.remove) addRow('🗑', 'Delete', () => spec.onDelete(), true);
 

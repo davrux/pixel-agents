@@ -182,11 +182,18 @@ export async function bootMatrixClient(o: {
   if (crypto) crypto.globalBlacklistUnverifiedDevices = false;
 
   // ---- 8: start. Detached is mandatory — see Room.getPendingEvents() in
-  // the file header of store.ts. ----
+  // the file header of store.ts. `threadSupport` is what makes the SDK build
+  // `Thread` objects at all and, just as importantly, keep thread replies OUT
+  // of the room's live timeline (`Room.eventShouldLiveIn` — a root lives in
+  // both, a reply only in its thread). Turning it off again would not merely
+  // hide the thread view: every reply would silently reappear inline in the
+  // main timeline, out of context. `startClient` also probes the homeserver
+  // for MSC3440 here and sets `Thread.hasServerSideSupport` from it, which is
+  // what lets a thread paginate its own history. ----
   await client.startClient({
     initialSyncLimit: 20,
     lazyLoadMembers: true,
-    threadSupport: false,
+    threadSupport: true,
     pollTimeout: 30000,
     pendingEventOrdering: PendingEventOrdering.Detached,
   });

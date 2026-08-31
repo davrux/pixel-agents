@@ -100,6 +100,37 @@ export interface MxReaction {
   senderNames: string[];
 }
 
+/**
+ * A thread, as summarised on its root message and in the threads list.
+ *
+ * The root is the only message a thread shares with the main timeline, so this
+ * is what the main timeline draws under it: how many replies, and who said the
+ * newest one. Everything here is derived from the events this session has
+ * loaded — a thread whose replies have not been fetched yet reports what the
+ * homeserver's own bundled summary said, which is why `count` can be non-zero
+ * while `lastPreview` is still empty.
+ */
+export interface MxThreadInfo {
+  /** The thread's id, which is its root event's id. */
+  rootId: string;
+  /** Replies, excluding the root itself. Includes our own still-pending ones. */
+  count: number;
+  /** One-line preview of the root message, for a threads-list row. */
+  rootPreview: string;
+  rootSenderName: string;
+  /** The newest reply. `lastTs` is 0 and the two strings are `''` when the
+   *  thread has no reply we can see yet. */
+  lastTs: number;
+  lastSenderName: string;
+  lastPreview: string;
+  /** I have sent something in this thread. */
+  participated: boolean;
+  /** Thread-scoped notification counts — a thread carries its own, separate
+   *  from the room's, and reading the room does not clear them. */
+  unread: number;
+  highlight: number;
+}
+
 /** What a message is a reply to, resolved for the quote line above it. */
 export interface MxReplyTo {
   eventId: string;
@@ -145,6 +176,14 @@ export interface MxEvent {
   /** This session may edit this event: our own, still readable, and a message
    *  kind an edit makes sense for. */
   canEdit?: true;
+  /** A thread hangs off this message — it is a thread root. Only ever set on a
+   *  main-timeline row: inside a thread the root is just the first message. */
+  thread?: MxThreadInfo;
+  /** This row was drawn from a thread's timeline rather than the room's.
+   *  Matrix has no nested threads, so it is what "Reply in thread" is hidden
+   *  by — and it is a fact about where the row came from, which is why it is
+   *  here rather than a flag the view has to remember to pass around. */
+  inThread?: true;
 }
 
 /**

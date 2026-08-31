@@ -200,6 +200,8 @@ export interface TimelineHooks {
   /** The quote above a reply was activated — bring the quoted message into
    *  view (see `revealEvent`, which the caller routes back into). */
   onJumpToReply(eventId: string): void;
+  /** The 🧵 summary under a thread root was activated — open that thread. */
+  onOpenThread(rootId: string): void;
 }
 
 /** What the message menu may offer for one event. Lives here because the row's
@@ -210,6 +212,8 @@ export interface MsgActions {
   copy: boolean;
   copyImage: boolean;
   reply: boolean;
+  /** Start (or join) a thread rooted at this message. */
+  thread: boolean;
   edit: boolean;
   remove: boolean;
   any: boolean;
@@ -229,12 +233,23 @@ export function messageActionsFor(ev: MxEvent): MsgActions {
     copy: readable && !ATTACHMENT_TYPES.has(msgtype) && body.trim() !== '',
     copyImage: readable && imageContentOf(ev.content) !== null,
     reply: readable,
+    // Matrix has no nested threads: a reply inside one relates to the thread's
+    // root, never to another reply. `inThread` is set by the store on every row
+    // it draws from a thread's timeline (the root included — you are already
+    // there), so this offer cannot appear where it would be a lie.
+    thread: readable && ev.inThread !== true,
     edit: ev.canEdit === true,
     remove: ev.canRedact === true,
     any: false,
   };
   actions.any =
-    actions.react || actions.copy || actions.copyImage || actions.reply || actions.edit || actions.remove;
+    actions.react ||
+    actions.copy ||
+    actions.copyImage ||
+    actions.reply ||
+    actions.thread ||
+    actions.edit ||
+    actions.remove;
   return actions;
 }
 
@@ -265,6 +280,11 @@ export interface TimelineRenderOpts {
   receipts: Map<string, MxReader[]>;
   /** Our own mxid — only our own messages carry a "sent" check. */
   selfUserId: string;
+  /** These rows are one thread's, not a room's. Only the wording at the two
+   *  ends changes — "the start of this thread" rather than "beginning of the
+   *  room", and no "say hello" for a thread, whose root is always its first
+   *  row. */
+  inThread: boolean;
 }
 
 /** A single persisted `.mx-msg` row: built once per key, updated in place on
@@ -483,6 +503,33 @@ function buildMsgRow(deps: RowDeps): MsgRow {
   const reacts = document.createElement('div');
   reacts.className = 'mx-reacts';
   reacts.hidden = true;
+
+  // ---- thread summary ---------------------------------------------------
+  // A button for the same reason the reply quote is one: it navigates, so it
+  // has to be reachable from the keyboard. Drawn only on a thread ROOT — the
+  // one message a thread shares with the main timeline — and it is the only
+  // route to a thread's replies from here, since the SDK keeps them out of this
+  // timeline entirely.
+  const threadBtn = document.createElement('button');
+  threadBtn.type = 'button';
+  threadBtn.className = 'mx-thread';
+  threadBtn.hidden = true;
+  const threadIcon = document.createElement('span');
+  threadIcon.className = 'i';
+  threadIcon.textContent = '🧵';
+  const threadIn = document.createElement('span');
+  threadIn.className = 'mx-thread-in';
+  const threadCount = document.createElement('span');
+  threadCount.className = 'n';
+  const threadLast = document.createElement('span');
+  threadLast.className = 'last';
+  threadLast.dir = 'auto';
+  threadIn.append(threadCount, threadLast);
+  threadBtn.append(threadIcon, threadIn);
+  threadBtn.addEventListener('click', () => {
+    const id = lastEvent?.thread?.rootId;
+    if (id) deps.onOpenThread(id);
+  });
 
   // ---- the ⋯ menu button -----------------------------------------------
   // Kept in the tab order even while invisible (CSS reveals it on hover or
@@ -808,6 +855,41 @@ function buildMsgRow(deps: RowDeps): MsgRow {
       : `In reply to ${to.senderName || to.sender}${to.text ? `: ${to.text}` : ''}`;
   };
 
+  /** A deleted root shows no summary — the store attaches no annotations at
+   *  all to a redacted event, and a tombstone advertising replies reads as if
+   *  the deletion had failed. The thread is still reachable from the room's
+   *  threads list, which is where a deleted root is a row like any other. */
+  const paintThread = (ev: MxEvent): void => {
+    const info = ev.thread;
+    if (!info || ev.redacted) {
+      threadBtn.hidden = true;
+      return;
+    }
+    threadBtn.hidden = false;
+    threadBtn.classList.toggle('unread', info.unread > 0);
+    threadBtn.classList.toggle('highlight', info.highlight > 0);
+    threadBtn.classList.toggle('mine', info.participated);
+    // "Thread" rather than "0 replies" for a root nobody has answered yet: a
+    // thread can exist with no replies (somebody started one and left), and a
+    // zero is a worse invitation to open it than the word itself.
+    threadCount.textContent =
+      info.count === 0 ? 'Thread' : info.count === 1 ? '1 reply' : `${info.count} replies`;
+    // Remote text, so textContent only — same rule as every other row here.
+    threadLast.textContent = info.lastPreview
+      ? `${info.lastSenderName}: ${info.lastPreview}`
+      : '';
+    threadLast.hidden = !info.lastPreview;
+    threadBtn.title = info.unread > 0
+      ? `Open thread — ${info.unread} unread`
+      : info.participated
+        ? 'Open thread — you are in it'
+        : 'Open thread';
+    threadBtn.setAttribute(
+      'aria-label',
+      `${threadCount.textContent}${info.unread > 0 ? `, ${info.unread} unread` : ''}. Open thread.`,
+    );
+  };
+
   /** Signature of the chips currently drawn. Same reason as `statusKey`:
    *  `render()` runs on every sync tick, and rebuilding the chips each time
    *  would drop a focused one out from under the keyboard. */
@@ -873,7 +955,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     }
   };
 
-  el.append(quote, txt, figure, fileChip, retry, act, reacts, status, actions);
+  el.append(quote, txt, figure, fileChip, retry, act, reacts, threadBtn, status, actions);
 
   const update = (ev: MxEvent): void => {
     lastEvent = ev;
@@ -887,6 +969,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     act.hidden = true;
     paintQuote(ev);
     paintReactions(ev);
+    paintThread(ev);
     actions.hidden = !messageActionsFor(ev).any;
 
     if (ev.redacted) {
@@ -1339,6 +1422,12 @@ export class TimelineView {
 
     const emptyShown = topNodes.length === (noticeShown ? 2 : 1) && !opts.loading && !opts.error;
     this.emptyEl.hidden = !emptyShown;
+    // A thread always has at least its root, so an empty one means its history
+    // has not arrived yet — never "say hello", which would be an invitation to
+    // start something that already exists.
+    this.emptyEl.textContent = opts.inThread
+      ? 'Loading this thread…'
+      : 'No messages yet — say hello.';
     if (emptyShown) topNodes.push(this.emptyEl);
 
     if (newestGroup) newestGroup.setAttribute('aria-live', 'polite');
@@ -1481,7 +1570,7 @@ export class TimelineView {
       this.moreEl.textContent = 'Loading…';
       this.moreInteractive = false;
     } else if (opts.atStart) {
-      this.moreEl.textContent = 'Beginning of the room.';
+      this.moreEl.textContent = opts.inThread ? 'Start of this thread.' : 'Beginning of the room.';
       this.moreEl.setAttribute('aria-disabled', 'true');
       this.moreInteractive = false;
     } else {

@@ -323,6 +323,71 @@ export function injectMatrixSkin(): void {
 .mx-react.pending{opacity:.6;cursor:progress}
 .mx-react:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
 
+/* The thread summary under a root message (timeline.ts paintThread), and the
+   rows of the threads list. Both read as "there is more conversation behind
+   this line", so they share the inset-well look rather than the chip look a
+   reaction gets — a reaction is a thing you press, a thread is a place you go. */
+.mx-thread{
+  display:flex;align-items:center;gap:0.4rem;width:100%;text-align:left;margin-top:0.3rem;
+  padding:0.2rem 0.45rem;border:2px solid #0a0908;border-radius:0.35rem;
+  background:#262422;box-shadow:inset 0 2px 0 #37342f, inset 0 -3px 0 #050505;
+  cursor:pointer;font-family:inherit;overflow:hidden;
+}
+.mx-thread[hidden]{display:none}
+.mx-thread .i{flex:0 0 auto;font-size:0.85rem;line-height:1}
+.mx-thread-in{display:flex;flex-direction:column;gap:0.05rem;min-width:0;overflow:hidden}
+.mx-thread .n{color:#4998c0;font-size:0.78rem;font-weight:600;white-space:nowrap}
+.mx-thread .last{color:#818586;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-thread .last[hidden]{display:none}
+.mx-thread:hover{background:#37342f}
+.mx-thread:hover .last{color:#adb0b2}
+.mx-thread:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
+/* Unread is the app's "on" red, the same meaning it carries on a toggle; a
+   mention adds the highlight yellow as a left edge, which is the only place in
+   the panel that colour is used for anything but attention. */
+/* You have said something in this thread — the link blue, which is what this
+   panel already uses for "this is yours to come back to". Unread and highlight
+   below deliberately outrank it. */
+.mx-thread.mine{border-left-color:#4998c0}
+.mx-thread.unread .n{color:#f1efec}
+.mx-thread.unread{border-left-color:#c51a1b}
+.mx-thread.highlight{border-left-color:#e7da00}
+
+/* Threads list rows. A <button> wearing .pa-list-row, because the whole row
+   navigates — the same shape the rooms list uses, with the button chrome
+   stripped back so it still reads as a row and not as a control. */
+.mx-thread-row{
+  width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #2c2a28;
+  border-radius:0;box-shadow:none;cursor:pointer;font-family:inherit;color:inherit;
+}
+.mx-thread-row:hover{background:#242220}
+.mx-thread-row:focus-visible{outline:2px solid #4998c0;outline-offset:-2px}
+.mx-thread-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.1rem;overflow:hidden}
+.mx-thread-row-main .nm{
+  color:#f0eeea;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:'FS Pixel Sans',ui-monospace,monospace;
+}
+.mx-thread-row.unread .nm{color:#f5f3f0;font-weight:600}
+.mx-thread-row-main .sub{
+  color:#818586;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:'FS Pixel Sans',ui-monospace,monospace;
+}
+.mx-thread-row-meta{flex:0 0 auto;display:flex;align-items:center;gap:0.35rem}
+
+/* The header's 🧵 button when some thread in the room is unread. A dot rather
+   than a number: the count is on the row in the list, and the button is 1.6rem
+   wide. position:relative is set here rather than assumed of .pa-b. */
+.mx-subhead .pa-b.mx-has-unread{position:relative}
+.mx-subhead .pa-b.mx-has-unread::after{
+  content:'';position:absolute;top:0.1rem;right:0.1rem;width:0.45rem;height:0.45rem;
+  border-radius:50%;background:#4998c0;
+}
+.mx-subhead .pa-b.mx-has-unread.hl::after{background:#c51a1b}
+
+/* The 🧵 that replaces the chat's picture in the header while a thread is open:
+   the one thing saying which of the two the composer below is pointed at. */
+.mx-thread-tag{flex:0 0 auto;font-size:0.95rem;line-height:1}
+
 /* Delivery gutter (timeline.ts setStatus): a check on your newest confirmed
    message, replaced by the pictures of whoever has read up to that message.
    Right-aligned under the row rather than in a column of its own — Element can

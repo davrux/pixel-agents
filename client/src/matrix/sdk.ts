@@ -29,7 +29,8 @@ export {
   ConnectionError,
   MatrixError as SdkMatrixError,
 } from 'matrix-js-sdk';
-export type { MatrixClient, Room, MatrixEvent, RoomMember, ICreateClientOpts } from 'matrix-js-sdk';
+export { ThreadEvent } from 'matrix-js-sdk';
+export type { MatrixClient, Room, MatrixEvent, RoomMember, Thread, ICreateClientOpts } from 'matrix-js-sdk';
 
 export {
   CryptoEvent,

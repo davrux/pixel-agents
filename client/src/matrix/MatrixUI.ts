@@ -1,7 +1,7 @@
 /**
- * Matrix chat panel: the view router, all eight views (login, rooms, room,
- * members, newdm, newgroup, join, encryption), the composer and the
- * pin/status strip.
+ * Matrix chat panel: the view router, all nine views (login, rooms, room,
+ * members, media, threads, newdm, newgroup, join, encryption), the composer and
+ * the pin/status strip.
  *
  * Rendered into whatever container the host gives it (the panel's `.pa-body`).
  * This module owns no network transport and no persistence beyond the small
@@ -16,8 +16,18 @@
  * costs one click instead of ◀ + a scroll through the room list.
  *
  * Navigation is a small explicit stack: `rooms` is the root, `room` pushes on
- * top of it, `members` pushes on top of `room`, and `newdm`/`newgroup`/`join`/
- * `encryption` push directly on top of `rooms`. Every view is rebuilt from
+ * top of it, `members`/`media`/`threads` push on top of `room`, and
+ * `newdm`/`newgroup`/`join`/`encryption` push directly on top of `rooms`.
+ *
+ * A THREAD is not a view of its own: it is a second `room` frame carrying a
+ * `threadId`, drawn by the same section. That is deliberate rather than
+ * economical — a thread needs the whole composer (drafts, reply, edit,
+ * attachments, the emoji picker, typing notices) and the whole timeline, and a
+ * second copy of both is a second place for them to drift. What the frame
+ * changes is where the rows come from and where a send goes; `renderRoomView`
+ * takes the thread id and everything downstream of it follows.
+ *
+ * Every view is rebuilt from
  * scratch on each render (`createElement` + `textContent` per row) rather
  * than incrementally diffed — the datasets are small (a room list, a member
  * list, search results) and a full rebuild is what keeps every row that
@@ -35,6 +45,7 @@ import {
   type MxMember,
   type MxRoom,
   type MxSession,
+  type MxThreadInfo,
 } from './types.js';
 import {
   clearSession,
@@ -77,6 +88,7 @@ type ViewName =
   | 'room'
   | 'members'
   | 'media'
+  | 'threads'
   | 'newdm'
   | 'newgroup'
   | 'join'
@@ -87,6 +99,9 @@ type RoomsTab = 'people' | 'groups' | 'invites';
 interface ViewFrame {
   view: ViewName;
   roomId?: string;
+  /** `room` frames only: the thread whose replies this frame shows, rather
+   *  than the room's main timeline. */
+  threadId?: string;
 }
 
 const MXID_RE = /^@[^:\s]+:[^:\s]+$/;
@@ -111,6 +126,11 @@ export class MatrixUI {
   private docked = false;
   private stack: ViewFrame[] = [{ view: 'rooms' }];
   private openRoomId: string | null = null;
+  /** The thread the room view is currently showing, or null for the room's own
+   *  timeline. Kept beside `openRoomId` rather than read off the stack on every
+   *  use, for the same reason that one is: the store callbacks fire from
+   *  outside a render and need to know what is on screen without walking it. */
+  private openThreadId: string | null = null;
   /** Set by openDm() when called signed-out (e.g. from `/matrix @user:server`
    *  before login finishes); replayed once a store exists. */
   private pendingDmMxid: string | null = null;
@@ -180,6 +200,10 @@ export class MatrixUI {
   private roomLockEl!: HTMLSpanElement;
   private roomMembersBtn!: HTMLButtonElement;
   private roomMediaBtn!: HTMLButtonElement;
+  private roomThreadsBtn!: HTMLButtonElement;
+  /** Shown instead of the room's picture while a thread is open, so the header
+   *  says which of the two the composer below it is pointed at. */
+  private roomThreadTagEl!: HTMLSpanElement;
   private roomNoticeEl!: HTMLDivElement;
   private timelineView!: TimelineView;
   private composerTextarea!: HTMLTextAreaElement;
@@ -232,6 +256,10 @@ export class MatrixUI {
    *  restarted <img> load and a visible flicker. null forces the next render
    *  to rebuild (set when the view is opened for a room). */
   private mediaListKey: string | null = null;
+
+  // ---- threads view ----
+  private threadsStatusEl!: HTMLDivElement;
+  private threadsListEl!: HTMLDivElement;
 
   // ---- members view ----
   private membersJoinedLabel!: HTMLDivElement;
@@ -306,6 +334,7 @@ export class MatrixUI {
     this.buildRoomView();
     this.buildMembersView();
     this.buildMediaView();
+    this.buildThreadsView();
     this.buildNewDmView();
     this.buildNewGroupView();
     this.buildJoinView();
@@ -400,16 +429,20 @@ export class MatrixUI {
         // `rooms` event (not `timeline`, which won't fire for a room with no
         // messages yet) tells us its real name/member count arrived.
         if (this.openRoomId && (top?.view === 'room' || top?.view === 'members')) {
-          this.renderRoomView(this.openRoomId);
+          this.renderRoomView(this.openRoomId, this.openThreadId);
         }
       }),
       this.store.on('timeline', (roomId) => {
         const top = this.stack[this.stack.length - 1];
         if (this.openRoomId !== roomId) return;
-        if (top?.view === 'room') this.renderRoomView(roomId);
+        // One emit per room covers its threads too: a thread's own timeline set
+        // re-emits RoomEvent.Timeline through the room, and the store fires the
+        // per-room thread events at it as well (see attachRoomUnreadListener).
+        if (top?.view === 'room') this.renderRoomView(roomId, this.openThreadId);
         // The media overview is a projection of the same loaded window, so a
         // new attachment (or a finished paginate) repaints it the same way.
         else if (top?.view === 'media') this.renderMediaView(roomId);
+        else if (top?.view === 'threads') this.renderThreadsView(roomId);
       }),
       // Deliberately NOT renderRoomView: someone typing repaints one strip,
       // not the rail, the timeline and the header.
@@ -427,7 +460,7 @@ export class MatrixUI {
         // immediately — the 🔒 warn class, the "Unlock to read older messages" notice and the
         // composer's visibility are all derived from cryptoState, and otherwise go stale until an
         // unrelated timeline/rooms event or navigation forces a redraw (never true per requirement B).
-        if (top?.view === 'room' && this.openRoomId) this.renderRoomView(this.openRoomId);
+        if (top?.view === 'room' && this.openRoomId) this.renderRoomView(this.openRoomId, this.openThreadId);
       }),
       this.store.on('secretRequest', (req) => {
         this.pushRootView('encryption');
@@ -475,6 +508,7 @@ export class MatrixUI {
     this.hooks.onUnreadChange(0);
     this.stack = [{ view: 'rooms' }];
     this.openRoomId = null;
+    this.openThreadId = null;
     if (expired) {
       this.loginErrEl.textContent = 'Your Matrix session expired — sign in again.';
       this.loginErrEl.style.display = '';
@@ -496,7 +530,12 @@ export class MatrixUI {
   private persistView(): void {
     try {
       const top = this.stack[this.stack.length - 1];
-      if (top) sessionStorage.setItem('pa-mx-view', JSON.stringify({ view: top.view, roomId: top.roomId }));
+      if (top) {
+        sessionStorage.setItem(
+          'pa-mx-view',
+          JSON.stringify({ view: top.view, roomId: top.roomId, threadId: top.threadId }),
+        );
+      }
     } catch {
       /* ignore */
     }
@@ -506,15 +545,19 @@ export class MatrixUI {
     try {
       const raw = sessionStorage.getItem('pa-mx-view');
       if (!raw) return;
-      const saved = JSON.parse(raw) as { view?: ViewName; roomId?: string };
+      const saved = JSON.parse(raw) as { view?: ViewName; roomId?: string; threadId?: string };
       if (saved.view === 'room' && saved.roomId) {
         this.openRoomView(saved.roomId);
+        if (saved.threadId) this.openThreadView(saved.threadId);
       } else if (saved.view === 'members' && saved.roomId) {
         this.openRoomView(saved.roomId);
         this.openMembersView();
       } else if (saved.view === 'media' && saved.roomId) {
         this.openRoomView(saved.roomId);
         this.openMediaView();
+      } else if (saved.view === 'threads' && saved.roomId) {
+        this.openRoomView(saved.roomId);
+        this.openThreadsView();
       } else {
         this.stack = [{ view: 'rooms' }];
       }
@@ -561,13 +604,16 @@ export class MatrixUI {
         this.renderRoomsView();
         break;
       case 'room':
-        if (frame.roomId) this.renderRoomView(frame.roomId);
+        if (frame.roomId) this.renderRoomView(frame.roomId, frame.threadId ?? null);
         break;
       case 'members':
         if (frame.roomId) this.renderMembersView(frame.roomId);
         break;
       case 'media':
         if (frame.roomId) this.renderMediaView(frame.roomId);
+        break;
+      case 'threads':
+        if (frame.roomId) this.renderThreadsView(frame.roomId);
         break;
       case 'newdm':
         this.renderNewDmView();
@@ -606,6 +652,8 @@ export class MatrixUI {
   private openRoomView(roomId: string): void {
     this.stack = [{ view: 'rooms' }, { view: 'room', roomId }];
     this.openRoomId = roomId;
+    this.openThreadId = null;
+    this.store?.closeThread();
     // One TimelineView draws every room, so it has to be told the room changed
     // before the render below — otherwise it decides where to land from where
     // the *last* room was scrolled to (see TimelineView.reset). Unconditional,
@@ -625,12 +673,7 @@ export class MatrixUI {
     });
     this.startTimelineRefresh();
     this.renderCurrent();
-    try {
-      this.composerTextarea.value = sessionStorage.getItem(`pa-mx-draft:${roomId}`) ?? '';
-    } catch {
-      this.composerTextarea.value = '';
-    }
-    this.autoGrow(this.composerTextarea);
+    this.loadDraft();
     // Without this, `ownsFocus()` stays false (focus is still wherever it was
     // before the room opened — often <body>), so OfficeScene's WASD-blocking
     // and ChatUI's Enter-to-focus guards both think the panel is inert and a
@@ -657,6 +700,67 @@ export class MatrixUI {
     this.renderCurrent();
   }
 
+  /**
+   * Open one thread inside the room already on screen.
+   *
+   * A second `room` frame rather than a view of its own (see the file header),
+   * so ◀ lands back in the room itself. Everything the room view holds per
+   * target is reset here for the same reasons `openRoomView` resets it: the
+   * timeline draws a different set of rows, and a reply or an edit half-started
+   * in the room belongs to a message that is no longer on screen.
+   */
+  private openThreadView(rootId: string): void {
+    const top = this.stack[this.stack.length - 1];
+    const roomId = this.openRoomId;
+    // The two places a thread can be opened from: a summary under its root in
+    // the room, and a row in the threads list. Pushing on top of either is what
+    // makes ◀ land back where the reader came from.
+    if (!roomId || !top || (top.view !== 'room' && top.view !== 'threads')) return;
+    if (top.view === 'room' && top.threadId === rootId) return; // already here
+    this.saveDraft();
+    // Replace rather than stack when hopping from one thread straight to
+    // another: a chain of ◀ through three threads is not navigation anybody
+    // asked for. (Only reachable from a room frame today, but the rule belongs
+    // with the push, not with whoever happens to call it.)
+    if (top.view === 'room' && top.threadId) this.stack.pop();
+    this.stack.push({ view: 'room', roomId, threadId: rootId });
+    this.openThreadId = rootId;
+    this.timelineView.reset();
+    this.hideUploadStatus();
+    this.closeMessageActions();
+    this.replyingTo = null;
+    this.editing = null;
+    this.paintComposerContext();
+    this.store?.openThread(roomId, rootId).catch(() => {
+      /* surfaced via store.threadError() in the next render */
+    });
+    this.renderCurrent();
+    this.loadDraft();
+    this.composerTextarea.focus();
+  }
+
+  /** Back out of a thread into the room it belongs to. The room itself stays
+   *  open — only the thread closes. */
+  private leaveThreadView(): void {
+    this.saveDraft();
+    this.openThreadId = null;
+    this.store?.closeThread();
+    this.timelineView.reset();
+    this.dropComposerContext();
+    this.hideUploadStatus();
+    this.loadDraft();
+  }
+
+  private openThreadsView(): void {
+    const top = this.stack[this.stack.length - 1];
+    if (!top || top.view !== 'room' || !top.roomId || top.threadId) return;
+    this.stack.push({ view: 'threads', roomId: top.roomId });
+    this.store?.loadThreads(top.roomId).catch(() => {
+      /* surfaced via store.threadsError() in the next render */
+    });
+    this.renderCurrent();
+  }
+
   private pushRootView(view: 'newdm' | 'newgroup' | 'join' | 'encryption' | 'notifications'): void {
     this.stack = [{ view: 'rooms' }, { view }];
     this.renderCurrent();
@@ -677,23 +781,30 @@ export class MatrixUI {
     if (this.stack.length <= 1) return;
     const leaving = this.stack.pop();
     if (leaving?.view === 'room') {
-      this.store?.closeRoom();
-      this.openRoomId = null;
-      this.stopTimelineRefresh();
-      this.dropComposerContext();
+      // A thread frame sits on top of its own room's frame, so leaving one is
+      // not leaving the room — only the second half of that branch closes it.
+      if (leaving.threadId) this.leaveThreadView();
+      else this.closeOpenRoom();
     }
     this.renderCurrent();
   }
 
   private goRoot(): void {
-    if (this.stack.some((f) => f.view === 'room')) {
-      this.store?.closeRoom();
-      this.openRoomId = null;
-      this.stopTimelineRefresh();
-      this.dropComposerContext();
-    }
+    if (this.stack.some((f) => f.view === 'room')) this.closeOpenRoom();
     this.stack = [{ view: 'rooms' }];
     this.renderCurrent();
+  }
+
+  /** Everything that has to stop when the room view goes away, thread
+   *  included. */
+  private closeOpenRoom(): void {
+    this.saveDraft();
+    this.store?.closeThread();
+    this.store?.closeRoom();
+    this.openThreadId = null;
+    this.openRoomId = null;
+    this.stopTimelineRefresh();
+    this.dropComposerContext();
   }
 
   /** Leaving the room view: an open message menu and a half-finished
@@ -1396,6 +1507,14 @@ export class MatrixUI {
     this.roomAvatarSlot.addEventListener('click', () => void this.openRoomAvatar());
     subhead.appendChild(this.roomAvatarSlot);
 
+    this.roomThreadTagEl = document.createElement('span');
+    this.roomThreadTagEl.className = 'mx-thread-tag';
+    this.roomThreadTagEl.textContent = '🧵';
+    this.roomThreadTagEl.title = 'You are in a thread';
+    this.roomThreadTagEl.setAttribute('aria-label', 'Thread');
+    this.roomThreadTagEl.style.display = 'none';
+    subhead.appendChild(this.roomThreadTagEl);
+
     this.roomNameEl = document.createElement('span');
     this.roomNameEl.className = 'mx-room-name';
     subhead.appendChild(this.roomNameEl);
@@ -1404,6 +1523,14 @@ export class MatrixUI {
     this.roomLockEl.textContent = '🔒';
     this.roomLockEl.style.display = 'none';
     subhead.appendChild(this.roomLockEl);
+
+    this.roomThreadsBtn = document.createElement('button');
+    this.roomThreadsBtn.className = 'pa-b';
+    this.roomThreadsBtn.textContent = '🧵';
+    this.roomThreadsBtn.title = 'Threads in this chat';
+    this.roomThreadsBtn.setAttribute('aria-label', 'Threads in this chat');
+    this.roomThreadsBtn.addEventListener('click', () => this.openThreadsView());
+    subhead.appendChild(this.roomThreadsBtn);
 
     this.roomMediaBtn = document.createElement('button');
     this.roomMediaBtn.className = 'pa-b';
@@ -1427,11 +1554,13 @@ export class MatrixUI {
 
     const hooks: TimelineHooks = {
       onPaginate: () => {
-        if (this.openRoomId) {
-          this.store?.paginate(this.openRoomId).catch(() => {
-            /* surfaced via store.timelineError() in the next render */
-          });
-        }
+        const rid = this.openRoomId;
+        if (!rid) return;
+        const tid = this.openThreadId;
+        const load = tid ? this.store?.paginateThread(rid, tid) : this.store?.paginate(rid);
+        load?.catch(() => {
+          /* surfaced via store.timelineError()/threadError() in the next render */
+        });
       },
       onRetry: (txnId) => {
         if (this.openRoomId) {
@@ -1463,6 +1592,7 @@ export class MatrixUI {
           this.toast("That message isn't loaded — load earlier messages to reach it.");
         }
       },
+      onOpenThread: (rootId) => this.openThreadView(rootId),
     };
     this.timelineView = new TimelineView(hooks);
     col.appendChild(this.timelineView.el);
@@ -1618,18 +1748,50 @@ export class MatrixUI {
     this.root.appendChild(section);
   }
 
-  private renderRoomView(roomId: string): void {
+  /**
+   * Draw the room view, for either a room's own timeline (`threadId` null) or
+   * one thread inside it.
+   *
+   * The two differ in three places and nowhere else: what the header says, which
+   * room-level side trips are offered (a thread is not the place to open the
+   * member list — going back from one would land in the room and lose the
+   * thread), and where the rows and their load state come from.
+   */
+  private renderRoomView(roomId: string, threadId: string | null): void {
     if (!this.store) return;
-    this.renderRail(roomId);
+    const inThread = threadId !== null;
     const room = this.store.room(roomId);
+    // The rail switches rooms, which from inside a thread would silently drop
+    // the thread as well — so a thread gets the room's name in the header and no
+    // rail at all.
+    this.railEl.style.display = inThread ? 'none' : '';
+    if (!inThread) this.renderRail(roomId);
+    this.roomThreadTagEl.style.display = inThread ? '' : 'none';
     this.roomNameEl.textContent = room?.name ?? roomId;
-    this.roomNameEl.title = room?.name ?? roomId;
+    this.roomNameEl.title = inThread ? `Thread in ${room?.name ?? roomId}` : room?.name ?? roomId;
     this.paintAvatarSlot(this.roomAvatarSlot, roomId, room?.name ?? roomId, room?.avatarMxc ?? null);
     const hasAvatar = !!room?.avatarMxc;
+    this.roomAvatarSlot.style.display = inThread ? 'none' : '';
     this.roomAvatarSlot.disabled = !hasAvatar;
     this.roomAvatarSlot.title = hasAvatar ? "View this chat's picture" : '';
     if (hasAvatar) this.roomAvatarSlot.setAttribute('aria-label', "View this chat's picture");
     else this.roomAvatarSlot.removeAttribute('aria-label');
+    this.roomMediaBtn.style.display = inThread ? 'none' : '';
+    this.roomMembersBtn.style.display = inThread ? 'none' : '';
+
+    this.roomThreadsBtn.style.display = inThread ? 'none' : '';
+    // A thread's unread count is its own and reading the room never clears it,
+    // so without a mark here the only sign of one is a room badge that refuses
+    // to go away for no visible reason.
+    if (!inThread) {
+      const { unread, highlight } = this.store.threadUnread(roomId);
+      this.roomThreadsBtn.classList.toggle('mx-has-unread', unread > 0);
+      this.roomThreadsBtn.classList.toggle('hl', highlight > 0);
+      const label =
+        unread > 0 ? `Threads in this chat — ${unread} unread` : 'Threads in this chat';
+      this.roomThreadsBtn.title = label;
+      this.roomThreadsBtn.setAttribute('aria-label', label);
+    }
 
     const nowEncrypted = !!room?.encrypted;
     const warnActive = this.cryptoLockWarn();
@@ -1699,20 +1861,28 @@ export class MatrixUI {
     this.emojiBtn.style.display = composerDisabled ? 'none' : '';
     this.composerDisabledEl.style.display = composerDisabled ? '' : 'none';
 
+    // Typing is advertised per room, not per thread (Matrix has no thread-scoped
+    // m.typing), so inside a thread the strip keeps reporting the whole room.
     this.paintTyping(roomId);
 
-    const events = this.store.timeline(roomId);
+    const events = threadId ? this.store.threadTimeline(roomId, threadId) : this.store.timeline(roomId);
     this.timelineView.render(events, {
       warning,
-      atStart: this.store.atStart(roomId),
-      loading: this.store.loadingTimeline(roomId),
-      error: this.store.timelineError(roomId),
-      receipts: this.store.readReceipts(roomId),
+      atStart: threadId ? this.store.atThreadStart(roomId, threadId) : this.store.atStart(roomId),
+      loading: threadId ? this.store.loadingThread(threadId) : this.store.loadingTimeline(roomId),
+      error: threadId ? this.store.threadError(threadId) : this.store.timelineError(roomId),
+      receipts: threadId
+        ? this.store.threadReadReceipts(roomId, threadId)
+        : this.store.readReceipts(roomId),
       selfUserId: this.store.userId,
+      inThread: threadId !== null,
     });
 
     if (!document.hidden && this.timelineView.isAtBottom()) {
-      this.store.markRead(roomId);
+      // A thread's receipt is its own: reading the room does not clear a thread,
+      // and reading a thread does not clear the room.
+      if (threadId) this.store.markThreadRead(roomId, threadId);
+      else this.store.markRead(roomId);
     }
   }
 
@@ -1810,6 +1980,14 @@ export class MatrixUI {
     ta.rows = rows;
   }
 
+  /** Where a draft is parked. A thread gets its own slot: half a sentence
+   *  typed into a thread is not a draft for the room it hangs off, and pasting
+   *  it into the wrong one is the sort of mistake a chat client does not get to
+   *  take back. */
+  private draftKey(roomId: string, threadId: string | null): string {
+    return threadId ? `pa-mx-draft:${roomId}:${threadId}` : `pa-mx-draft:${roomId}`;
+  }
+
   private saveDraft(): void {
     const rid = this.openRoomId;
     if (!rid) return;
@@ -1818,17 +1996,33 @@ export class MatrixUI {
     // and must survive both cancelling and saving.
     if (this.editing) return;
     try {
+      const key = this.draftKey(rid, this.openThreadId);
       const v = this.composerTextarea.value;
-      if (v) sessionStorage.setItem(`pa-mx-draft:${rid}`, v);
-      else sessionStorage.removeItem(`pa-mx-draft:${rid}`);
+      if (v) sessionStorage.setItem(key, v);
+      else sessionStorage.removeItem(key);
     } catch {
       /* ignore */
     }
   }
 
-  private clearDraft(rid: string): void {
+  /** Put whatever was last typed for the open room-or-thread back in the box.
+   *  Called from every path that changes which of the two the composer is
+   *  pointed at, so a switch can never leave the previous one's text behind. */
+  private loadDraft(): void {
+    const rid = this.openRoomId;
     try {
-      sessionStorage.removeItem(`pa-mx-draft:${rid}`);
+      this.composerTextarea.value = rid
+        ? sessionStorage.getItem(this.draftKey(rid, this.openThreadId)) ?? ''
+        : '';
+    } catch {
+      this.composerTextarea.value = '';
+    }
+    this.autoGrow(this.composerTextarea);
+  }
+
+  private clearDraft(rid: string, threadId: string | null): void {
+    try {
+      sessionStorage.removeItem(this.draftKey(rid, threadId));
     } catch {
       /* ignore */
     }
@@ -1836,6 +2030,7 @@ export class MatrixUI {
 
   private sendComposer(): void {
     const rid = this.openRoomId;
+    const tid = this.openThreadId;
     if (!rid || !this.store) return;
     // client.sendMessage consults the room's own encryption state and encrypts
     // automatically — there is nothing left to gate here.
@@ -1853,7 +2048,7 @@ export class MatrixUI {
     // draft was in it; a normal send empties it (and its stored draft).
     this.composerTextarea.value = editing ? editing.stashedDraft : '';
     this.autoGrow(this.composerTextarea);
-    if (!editing) this.clearDraft(rid);
+    if (!editing) this.clearDraft(rid, tid);
     this.replyingTo = null;
     this.editing = null;
     this.paintComposerContext();
@@ -1861,7 +2056,7 @@ export class MatrixUI {
       // No pinning: an edit lands in place, wherever that is, and yanking the
       // timeline to the bottom would take the reader away from what they just
       // rewrote.
-      void this.store.editMessage(rid, editing.eventId, body).catch((e: unknown) => {
+      void this.store.editMessage(rid, editing.eventId, body, tid ?? undefined).catch((e: unknown) => {
         this.toast(this.errText(e));
       });
       return;
@@ -1871,7 +2066,7 @@ export class MatrixUI {
     // wrote. Before the await, so it also applies if the send fails — the
     // `.failed` row with its Retry link is exactly what you need to see.
     this.timelineView.pinToBottom();
-    void this.store.send(rid, body, replyTo).catch(() => {
+    void this.store.send(rid, body, replyTo, tid ?? undefined).catch(() => {
       /* the store surfaces the failure via the echo row itself */
     });
   }
@@ -1901,10 +2096,21 @@ export class MatrixUI {
       copy: can.copy,
       copyImage: can.copyImage,
       reply: can.reply && composerUsable,
+      thread: can.thread && composerUsable,
       edit: can.edit && composerUsable,
       remove: can.remove,
     };
-    if (!spec.react && !spec.copy && !spec.copyImage && !spec.reply && !spec.edit && !spec.remove) return;
+    if (
+      !spec.react &&
+      !spec.copy &&
+      !spec.copyImage &&
+      !spec.reply &&
+      !spec.thread &&
+      !spec.edit &&
+      !spec.remove
+    ) {
+      return;
+    }
     this.timelineView.setMenuOpenRow(ev.event_id);
     this.msgMenuAnchor = anchor;
     this.msgMenu = openMessageMenu({
@@ -1922,6 +2128,7 @@ export class MatrixUI {
       onCopy: () => void this.handleCopyText(ev),
       onCopyImage: () => void this.handleCopyImage(ev),
       onReply: () => this.startReply(ev),
+      onReplyInThread: () => this.openThreadView(ev.event_id),
       onEdit: () => this.startEdit(ev),
       onDelete: () => void this.handleDelete(ev.event_id),
       onClose: () => {
@@ -1945,7 +2152,7 @@ export class MatrixUI {
     const rid = this.openRoomId;
     if (!rid || !this.store || !eventId || !key) return;
     try {
-      await this.store.toggleReaction(rid, eventId, key);
+      await this.store.toggleReaction(rid, eventId, key, this.openThreadId ?? undefined);
     } catch (e) {
       this.toast(this.errText(e));
     }
@@ -2123,7 +2330,7 @@ export class MatrixUI {
       this.cancelComposerContext();
     }
     try {
-      await this.store.redact(rid, eventId);
+      await this.store.redact(rid, eventId, this.openThreadId ?? undefined);
     } catch (e) {
       this.toast(this.errText(e));
     }
@@ -2152,6 +2359,10 @@ export class MatrixUI {
    *  `.failed` row. */
   private async handlePickedFiles(files: File[]): Promise<void> {
     const rid = this.openRoomId;
+    // Captured with the room, and for the same reason: the confirmation dialog
+    // below is awaited, and a file must land where the reader was standing when
+    // they picked it, not wherever they navigated to while it uploaded.
+    const tid = this.openThreadId;
     if (!rid || !this.store) return;
     // Paste and drop reach here even though the button is hidden — same gate.
     if (this.store.cryptoState === 'unavailable') {
@@ -2193,17 +2404,22 @@ export class MatrixUI {
     // Twice, deliberately — once now so the composer's progress line is on
     // screen while the upload runs, and once after, because an attachment has
     // no local echo until the bytes are up and the row can appear minutes later.
-    if (this.openRoomId === rid) this.timelineView.pinToBottom();
+    if (this.openRoomId === rid && this.openThreadId === tid) this.timelineView.pinToBottom();
     try {
       // Deliberately `rid`, not the currently open room: this is the room the
       // dialog named, and that is what the user agreed to.
-      await this.store.sendAttachment(rid, file, (fraction) => {
-        if (this.openRoomId !== rid) return;
-        this.showUploadStatus(`Sending ${file.name}… ${Math.round(fraction * 100)}%`, '');
-      });
-      // Only if the reader is still in the room they sent it to — otherwise this
-      // would yank a different room's timeline to the bottom.
-      if (this.openRoomId === rid) this.timelineView.pinToBottom();
+      await this.store.sendAttachment(
+        rid,
+        file,
+        (fraction) => {
+          if (this.openRoomId !== rid || this.openThreadId !== tid) return;
+          this.showUploadStatus(`Sending ${file.name}… ${Math.round(fraction * 100)}%`, '');
+        },
+        tid ?? undefined,
+      );
+      // Only if the reader is still in the room (and thread) they sent it to —
+      // otherwise this would yank a different timeline to the bottom.
+      if (this.openRoomId === rid && this.openThreadId === tid) this.timelineView.pinToBottom();
       this.hideUploadStatus();
     } catch (err) {
       const msg = err instanceof Error && err.message ? err.message : "Couldn't send that file.";
@@ -2288,6 +2504,125 @@ export class MatrixUI {
 
     this.sections.set('members', section);
     this.root.appendChild(section);
+  }
+
+  // ==================================================================
+  // threads view
+  // ==================================================================
+
+  /**
+   * Every thread in the open room, as a list.
+   *
+   * Threads need a home of their own because their roots do not: a thread whose
+   * root is a fortnight up the timeline has no summary chip anywhere on screen,
+   * and — unlike the room itself — it carries its own unread count that reading
+   * the room will never clear. Without this list that count has nowhere to be
+   * seen and no way to be cleared.
+   */
+  private buildThreadsView(): void {
+    const section = document.createElement('section');
+    section.dataset.view = 'threads';
+
+    const head = document.createElement('div');
+    head.className = 'mx-subhead';
+    const back = document.createElement('button');
+    back.className = 'pa-b';
+    back.textContent = '◀';
+    back.addEventListener('click', () => this.goBack());
+    head.appendChild(back);
+    const title = document.createElement('span');
+    title.className = 'mx-room-name';
+    title.textContent = '🧵 Threads';
+    head.appendChild(title);
+    section.appendChild(head);
+
+    this.threadsStatusEl = document.createElement('div');
+    this.threadsStatusEl.className = 'muted';
+    this.threadsStatusEl.style.display = 'none';
+    section.appendChild(this.threadsStatusEl);
+
+    this.threadsListEl = document.createElement('div');
+    section.appendChild(this.threadsListEl);
+
+    this.sections.set('threads', section);
+    this.root.appendChild(section);
+  }
+
+  private renderThreadsView(roomId: string): void {
+    if (!this.store) return;
+    const list = this.store.threads(roomId);
+    const error = this.store.threadsError();
+    const loading = this.store.loadingThreads();
+
+    this.threadsStatusEl.replaceChildren();
+    if (error) {
+      // Not fatal: sync has still delivered whatever threads it has seen, so the
+      // list below is drawn anyway and this only says it may be short.
+      this.threadsStatusEl.textContent = `Couldn't load older threads — ${error}`;
+      this.threadsStatusEl.style.display = '';
+    } else if (loading && list.length === 0) {
+      this.threadsStatusEl.textContent = 'Loading threads…';
+      this.threadsStatusEl.style.display = '';
+    } else if (list.length === 0) {
+      this.threadsStatusEl.textContent =
+        'No threads here yet. Pick ⋯ on a message and "Reply in thread" to start one.';
+      this.threadsStatusEl.style.display = '';
+    } else {
+      this.threadsStatusEl.style.display = 'none';
+    }
+
+    this.threadsListEl.replaceChildren(...list.map((t) => this.buildThreadRow(t)));
+  }
+
+  /** One row of the threads list. Every string on it is remote text, so
+   *  `textContent` throughout — the same rule the room list and the member list
+   *  are built under. */
+  private buildThreadRow(info: MxThreadInfo): HTMLElement {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'pa-list-row mx-thread-row';
+    if (info.unread > 0) row.classList.add('unread');
+    row.addEventListener('click', () => this.openThreadView(info.rootId));
+
+    const main = document.createElement('div');
+    main.className = 'mx-thread-row-main';
+
+    const nm = document.createElement('div');
+    nm.className = 'nm';
+    nm.dir = 'auto';
+    nm.textContent = info.rootPreview
+      ? `${info.rootSenderName}: ${info.rootPreview}`
+      : info.rootSenderName || 'Thread';
+    main.appendChild(nm);
+
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.dir = 'auto';
+    const count = info.count === 1 ? '1 reply' : `${info.count} replies`;
+    sub.textContent = info.lastPreview
+      ? `${count} · ${info.lastSenderName}: ${info.lastPreview}`
+      : count;
+    main.appendChild(sub);
+    row.appendChild(main);
+
+    const meta = document.createElement('div');
+    meta.className = 'mx-thread-row-meta';
+    if (info.lastTs > 0) {
+      const time = document.createElement('small');
+      time.textContent = fmtRelative(info.lastTs);
+      time.title = new Date(info.lastTs).toLocaleString();
+      meta.appendChild(time);
+    }
+    if (info.unread > 0) {
+      const badge = document.createElement('div');
+      badge.className = 'mx-badge' + (info.highlight > 0 ? ' hl' : '');
+      badge.textContent = String(info.unread);
+      meta.appendChild(badge);
+    }
+    row.appendChild(meta);
+
+    row.title = info.participated ? 'You are in this thread' : 'Open thread';
+    return row;
   }
 
   private async refreshMembers(roomId: string): Promise<void> {
@@ -2472,16 +2807,37 @@ export class MatrixUI {
    *  validated projections the timeline rows use (media.ts), so nothing here
    *  re-checks a remote-controlled shape — and a redacted or undecryptable
    *  event yields neither and simply isn't media any more. */
+  /**
+   * Every picture and file in the loaded window — the room's own, and each
+   * thread's.
+   *
+   * The threads half is not optional: with `threadSupport` on, a picture posted
+   * inside a thread is not in the room's timeline at all, so walking only that
+   * would quietly drop it from an overview whose whole promise is "everything
+   * shared here". A thread root appears in both windows once its thread has been
+   * paginated to the start, hence the dedupe.
+   *
+   * Ordered newest-first across the lot rather than room-then-threads: a grid
+   * split into two chronologies is not a chronology.
+   */
   private collectMedia(roomId: string): Array<{ ev: MxEvent; image: MxImageContent | null; file: MxFileContent | null }> {
     if (!this.store) return [];
     const out: Array<{ ev: MxEvent; image: MxImageContent | null; file: MxFileContent | null }> = [];
-    for (const ev of this.store.timeline(roomId)) {
-      if (ev.redacted) continue;
-      const image = imageContentOf(ev.content);
-      const file = image ? null : fileContentOf(ev.content);
-      if (image || file) out.push({ ev, image, file });
-    }
-    out.reverse();
+    const seen = new Set<string>();
+    const sweep = (events: MxEvent[]): void => {
+      for (const ev of events) {
+        if (ev.redacted) continue;
+        const key = ev.event_id || ev.txnId || '';
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        const image = imageContentOf(ev.content);
+        const file = image ? null : fileContentOf(ev.content);
+        if (image || file) out.push({ ev, image, file });
+      }
+    };
+    sweep(this.store.timeline(roomId));
+    for (const t of this.store.threads(roomId)) sweep(this.store.threadTimeline(roomId, t.rootId));
+    out.sort((a, b) => b.ev.origin_server_ts - a.ev.origin_server_ts);
     return out;
   }
 

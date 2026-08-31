@@ -19,6 +19,17 @@
  *   cleared both checks. An event mid-decryption has no clear event at all,
  *   so skipping this order renders a blank row instead of "Decrypting…".
  *
+ * Threads are the SDK's, not ours: `threadSupport: true` (client.ts) makes it
+ * file every `m.thread` reply — and the relations, redactions and replies that
+ * hang off one — into a `Thread` object instead of the room's live timeline,
+ * where only the thread's ROOT still appears. Two consequences run through this
+ * file. `timeline()` must filter `getPendingEvents()`, which stays room-wide
+ * under `Detached` ordering and would otherwise draw a reply typed into a
+ * thread in the main timeline until the server echoed it back. And a thread
+ * carries its own read receipts, its own notification counts and its own
+ * pagination token, so every one of those has a thread-scoped twin below
+ * rather than a `roomId` argument that quietly means "the main timeline".
+ *
  * Every method that can reject normalises the rejection through
  * `MatrixError.from()` — `MatrixUI`'s `errcode`-branching error text and the
  * join flow's `M_FORBIDDEN`/`M_NOT_FOUND` cases both depend on that shape
@@ -33,9 +44,18 @@ import {
   HttpApiEvent,
   SyncState,
   EventStatus,
+  ThreadEvent,
   sdk,
 } from './sdk.js';
-import type { MatrixClient, Room, MatrixEvent, RoomMember, RoomMessageEventContent, SdkMatrixError } from './sdk.js';
+import type {
+  MatrixClient,
+  Room,
+  MatrixEvent,
+  RoomMember,
+  RoomMessageEventContent,
+  SdkMatrixError,
+  Thread,
+} from './sdk.js';
 import { MatrixError } from './types.js';
 import type {
   MxCryptoState,
@@ -52,6 +72,7 @@ import type {
   MxSession,
   MxSecretRequest,
   MxStatus,
+  MxThreadInfo,
 } from './types.js';
 import { bootMatrixClient, type MxBootState, type MxClientBoot } from './client.js';
 import { cryptoDbPrefix, drainPendingWipes, readNotifyPrefs, startFresh, wipeNamespace } from './storage.js';
@@ -197,6 +218,21 @@ function isEditRelation(ev: MatrixEvent): boolean {
   return relationOf(ev)?.rel_type === 'm.replace';
 }
 
+/**
+ * True for an event that belongs *inside* a thread rather than the main
+ * timeline: a thread reply, or a relation hanging off one. A thread ROOT is
+ * deliberately not one — `MatrixEvent.threadRootId` reports a root's own id, and
+ * the root is exactly the message the main timeline still shows.
+ *
+ * Only needed where we look at events the SDK has not filed yet: pending local
+ * echoes (`Room.getPendingEvents()` is room-wide under `Detached` ordering).
+ * Everywhere else the SDK has already put the event in the right timeline.
+ */
+function isThreadReply(ev: MatrixEvent): boolean {
+  const root = ev.threadRootId;
+  return root !== undefined && root !== ev.getId();
+}
+
 /** The event this one replies to, or undefined when it isn't a reply. */
 function replyTargetId(ev: MatrixEvent): string | undefined {
   const id = relationOf(ev)?.['m.in_reply_to']?.event_id;
@@ -264,6 +300,27 @@ export class MatrixStore {
   private readonly lastSentRead = new Map<string, string>();
   private searchGeneration = 0;
   private openRoomId: string | null = null;
+
+  /**
+   * The one open thread, and its load state.
+   *
+   * Single-slot rather than a `Map` keyed by thread id, and that is the point:
+   * the panel shows exactly one thread at a time, so there is nothing here that
+   * grows with how many threads a room has (§Memory — a per-thread map would
+   * need a delete site on every path a thread can vanish down, and there are
+   * several). `openThreadId` is also what `loadingThread`/`threadError` answer
+   * against, so a stale flag can never be read for a thread nobody is looking
+   * at.
+   */
+  private openThreadId: string | null = null;
+  private threadLoading = false;
+  private threadErrorText = '';
+  /** Same again for the threads LIST, which is per room and likewise one at a
+   *  time. `threadsFetchedRoom` is what stops every repaint re-asking the
+   *  homeserver for the same page. */
+  private threadsFetchedRoom: string | null = null;
+  private threadsLoading = false;
+  private threadsErrorText = '';
 
   private roomsFlushQueued = false;
   private readonly timelineDirty = new Set<string>();
@@ -444,7 +501,11 @@ export class MatrixStore {
       this.roomUnreadUnsubs.delete(roomId);
       this.loadingRooms.delete(roomId);
       this.roomErrors.delete(roomId);
-      if (this.openRoomId === roomId) this.openRoomId = null;
+      if (this.openRoomId === roomId) {
+        this.openRoomId = null;
+        this.openThreadId = null;
+      }
+      if (this.threadsFetchedRoom === roomId) this.threadsFetchedRoom = null;
       this.markRoomsDirty();
     };
     client.on(ClientEvent.DeleteRoom, onDeleteRoom);
@@ -584,11 +645,33 @@ export class MatrixStore {
     this.unsubs.push(crypto.on('secretRequest', (req) => this.emitter.emit('secretRequest', req)));
   }
 
+  /**
+   * The per-room signals the client does not re-emit: unread counts, and the
+   * thread lifecycle.
+   *
+   * `ThreadEvent.New` and `ThreadEvent.Update` are re-emitted by the Room but
+   * NOT onward to the client (verified against sync.ts's reEmit list, which
+   * carries Timeline/Name/Receipt and no thread event at all), so without this
+   * a reply count on a root would only refresh when some unrelated timeline
+   * event happened to repaint the row — and a brand-new thread would show no
+   * summary until then. One entry per room, removed in `onDeleteRoom` and in
+   * `detachListeners`, same as the unread listener it shares its slot with.
+   */
   private attachRoomUnreadListener(room: Room): void {
     if (this.roomUnreadUnsubs.has(room.roomId)) return;
     const handler = (): void => this.markRoomsDirty();
+    const threadHandler = (): void => {
+      this.emitTimelineDirty(room.roomId);
+      this.markRoomsDirty();
+    };
     room.on(RoomEvent.UnreadNotifications, handler);
-    this.roomUnreadUnsubs.set(room.roomId, () => room.off(RoomEvent.UnreadNotifications, handler));
+    room.on(ThreadEvent.New, threadHandler);
+    room.on(ThreadEvent.Update, threadHandler);
+    this.roomUnreadUnsubs.set(room.roomId, () => {
+      room.off(RoomEvent.UnreadNotifications, handler);
+      room.off(ThreadEvent.New, threadHandler);
+      room.off(ThreadEvent.Update, threadHandler);
+    });
   }
 
   /** Maps the whole SyncState enum. `Stopped` also fires on our own graceful
@@ -629,6 +712,12 @@ export class MatrixStore {
     this.loadingRooms.clear();
     this.roomErrors.clear();
     this.openRoomId = null;
+    this.openThreadId = null;
+    this.threadLoading = false;
+    this.threadErrorText = '';
+    this.threadsFetchedRoom = null;
+    this.threadsLoading = false;
+    this.threadsErrorText = '';
     // Drop, never flush: a stop is a sign-out, a page-hide or a disconnect, and
     // a notification arriving after the session it belongs to is gone would be
     // both confusing and (with message text on) a leak past the wipe.
@@ -925,6 +1014,34 @@ export class MatrixStore {
       break;
     }
 
+    // Threads are not in that window, and leaving them out is not neutral: a
+    // room whose whole conversation has moved into a thread would sit at the
+    // bottom of the list, previewing a message from yesterday, with no badge —
+    // which is precisely the regression turning `threadSupport` on would
+    // otherwise introduce, since every one of those replies used to render
+    // inline. So the newest thread reply competes for the preview, marked as
+    // one, and thread notification counts are added to the room's own. Reading
+    // the room does not clear a thread's count, so the badge correctly stays up
+    // until the thread itself has been read.
+    const threadCounts = this.threadUnread(room);
+    // Only the winner is classified: `rooms()` runs this for every room on every
+    // sync tick, and mapping every thread's last reply just to throw all but one
+    // away is work per thread per tick for a string nobody reads.
+    let newestThreadReply: MatrixEvent | null = null;
+    for (const thread of room.getThreads()) {
+      const last = thread.replyToEvent;
+      if (!last || last.getId() === thread.id || last.status === EventStatus.CANCELLED) continue;
+      if (last.getTs() <= lastTs) continue;
+      if (!newestThreadReply || last.getTs() > newestThreadReply.getTs()) newestThreadReply = last;
+    }
+    if (newestThreadReply) {
+      const mapped = this.classify(newestThreadReply);
+      if (mapped) {
+        lastTs = mapped.origin_server_ts;
+        preview = `🧵 ${this.previewText(mapped)}`;
+      }
+    }
+
     return {
       roomId: room.roomId,
       membership,
@@ -933,8 +1050,9 @@ export class MatrixStore {
       encrypted: room.hasEncryptionStateEvent(),
       joinedCount: room.getJoinedMemberCount(),
       invitedCount: room.getInvitedMemberCount(),
-      unread: room.getUnreadNotificationCount(sdk.NotificationCountType.Total),
-      highlight: room.getUnreadNotificationCount(sdk.NotificationCountType.Highlight),
+      unread: room.getUnreadNotificationCount(sdk.NotificationCountType.Total) + threadCounts.unread,
+      highlight:
+        room.getUnreadNotificationCount(sdk.NotificationCountType.Highlight) + threadCounts.highlight,
       lastTs,
       preview,
       inviterId,
@@ -1128,20 +1246,60 @@ export class MatrixStore {
   timeline(roomId: string): MxEvent[] {
     const room = this.client?.getRoom(roomId);
     if (!room) return [];
+    const live = room.getLiveTimeline().getEvents();
+    // Pending echoes are room-wide (`pendingEventOrdering: Detached`), and the
+    // SDK only files an event under its thread once the server echoes it back —
+    // so without this filter a reply typed into a thread would appear in the
+    // main timeline for as long as the round trip takes, and then jump out of
+    // it. The confirmed half needs no filtering: `getLiveTimeline()` already
+    // holds only what belongs here.
+    const pending = room.getPendingEvents().filter((ev) => !isThreadReply(ev));
     // Reactions first: they are aggregated onto the messages built below, and a
     // reaction can sit anywhere in the window relative to its target.
-    const reactions = this.collectReactions(room);
+    const reactions = this.collectReactions(room, [live, pending]);
     const out: MxEvent[] = [];
-    for (const ev of room.getLiveTimeline().getEvents()) this.pushClassified(out, room, ev, reactions);
-    for (const ev of room.getPendingEvents()) this.pushClassified(out, room, ev, reactions);
+    for (const ev of live) this.pushClassified(out, room, ev, reactions, null);
+    for (const ev of pending) this.pushClassified(out, room, ev, reactions, null);
     return out;
   }
 
+  /**
+   * One thread's rows: its replies, and its root once back-pagination has
+   * reached it (the SDK appends the root itself when a thread's history runs
+   * out — see `paginateEventTimeline`'s thread branch). A thread that has not
+   * been paginated to its start therefore opens on its newest replies with
+   * "Load earlier messages" above them, exactly like a room.
+   *
+   * Returns `[]` for a thread this session has never heard of rather than
+   * inventing one: `openThread` is what creates it, and a view that renders
+   * before that has nothing honest to draw.
+   */
+  threadTimeline(roomId: string, rootId: string): MxEvent[] {
+    const room = this.client?.getRoom(roomId);
+    const thread = room?.getThread(rootId);
+    if (!room || !thread) return [];
+    const events = thread.events;
+    const pending = room.getPendingEvents().filter((ev) => ev.threadRootId === rootId);
+    // The room's own window is walked too, and it is not belt-and-braces: a
+    // reaction to the thread's ROOT is not a thread relation, so the SDK files
+    // it in the main timeline (`eventShouldLiveIn`). Reading only the thread's
+    // events would drop every chip off the root the moment the thread opened.
+    const reactions = this.collectReactions(room, [events, room.getLiveTimeline().getEvents(), pending]);
+    const out: MxEvent[] = [];
+    for (const ev of events) this.pushClassified(out, room, ev, reactions, thread);
+    for (const ev of pending) this.pushClassified(out, room, ev, reactions, thread);
+    return out;
+  }
+
+  /** `thread` non-null means "this row is being drawn inside that thread", which
+   *  is what suppresses the thread summary (you are already in it) and marks the
+   *  row `inThread` for `messageActionsFor`. */
   private pushClassified(
     out: MxEvent[],
     room: Room,
     ev: MatrixEvent,
     reactions: Map<string, MxReaction[]>,
+    thread: Thread | null,
   ): void {
     if (ev.status === EventStatus.CANCELLED) return;
     // Relations that are not rows of their own: an edit belongs to the message
@@ -1151,7 +1309,7 @@ export class MatrixStore {
     if (ev.getType() === sdk.EventType.Reaction || isEditRelation(ev)) return;
     const mapped = this.classify(ev);
     if (!mapped) return;
-    this.annotate(room, ev, mapped, reactions);
+    this.annotate(room, ev, mapped, reactions, thread);
     out.push(mapped);
   }
 
@@ -1164,10 +1322,19 @@ export class MatrixStore {
     ev: MatrixEvent,
     mapped: MxEvent,
     reactions: Map<string, MxReaction[]>,
+    thread: Thread | null,
   ): void {
+    if (thread) mapped.inThread = true;
     if (mapped.redacted) return; // nothing left to react to, quote, edit or re-delete
     const onThis = reactions.get(mapped.event_id);
     if (onThis) mapped.reactions = onThis;
+    // A thread hangs off this message. Only in the main timeline: inside the
+    // thread the root is simply its first message, and a "3 replies" summary
+    // there would point at the very rows underneath it.
+    if (!thread && mapped.event_id) {
+      const own = room.getThread(mapped.event_id);
+      if (own) mapped.thread = this.threadInfo(room, own);
+    }
     const replyId = replyTargetId(ev);
     if (replyId !== undefined) mapped.replyTo = this.replyToOf(room, replyId);
     if (ev.replacingEventId() !== undefined) mapped.edited = true;
@@ -1206,8 +1373,13 @@ export class MatrixStore {
    * invisible, even if the homeserver bundled it into the message's unsigned
    * aggregations. In practice a reaction arrives within a page of the message it
    * is on, so back-pagination brings both — the same behaviour Element has.
+   *
+   * Takes the windows to walk rather than a room, because with threads there is
+   * more than one: a thread's replies live in its own timeline while a reaction
+   * to the thread's root lives in the room's. A sender appearing in two of the
+   * lists is folded once — the map is keyed by (target, key, sender).
    */
-  private collectReactions(room: Room): Map<string, MxReaction[]> {
+  private collectReactions(room: Room, windows: Iterable<MatrixEvent[]>): Map<string, MxReaction[]> {
     // target -> key -> sender -> reaction event id ('' while a local echo)
     const bySender = new Map<string, Map<string, Map<string, string>>>();
     const visit = (ev: MatrixEvent): void => {
@@ -1233,8 +1405,7 @@ export class MatrixStore {
       const id = ev.status === null ? ev.getId() ?? '' : '';
       if (id || !senders.has(sender)) senders.set(sender, id);
     };
-    for (const ev of room.getLiveTimeline().getEvents()) visit(ev);
-    for (const ev of room.getPendingEvents()) visit(ev);
+    for (const window of windows) for (const ev of window) visit(ev);
 
     const out = new Map<string, MxReaction[]>();
     for (const [target, keys] of bySender) {
@@ -1257,6 +1428,9 @@ export class MatrixStore {
    *  reported as `missing` rather than guessed at or fetched — the row says so,
    *  which is honest and costs no request per reply. */
   private replyToOf(room: Room, eventId: string): MxReplyTo {
+    // `Room.findEventById` searches every timeline set the room owns, threads
+    // included, so a reply *inside* a thread resolves its quote without this
+    // method needing to know which timeline it is being called for.
     const target = room.findEventById(eventId);
     if (!target) return { eventId, sender: '', senderName: '', text: '', missing: true };
     const sender = target.getSender() ?? '';
@@ -1358,23 +1532,262 @@ export class MatrixStore {
   }
 
   markRead(roomId: string): void {
+    const room = this.client?.getRoom(roomId);
+    if (!room) return;
+    const live = room.getLiveTimeline().getEvents();
+    this.sendReadUpTo(roomId, roomId, live[live.length - 1]);
+  }
+
+  /**
+   * The same for one thread. A thread carries its own read receipt and its own
+   * notification count, so reading the room does not clear a thread and vice
+   * versa — which is the whole reason a thread can sit unread under a room with
+   * no badge on it.
+   *
+   * The receipt's `thread_id` is the SDK's to fill in (`sendReadReceipt` derives
+   * it from the event), so this differs from `markRead` only in which event it
+   * points at. The debounce is keyed by thread id, which cannot collide with a
+   * room id: one starts `!`, the other `$`.
+   */
+  markThreadRead(roomId: string, rootId: string): void {
+    const thread = this.client?.getRoom(roomId)?.getThread(rootId);
+    if (!thread) return;
+    const events = thread.events;
+    this.sendReadUpTo(roomId, rootId, events[events.length - 1]);
+  }
+
+  /** Debounced "I have read up to this event". `key` is what the debounce and
+   *  the dedupe are keyed by — a room id for the main timeline, a thread id for
+   *  a thread — so the two can never cancel each other's timer. */
+  private sendReadUpTo(roomId: string, key: string, last: MatrixEvent | undefined): void {
+    const client = this.client;
+    const lastEventId = last?.getId();
+    if (!client || !last || !lastEventId) return;
+    const existing = this.readTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.readTimers.delete(key);
+      if (this.lastSentRead.get(key) === lastEventId) return;
+      this.lastSentRead.set(key, lastEventId);
+      void client.sendReadReceipt(last).catch(() => {});
+      // The fully-read marker is a room-level concept only — there is no
+      // per-thread m.fully_read — so a thread moves the receipt and nothing
+      // else.
+      if (key === roomId) void client.setRoomReadMarkers(roomId, lastEventId).catch(() => {});
+    }, READ_DEBOUNCE_MS);
+    this.readTimers.set(key, timer);
+  }
+
+  // ---- threads ---------------------------------------------------------------
+
+  /**
+   * A thread as the main timeline's summary chip and the threads list draw it.
+   *
+   * `count` comes from the SDK's own bookkeeping, which prefers the
+   * homeserver's bundled `m.thread` aggregation over what we happen to have
+   * loaded — so a root that arrived on the first sync already says "12 replies"
+   * without a single one of them being fetched. The last-reply fields are the
+   * opposite: they are only what we can see, so they stay empty until the
+   * thread has been opened at least once. Saying "12 replies" with no preview is
+   * honest; inventing a preview would not be.
+   */
+  private threadInfo(room: Room, thread: Thread): MxThreadInfo {
+    const nameOf = (userId: string | undefined): string =>
+      userId ? room.getMember(userId)?.name ?? userId : '';
+    const rootEv = thread.rootEvent;
+    const rootMapped = rootEv ? this.classify(rootEv) : null;
+    // `replyToEvent` falls back to the root when a thread's every reply has been
+    // redacted, which would otherwise print the root twice.
+    const last = thread.replyToEvent;
+    const lastMapped = last && last.getId() !== thread.id ? this.classify(last) : null;
+    return {
+      rootId: thread.id,
+      count: thread.length,
+      rootPreview: rootMapped ? this.previewText(rootMapped) : '',
+      rootSenderName: nameOf(rootEv?.getSender()),
+      lastTs: lastMapped ? lastMapped.origin_server_ts : 0,
+      lastSenderName: lastMapped ? nameOf(lastMapped.sender) : '',
+      lastPreview: lastMapped ? this.previewText(lastMapped) : '',
+      participated: thread.hasCurrentUserParticipated,
+      unread: room.getThreadUnreadNotificationCount(thread.id, sdk.NotificationCountType.Total),
+      highlight: room.getThreadUnreadNotificationCount(thread.id, sdk.NotificationCountType.Highlight),
+    };
+  }
+
+  /** Every thread this session knows about in a room, newest activity first.
+   *  Unread ones come first for the same reason rooms do — a badge you have to
+   *  scroll to find is a badge that gets missed. */
+  threads(roomId: string): MxThreadInfo[] {
+    const room = this.client?.getRoom(roomId);
+    if (!room) return [];
+    const list = room.getThreads().map((t) => this.threadInfo(room, t));
+    list.sort((a, b) => {
+      const au = a.unread > 0 ? 1 : 0;
+      const bu = b.unread > 0 ? 1 : 0;
+      if (au !== bu) return bu - au;
+      return b.lastTs - a.lastTs;
+    });
+    return list;
+  }
+
+  /**
+   * What every thread in a room adds up to, unread-wise.
+   *
+   * Counters only — no event mapping, no previews — because the room header
+   * repaints on every sync tick and asks this each time. `threads()` is the one
+   * that builds summaries, and only the threads LIST calls it.
+   */
+  threadUnread(roomOrId: Room | string): { unread: number; highlight: number } {
+    const room = typeof roomOrId === 'string' ? this.client?.getRoom(roomOrId) : roomOrId;
+    let unread = 0;
+    let highlight = 0;
+    if (!room) return { unread, highlight };
+    for (const thread of room.getThreads()) {
+      unread += room.getThreadUnreadNotificationCount(thread.id, sdk.NotificationCountType.Total);
+      highlight += room.getThreadUnreadNotificationCount(
+        thread.id,
+        sdk.NotificationCountType.Highlight,
+      );
+    }
+    return { unread, highlight };
+  }
+
+  /**
+   * Ask the homeserver for this room's threads, so the list is not limited to
+   * the threads that happen to have touched the loaded window.
+   *
+   * Once per room per session (`threadsFetchedRoom`): the list keeps itself
+   * current from sync afterwards, and re-asking on every repaint would be a
+   * request per keystroke in a room with an open list. A refusal is remembered
+   * as text rather than retried — the list still shows what sync has delivered.
+   */
+  async loadThreads(roomId: string): Promise<void> {
+    const room = this.client?.getRoom(roomId);
+    if (!room || this.threadsLoading || this.threadsFetchedRoom === roomId) return;
+    this.threadsLoading = true;
+    this.threadsErrorText = '';
+    this.emitter.emit('timeline', roomId);
+    try {
+      // The timeline sets have to exist before the fetch: with server-side list
+      // support (MSC3856) `fetchRoomThreads` fills them, and with none it falls
+      // back to a filtered /messages sweep that needs no sets at all.
+      await room.createThreadsTimelineSets();
+      await room.fetchRoomThreads();
+      this.threadsFetchedRoom = roomId;
+    } catch (err) {
+      this.threadsErrorText = MatrixError.from(err).message;
+    } finally {
+      this.threadsLoading = false;
+      this.emitter.emit('timeline', roomId);
+    }
+  }
+
+  loadingThreads(): boolean {
+    return this.threadsLoading;
+  }
+
+  threadsError(): string {
+    return this.threadsErrorText;
+  }
+
+  /**
+   * Open a thread: make sure the SDK has one for this root, and fill it.
+   *
+   * A thread the SDK has never built (its root is in the window but nothing has
+   * replied within it yet, or we are starting one from the ⋯ menu) is created
+   * here — that is what makes "Reply in thread" on any message work at all.
+   * `Room.createThread` returns the existing thread when there is one, so this
+   * is idempotent.
+   */
+  async openThread(roomId: string, rootId: string): Promise<void> {
     const client = this.client;
     const room = client?.getRoom(roomId);
     if (!client || !room) return;
-    const live = room.getLiveTimeline().getEvents();
-    const last = live[live.length - 1];
-    const lastEventId = last?.getId();
-    if (!last || !lastEventId) return;
-    const existing = this.readTimers.get(roomId);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      this.readTimers.delete(roomId);
-      if (this.lastSentRead.get(roomId) === lastEventId) return;
-      this.lastSentRead.set(roomId, lastEventId);
-      void client.sendReadReceipt(last).catch(() => {});
-      void client.setRoomReadMarkers(roomId, lastEventId).catch(() => {});
-    }, READ_DEBOUNCE_MS);
-    this.readTimers.set(roomId, timer);
+    this.openThreadId = rootId;
+    this.threadErrorText = '';
+    let thread = room.getThread(rootId);
+    if (!thread) {
+      const rootEvent = room.findEventById(rootId);
+      // Without the root event there is nothing to hang a thread on and no
+      // first row to draw; the caller shows this text instead.
+      if (!rootEvent) {
+        this.threadErrorText = "That message isn't loaded any more.";
+        this.emitter.emit('timeline', roomId);
+        return;
+      }
+      thread = room.createThread(rootId, rootEvent, [], false);
+    }
+    const live = thread.liveTimeline;
+    const hasMore = live.getPaginationToken(sdk.EventTimeline.BACKWARDS) !== null;
+    if (hasMore && live.getEvents().length <= 1) await this.paginateThread(roomId, rootId);
+    else this.emitter.emit('timeline', roomId);
+  }
+
+  closeThread(): void {
+    this.openThreadId = null;
+    this.threadLoading = false;
+    this.threadErrorText = '';
+  }
+
+  /** Older replies in the open thread. Mirrors `paginate` exactly, down to the
+   *  two emits that bracket the request, so the timeline's "Loading…" and its
+   *  retry link behave identically in both. */
+  async paginateThread(roomId: string, rootId: string): Promise<void> {
+    const client = this.client;
+    const thread = client?.getRoom(roomId)?.getThread(rootId);
+    if (!client || !thread || this.threadLoading) return;
+    const live = thread.liveTimeline;
+    if (live.getPaginationToken(sdk.EventTimeline.BACKWARDS) === null) return;
+    this.threadLoading = true;
+    this.threadErrorText = '';
+    this.emitter.emit('timeline', roomId);
+    try {
+      await client.paginateEventTimeline(live, { backwards: true, limit: PAGINATE_LIMIT });
+    } catch (err) {
+      this.threadErrorText = MatrixError.from(err).message;
+    } finally {
+      this.threadLoading = false;
+      this.emitter.emit('timeline', roomId);
+    }
+  }
+
+  atThreadStart(roomId: string, rootId: string): boolean {
+    const thread = this.client?.getRoom(roomId)?.getThread(rootId);
+    if (!thread) return false;
+    return thread.liveTimeline.getPaginationToken(sdk.EventTimeline.BACKWARDS) === null;
+  }
+
+  loadingThread(rootId: string): boolean {
+    return this.threadLoading && this.openThreadId === rootId;
+  }
+
+  threadError(rootId: string): string {
+    return this.openThreadId === rootId ? this.threadErrorText : '';
+  }
+
+  /** Who has read what *within a thread* — the thread-scoped twin of
+   *  `readReceipts`, and not derivable from it: a member reading the room says
+   *  nothing about whether they have read this thread. */
+  threadReadReceipts(roomId: string, rootId: string): Map<string, MxReader[]> {
+    const out = new Map<string, MxReader[]>();
+    const room = this.client?.getRoom(roomId);
+    const thread = room?.getThread(rootId);
+    if (!room || !thread) return out;
+    for (const member of room.getJoinedMembers()) {
+      if (member.userId === this.userId) continue;
+      const eventId = thread.getEventReadUpTo(member.userId);
+      if (!eventId) continue;
+      const list = out.get(eventId);
+      const reader: MxReader = {
+        userId: member.userId,
+        displayName: member.name,
+        avatarMxc: member.getMxcAvatarUrl() ?? null,
+      };
+      if (list) list.push(reader);
+      else out.set(eventId, [reader]);
+    }
+    for (const list of out.values()) list.sort((a, b) => a.userId.localeCompare(b.userId));
+    return out;
   }
 
   // ---- send / echo ---------------------------------------------------------
@@ -1388,7 +1801,7 @@ export class MatrixStore {
    * quote from `m.in_reply_to`. Incoming fallbacks are still stripped on the way
    * in (see `stripReplyFallback`), because plenty of clients still send them.
    */
-  async send(roomId: string, body: string, replyToEventId?: string): Promise<void> {
+  async send(roomId: string, body: string, replyToEventId?: string, threadId?: string): Promise<void> {
     const client = this.client;
     if (!client) return;
     // The message itself supersedes the advertisement; without this it would
@@ -1406,7 +1819,14 @@ export class MatrixStore {
       content['m.relates_to'] = { 'm.in_reply_to': { event_id: replyToEventId } };
     }
     try {
-      await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
+      // The thread relation itself is the SDK's to write (`sendMessage`'s
+      // threadId overload → `addThreadRelationIfNeeded`), and deliberately so:
+      // it is the half with the fiddly rules — `rel_type`/`event_id`, plus the
+      // `m.in_reply_to` fallback pointing at the thread's newest reply with
+      // `is_falling_back: true`, which is how a client with no thread support
+      // still renders the message as a reply rather than as an orphan. Writing
+      // it here as well would collide with that.
+      await client.sendMessage(roomId, threadId ?? null, content as unknown as RoomMessageEventContent);
     } catch {
       // failure surfaces as the .failed local-echo row (EventStatus.NOT_SENT)
     }
@@ -1423,7 +1843,7 @@ export class MatrixStore {
    * `eventId` must be the *original* message, never a previous edit — which is
    * what the rows are keyed by, so the UI has nothing else to pass.
    */
-  async editMessage(roomId: string, eventId: string, body: string): Promise<void> {
+  async editMessage(roomId: string, eventId: string, body: string, threadId?: string): Promise<void> {
     const client = this.client;
     const room = client?.getRoom(roomId);
     const target = room?.findEventById(eventId);
@@ -1448,7 +1868,10 @@ export class MatrixStore {
     };
     if (formatted) content.formatted_body = `* ${formatted}`;
     try {
-      await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
+      // `threadId` routes the local echo into the right timeline; the relation
+      // is already `m.replace`, so the SDK leaves it alone (an edit relates to
+      // the message it rewrites, never to the thread).
+      await client.sendMessage(roomId, threadId ?? null, content as unknown as RoomMessageEventContent);
     } catch (err) {
       throw MatrixError.from(err);
     }
@@ -1459,18 +1882,23 @@ export class MatrixStore {
    * mine. Rejects with a display-ready message — unlike a message send, a
    * reaction has no row of its own to fail into.
    */
-  async toggleReaction(roomId: string, eventId: string, key: string): Promise<void> {
+  async toggleReaction(roomId: string, eventId: string, key: string, threadId?: string): Promise<void> {
     const client = this.client;
     const room = client?.getRoom(roomId);
     if (!client || !room) throw new MatrixError(0, '', 'Not connected.');
-    const mine = this.collectReactions(room).get(eventId)?.find((r) => r.key === key);
+    // The same three windows `threadTimeline` folds, so "is this chip already
+    // mine?" is answered from exactly what the row is drawing.
+    const thread = threadId ? room.getThread(threadId) : null;
+    const windows: MatrixEvent[][] = [room.getLiveTimeline().getEvents(), room.getPendingEvents()];
+    if (thread) windows.push(thread.events);
+    const mine = this.collectReactions(room, windows).get(eventId)?.find((r) => r.key === key);
     try {
       if (!mine?.mine) {
-        await client.sendEvent(roomId, sdk.EventType.Reaction, {
+        await client.sendEvent(roomId, threadId ?? null, sdk.EventType.Reaction, {
           'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: eventId, key },
         });
       } else if (mine.myEventId) {
-        await client.redactEvent(roomId, mine.myEventId);
+        await client.redactEvent(roomId, threadId ?? null, mine.myEventId);
       }
       // else: my reaction is still a local echo, so there is no event to redact
       // yet. Doing nothing is right — the chip is already showing.
@@ -1482,11 +1910,11 @@ export class MatrixStore {
   /** Delete a message (`m.room.redaction`). The SDK empties the event locally
    *  straight away, so the row reads "(message deleted)" before the server
    *  answers. Rejects with a display-ready message. */
-  async redact(roomId: string, eventId: string): Promise<void> {
+  async redact(roomId: string, eventId: string, threadId?: string): Promise<void> {
     const client = this.client;
     if (!client) throw new MatrixError(0, '', 'Not connected.');
     try {
-      await client.redactEvent(roomId, eventId);
+      await client.redactEvent(roomId, threadId ?? null, eventId);
     } catch (err) {
       throw MatrixError.from(err);
     }
@@ -1498,7 +1926,12 @@ export class MatrixStore {
    *  bytes are on the server — so this one *rejects* and the caller shows the
    *  message. Once the event itself is sent, failure goes back to being a
    *  `.failed` echo row like any other message. */
-  async sendAttachment(roomId: string, file: File, onProgress?: (fraction: number) => void): Promise<void> {
+  async sendAttachment(
+    roomId: string,
+    file: File,
+    onProgress?: (fraction: number) => void,
+    threadId?: string,
+  ): Promise<void> {
     const client = this.client;
     const media = this.media_;
     if (!client || !media) throw new MatrixError(0, '', 'Not connected.');
@@ -1509,7 +1942,7 @@ export class MatrixStore {
     const encrypt = room?.hasEncryptionStateEvent() ?? false;
     const content: MxAttachmentContent = await media.uploadAttachment({ file, encrypt, onProgress });
     try {
-      await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
+      await client.sendMessage(roomId, threadId ?? null, content as unknown as RoomMessageEventContent);
     } catch {
       // failure surfaces as the .failed local-echo row (EventStatus.NOT_SENT)
     }
