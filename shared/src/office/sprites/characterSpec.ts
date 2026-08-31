@@ -113,27 +113,36 @@ export interface PetConfig {
   behaviors: PetBehaviors;
 }
 
-/** Per-pet behaviour switches. All default true; the engine kind-gates them
- *  (only dogs chase, only cats flee), so a flag that doesn't apply to a kind is
- *  simply inert. The editor shows only the kind-relevant switches. */
+/**
+ * Per-pet behaviour switches — permissions for THIS animal. All default true.
+ *
+ * A switch says whether a variant may act on something its species can do; what the species can do
+ * is elsewhere and is not per-animal. So `chase` and `flee` name no quarry: which kinds this one
+ * hunts, and which hunt it, comes from `CHASES`/`fleesFrom` (`office/types.ts`), and a flag with
+ * nothing to apply to is simply inert — a duck's `chase` is on and hunts nothing. The editor shows
+ * only the switches that can do something for the kind in hand, and labels them from that table.
+ *
+ * The two named for a species (`chaseCats`, `fleeDogs`) and the one named for coffee (`drink`) are
+ * read as the current names by `resolvePetConfig`, so a pet saved before this keeps its settings.
+ */
 interface PetBehaviors {
   /** May rest (sit) at a seat / desk. */
   rest: boolean;
-  /** Dogs: chase a nearby cat (shoo-cat). */
-  chaseCats: boolean;
-  /** Cats: flee a nearby dog (shoo-cat). */
-  fleeDogs: boolean;
-  /** May visit a free appliance station (coffee) and stand there a while. */
-  drink: boolean;
+  /** May hunt the kinds its species hunts (`CHASES`). */
+  chase: boolean;
+  /** May run from the kinds that hunt it (`fleesFrom`, derived). */
+  flee: boolean;
+  /** May visit a free bowl or fountain — an appliance a PET may use — and stay a while. */
+  feedDrink: boolean;
   /** May trot over to an agent and stand chatting a while. */
   talk: boolean;
 }
 
 const DEFAULT_PET_BEHAVIORS: PetBehaviors = {
   rest: true,
-  chaseCats: true,
-  fleeDogs: true,
-  drink: true,
+  chase: true,
+  flee: true,
+  feedDrink: true,
   talk: true,
 };
 
@@ -169,9 +178,12 @@ export function resolvePetConfig(input: unknown): PetConfig {
     maxConcurrent: Number.isFinite(mc) ? Math.max(1, Math.min(PET_MAX_CONCURRENT, mc)) : DEFAULT_PET_CONFIG.maxConcurrent,
     behaviors: {
       rest: bool(b.rest, true),
-      chaseCats: bool(b.chaseCats, true),
-      fleeDogs: bool(b.fleeDogs, true),
-      drink: bool(b.drink, true),
+      // Each of the three renamed switches reads its own name first and the old one after, so a
+      // stored pet keeps what its author set. Nothing writes the old names any more, so this is a
+      // read path only — the same shape as the `npc` → `petConfig` rename.
+      chase: bool(b.chase, bool(b.chaseCats, true)),
+      flee: bool(b.flee, bool(b.fleeDogs, true)),
+      feedDrink: bool(b.feedDrink, bool(b.drink, true)),
       talk: bool(b.talk, true),
     },
   };

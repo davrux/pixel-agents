@@ -60,8 +60,16 @@ export const WORLD_ROOM = 'world';
  *     client decodes everything before it correctly and simply never shows the line — but
  *     appending is only safe by CONVENTION here (the field order IS the wire format), and the
  *     gate is what makes "appended last" a rule rather than a hope.
+ * 12 — a pet's behaviour switches say what they mean. `chaseCats`/`fleeDogs` are `chase`/`flee`
+ *     (which kinds those are is now one table, `CHASES`, with fleeing derived from it), and `drink`
+ *     is `feedDrink` — a pet has never been able to use a coffee machine, so a switch named for
+ *     coffee described nothing that exists. They travel inside `petConfig` in `petSpritesLoaded`,
+ *     and the rename is gated for the write direction rather than the read: the server accepts
+ *     either spelling, so an older build's world still behaves, but its EDITOR would read the new
+ *     names as absent, show every switch off, and write the old names back on the next save —
+ *     silently turning off the behaviours somebody had configured.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

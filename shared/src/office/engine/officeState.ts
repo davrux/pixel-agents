@@ -71,9 +71,11 @@ import type {
 } from '../types.js';
 import {
   APPLIANCES_FOR,
+  CHASES,
   CharacterState,
   ControllerKind,
   Direction,
+  fleesFrom,
   MATRIX_EFFECT_DURATION,
   PetKind as PetKindEnum,
   PetState,
@@ -2230,18 +2232,19 @@ export class OfficeState {
    *  to the brain so it picks a sensible action. Reachability is confirmed later
    *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
   private computePetAffordances(pet: Pet): PetAffordances {
-    // Per-variant behaviour switches (editable; default all-on). The kind guards
-    // below keep flags that don't apply to a kind inert (e.g. a duck's chaseCats).
+    // Per-variant behaviour switches (editable; default all-on). A flag with nothing to apply to
+    // is inert on its own: a duck's `chase` is on, and `CHASES.duck` is empty.
     const b = getPetConfig(pet.kind, pet.variant).behaviors;
     return {
       canRest: b.rest && this.hasRestAffordance(pet),
-      // Shoo-cat: a dog chases a nearby cat; a cat flees a nearby dog.
-      canChase: b.chaseCats && pet.kind === PetKindEnum.DOG && this.nearestLivingPetOfKind(pet, PetKindEnum.CAT) !== null,
-      threatened: b.fleeDogs && pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
+      // Who hunts whom comes from one table, and fleeing is the same table read backwards — see
+      // CHASES / fleesFrom. Nothing here names a species, so a new pairing is a word in that table.
+      canChase: b.chase && this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]) !== null,
+      threatened: b.flee && this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind)) !== null,
       // A pet uses the appliances pets may use — a fountain or a bowl, never a coffee machine —
       // and only if the map has one. None placed, no visit: the absence is the answer, not a
       // special case. Which of the two it lands at decides what it does there (see APPLIANCES).
-      canDrink: b.drink && this.hasFreeAppliance(APPLIANCES_FOR.pet),
+      canDrink: b.feedDrink && this.hasFreeAppliance(APPLIANCES_FOR.pet),
       // Talk: any kind may approach an agent that no other pet is chatting with.
       canTalk: b.talk && this.hasTalkableAgent(),
     };
@@ -2353,13 +2356,16 @@ export class OfficeState {
     return null;
   }
 
-  /** Nearest non-despawning pet of `kind` within PET_SHOO_RADIUS_TILES (tile
-   *  Chebyshev distance) of `pet`, or null. Used for shoo-cat detection. */
-  private nearestLivingPetOfKind(pet: Pet, kind: PetKindEnum): Pet | null {
+  /** Nearest non-despawning pet of any of `kinds` within PET_SHOO_RADIUS_TILES (tile
+   *  Chebyshev distance) of `pet`, or null. Used for chase/flee detection. */
+  private nearestLivingPetOfKinds(pet: Pet, kinds: readonly PetKindEnum[]): Pet | null {
+    // An empty relation is the common case (a duck hunts nothing, a dog runs from nothing), and
+    // this is per pet per tick — so answer before walking the collection.
+    if (kinds.length === 0) return null;
     let best: Pet | null = null;
     let bestDist = PET_SHOO_RADIUS_TILES + 1;
     for (const other of this.pets.values()) {
-      if (other.id === pet.id || other.kind !== kind) continue;
+      if (other.id === pet.id || !kinds.includes(other.kind)) continue;
       if (other.state === PetState.SPAWN || other.state === PetState.DESPAWN) continue;
       const dist = Math.max(Math.abs(other.tileCol - pet.tileCol), Math.abs(other.tileRow - pet.tileRow));
       if (dist <= PET_SHOO_RADIUS_TILES && dist < bestDist) {
@@ -2370,24 +2376,25 @@ export class OfficeState {
     return best;
   }
 
-  /** Reactive movement path for shoo-cat: a dog paths toward the nearest cat
-   *  ('chase'); a cat paths to a reachable tile that increases its distance from
-   *  the nearest dog ('flee'). Returns null when no useful path exists. */
+  /** Reactive movement path: a hunter paths toward its nearest quarry ('chase');
+   *  the quarry paths to a reachable tile that increases its distance from the
+   *  nearest hunter ('flee'). Which kinds those are comes from `CHASES` in both
+   *  cases. Returns null when no useful path exists. */
   private navigatePetReaction(pet: Pet, action: PetAction): Array<{ col: number; row: number }> | null {
     if (action === 'chase') {
-      const cat = this.nearestLivingPetOfKind(pet, PetKindEnum.CAT);
-      if (!cat) return null;
-      const path = findPath(pet.tileCol, pet.tileRow, cat.tileCol, cat.tileRow, this.tileMap, this.blockedTiles, undefined, this.walls);
+      const quarry = this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]);
+      if (!quarry) return null;
+      const path = findPath(pet.tileCol, pet.tileRow, quarry.tileCol, quarry.tileRow, this.tileMap, this.blockedTiles, undefined, this.walls);
       return path.length > 0 ? path : null;
     }
     if (action === 'flee') {
-      const dog = this.nearestLivingPetOfKind(pet, PetKindEnum.DOG);
-      if (!dog) return null;
+      const hunter = this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind));
+      if (!hunter) return null;
       const distFromDog = (c: number, r: number): number =>
-        Math.max(Math.abs(c - dog.tileCol), Math.abs(r - dog.tileRow));
+        Math.max(Math.abs(c - hunter.tileCol), Math.abs(r - hunter.tileRow));
       const cur = distFromDog(pet.tileCol, pet.tileRow);
-      // Prefer reachable tiles that get farther from the dog but stay within a
-      // flee range of the cat (so it doesn't bolt across the whole office).
+      // Prefer reachable tiles that get farther from the hunter but stay within a
+      // flee range (so the quarry doesn't bolt across the whole office).
       const candidates = this.walkableTiles
         .filter(
           (t) =>

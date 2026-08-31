@@ -53,11 +53,11 @@ type AffordanceKind = 'seat' | 'furniture' | 'station' | 'agent';
 export interface PetAffordances {
   /** A seat (or, for cats, a desk) the pet could go rest at exists. */
   canRest: boolean;
-  /** A cat is within shoo range to chase (dogs only). */
+  /** A pet this one's species hunts is within shoo range (see CHASES). */
   canChase: boolean;
-  /** A dog is within shoo range — flee it (cats only). */
+  /** A pet that hunts this one is within shoo range (fleesFrom, derived from CHASES). */
   threatened: boolean;
-  /** A free appliance station (coffee) exists to go drink at. */
+  /** A free bowl or fountain exists to go use — never a coffee machine (see APPLIANCES). */
   canDrink: boolean;
   /** An agent is around to go talk to. */
   canTalk: boolean;

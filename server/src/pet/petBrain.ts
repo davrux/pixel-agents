@@ -16,18 +16,18 @@ import type { PetAction, PetAffordances } from '@pixel/shared/office/engine/pets
 export interface PetBlackboard extends PetAffordances {
   /** Would rather rest now (computed by the caller, e.g. a sit-chance roll). */
   wantsToRest: boolean;
-  /** Fancies a coffee now (computed by the caller, e.g. a drink-chance roll). */
+  /** Fancies a bowl or a fountain now (computed by the caller, e.g. a drink-chance roll). */
   wantsCoffee: boolean;
   /** Fancies a chat now (computed by the caller, e.g. a talk-chance roll). */
   wantsTalk: boolean;
 }
 
 /**
- * Priority selector: flee an approaching dog first (cats), else chase a nearby
- * cat (dogs), else go for coffee, else go chat with an agent, else rest, else
- * wander — each "want" gated by its matching affordance. The affordances are
- * already kind-gated by OfficeState (only cats are ever `threatened`, only dogs
- * `canChase`), so one tree covers every pet.
+ * Priority selector: run from a hunter first, else chase what this one hunts, else go to a bowl or
+ * fountain, else go chat with an agent, else rest, else wander — each "want" gated by its matching
+ * affordance. The affordances already resolve the species relation in OfficeState (`CHASES` decides
+ * who is ever `canChase`, and `fleesFrom` who is ever `threatened`), so one tree covers every pet
+ * and a new species needs nothing here.
  */
 const TREE_DEFINITION = `root {
   selector {

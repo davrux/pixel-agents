@@ -146,6 +146,44 @@ export type ControllerKind = (typeof ControllerKind)[keyof typeof ControllerKind
 export const PetKind = { DOG: 'dog', CAT: 'cat', DUCK: 'duck' } as const;
 export type PetKind = (typeof PetKind)[keyof typeof PetKind];
 
+/**
+ * Who hunts whom, by SPECIES. One table, and the only place the relation is stated.
+ *
+ * It used to be four words hardcoded in two engine methods — `pet.kind === DOG` beside
+ * `nearestLivingPetOfKind(pet, CAT)`, and the mirror image for fleeing. A duck therefore had no
+ * relation at all, not because that was decided but because `DUCK` appears in none of those lines.
+ * As a table, a new species is a row and a new pairing is one word.
+ *
+ * A per-VARIANT switch (`PetBehaviors.chase`) says whether a particular animal is allowed to act
+ * on its species' relation; this says what the relation IS. Emma may be a peaceful dog, but no
+ * dog hunts ducks.
+ */
+export const CHASES: Readonly<Record<PetKind, readonly PetKind[]>> = {
+  dog: ['cat'],
+  cat: [], // later, perhaps: ['bird']
+  duck: [],
+};
+
+/** Does `hunter`'s species hunt `quarry`'s? */
+export function chases(hunter: PetKind, quarry: PetKind, table: typeof CHASES = CHASES): boolean {
+  return table[hunter]?.includes(quarry) ?? false;
+}
+
+/**
+ * The species `kind` runs from — DERIVED from `CHASES`, never stated.
+ *
+ * "A cat flees a dog" is not a second fact; it is "a dog chases a cat" seen from the other end, and
+ * a world where only one of the two is written down is a world that can be configured into a state
+ * that does not exist (a dog hunting a cat that has not noticed).
+ *
+ * The subtraction is what makes a MUTUAL pairing fall out right: if cats ever chase dogs back, both
+ * sides chase and neither flees, so the two meet in the middle instead of one endlessly shoving the
+ * other into a corner. That confrontation is where a scuffle would go.
+ */
+export function fleesFrom(kind: PetKind, table: typeof CHASES = CHASES): PetKind[] {
+  return (Object.keys(table) as PetKind[]).filter((other) => chases(other, kind, table) && !chases(kind, other, table));
+}
+
 export const PetState = {
   SPAWN: 'spawn', // brief fade-in before wandering
   WANDER: 'wander', // walking along a path

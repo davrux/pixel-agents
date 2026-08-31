@@ -165,6 +165,36 @@ Two art gaps live on the pawn side and are documented placeholders, not bugs: a 
 you actually see — `markerSpecs`), and a pet's `drink` has none either. Both fall back to the stand
 frame, on the fly, per frame.
 
+**Who hunts whom is a SPECIES fact in one table; fleeing is that table read backwards.** `CHASES`
+(`office/types.ts`) gives, per `PetKind`, the kinds it hunts — today `dog: ['cat']` and nothing else
+— and `fleesFrom(kind)` derives the other half: every kind that hunts this one *and* that this one
+does not hunt back. Three rules, and each is a mistake the previous shape allowed:
+
+- **Nothing outside that table names a species.** It used to be four words in two engine methods
+  (`pet.kind === DOG` beside `nearestLivingPetOfKind(pet, CAT)`, and the mirror for fleeing) plus
+  the same two species a third and fourth time in the editor's labels. A duck therefore had no
+  relation at all — not as a decision, but because `DUCK` appears in none of those lines. A new
+  pairing is now one word, a new species is one row, and the editor writes its own labels from it
+  (`Chase cats` for a dog) instead of restating the relation where nobody would think to look.
+- **Flight is never stored.** "A cat flees a dog" is "a dog chases a cat" from the other end, and
+  a world where only one of the two is written down can be configured into a state that does not
+  exist. The subtraction is what makes a MUTUAL pairing come out right: if cats ever chase dogs
+  back, both sides chase and neither flees, so the two meet instead of one shoving the other into
+  a corner forever — which is where a scuffle (a comic cloud between them) would go.
+- **A `PetBehaviors` switch is a permission, not the relation.** `chase` and `flee` say whether
+  THIS animal may act on its species' relation, so they name no quarry and a flag with nothing to
+  apply to is simply inert (a duck's `chase` is on and hunts nothing). Emma may be a peaceful dog;
+  no dog hunts ducks.
+
+The switches say what they mean, which cost a `PROTOCOL_VERSION` bump to 12: `chaseCats`/`fleeDogs`
+are `chase`/`flee`, and `drink` is **`feedDrink`** — a pet has never been able to use a coffee
+machine, so a switch named for coffee described nothing that exists. `resolvePetConfig` reads either
+spelling, so a stored animal keeps its settings; the bump is for the WRITE direction, because an
+older build's editor would read the new names as absent, show every switch off and write the old
+ones back on the next save. `petChase.int.test.ts` pins the table, the derivation (including the
+mutual case, against a hypothetical table, so the property holds before anyone edits `CHASES`) and
+that the engine reads nothing else.
+
 ## Architecture invariants
 
 1. **The server simulates.** Movement, seating, stations, the FSM, poses — all of

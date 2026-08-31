@@ -79,7 +79,9 @@ export function validPetConfig(c: unknown): boolean {
   if (o.behaviors !== undefined) {
     if (typeof o.behaviors !== 'object' || o.behaviors === null) return false;
     const b = o.behaviors as Record<string, unknown>;
-    for (const k of ['rest', 'chaseCats', 'fleeDogs', 'drink', 'talk']) {
+    // Both spellings: the three renamed switches (chase, flee, feedDrink) and the names a pet
+    // saved before the rename still carries, which resolvePetConfig reads as the current ones.
+    for (const k of ['rest', 'chase', 'flee', 'feedDrink', 'talk', 'chaseCats', 'fleeDogs', 'drink']) {
       if (b[k] !== undefined && typeof b[k] !== 'boolean') return false;
     }
   }

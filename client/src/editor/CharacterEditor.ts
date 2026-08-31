@@ -11,7 +11,7 @@ import {
   type PetConfig,
   type TrackPlay,
 } from '@pixel/shared/office/sprites/spriteData.js';
-import type { SpriteData } from '@pixel/shared/office/types.js';
+import { CHASES, fleesFrom, type PetKind, type SpriteData } from '@pixel/shared/office/types.js';
 import { previewFrameMs } from '@pixel/shared/office/poseCadence.js';
 import { gridFromImageData, imagePixels } from '../art/sheet';
 import { encodeSheetPng } from '../art/sheetEncode';
@@ -518,10 +518,10 @@ export class CharacterEditor {
         <div class="row" id="pa-c-petbehav" style="display:none">
           <span class="sizelabel">Behavior</span>
           <label class="sizelabel" id="pa-c-brest-l"><input id="pa-c-brest" type="checkbox"> Rest</label>
-          <label class="sizelabel" id="pa-c-bdrink-l"><input id="pa-c-bdrink" type="checkbox"> Coffee</label>
+          <label class="sizelabel" id="pa-c-bdrink-l"><input id="pa-c-bdrink" type="checkbox"> Feed &amp; drink</label>
           <label class="sizelabel" id="pa-c-btalk-l"><input id="pa-c-btalk" type="checkbox"> Talk</label>
-          <label class="sizelabel" id="pa-c-bchase-l"><input id="pa-c-bchase" type="checkbox"> Chase cats</label>
-          <label class="sizelabel" id="pa-c-bflee-l"><input id="pa-c-bflee" type="checkbox"> Flee dogs</label></div>
+          <label class="sizelabel" id="pa-c-bchase-l"><input id="pa-c-bchase" type="checkbox"> <span id="pa-c-bchase-t">Chase</span></label>
+          <label class="sizelabel" id="pa-c-bflee-l"><input id="pa-c-bflee" type="checkbox"> <span id="pa-c-bflee-t">Flee</span></label></div>
         <div class="row" id="pa-c-dirs"></div>
         <div class="row">
           <div class="prevbox"><canvas id="pa-c-preview" width="16" height="32"></canvas></div>
@@ -678,9 +678,9 @@ export class CharacterEditor {
         maxConcurrent: clamp(spConc.value, 1, 8, this.work.petConfig.maxConcurrent),
         behaviors: {
           rest: bRest.checked,
-          chaseCats: bChase.checked,
-          fleeDogs: bFlee.checked,
-          drink: bDrink.checked,
+          chase: bChase.checked,
+          flee: bFlee.checked,
+          feedDrink: bDrink.checked,
           talk: bTalk.checked,
         },
       };
@@ -908,17 +908,30 @@ export class CharacterEditor {
     set('#pa-c-spconc', String(cfg.maxConcurrent));
     // All checkboxes carry the live value; only kind-relevant labels are shown.
     set('#pa-c-brest', cfg.behaviors.rest);
-    set('#pa-c-bdrink', cfg.behaviors.drink);
+    set('#pa-c-bdrink', cfg.behaviors.feedDrink);
     set('#pa-c-btalk', cfg.behaviors.talk);
-    set('#pa-c-bchase', cfg.behaviors.chaseCats);
-    set('#pa-c-bflee', cfg.behaviors.fleeDogs);
+    set('#pa-c-bchase', cfg.behaviors.chase);
+    set('#pa-c-bflee', cfg.behaviors.flee);
     const kind = this.petKind();
     const showLabel = (id: string, show: boolean): void => {
       const el = this.panel.querySelector<HTMLLabelElement>(id);
       if (el) el.style.display = show ? '' : 'none';
     };
-    showLabel('#pa-c-bchase-l', kind === 'dog');
-    showLabel('#pa-c-bflee-l', kind === 'cat');
+    // Both the wording and whether the switch is worth showing come from CHASES — the editor used
+    // to say "Chase cats" for `kind === 'dog'` and "Flee dogs" for `kind === 'cat'`, which is the
+    // species relation written down a second time, in a place nobody would think to update.
+    const relation = kind && kind in CHASES ? (kind as PetKind) : null;
+    const hunts = relation ? CHASES[relation] : [];
+    const huntedBy = relation ? fleesFrom(relation) : [];
+    const say = (kinds: readonly PetKind[]): string => kinds.map((k) => `${k}s`).join(' / ');
+    const setText = (id: string, text: string): void => {
+      const el = this.panel.querySelector<HTMLSpanElement>(id);
+      if (el) el.textContent = text;
+    };
+    setText('#pa-c-bchase-t', `Chase ${say(hunts)}`);
+    setText('#pa-c-bflee-t', `Flee ${say(huntedBy)}`);
+    showLabel('#pa-c-bchase-l', hunts.length > 0);
+    showLabel('#pa-c-bflee-l', huntedBy.length > 0);
   }
 
   private syncSizeInputs(): void {
