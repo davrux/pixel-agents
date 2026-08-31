@@ -8,7 +8,10 @@
  *
  * It renders and nothing else. The roster is authoritative server state pushed
  * as `onlineUsers` (SimRoom.onlineUsersMessage) — cross-zone, so it cannot be
- * derived from the synced characters standing in this room. Agents and pets are
+ * derived from the synced characters standing in this room. That is also why
+ * each row can name a Mumble channel: it comes from presence.ts, keyed by
+ * account, where `CharacterSync.voiceChannel` — the same fact under the hover
+ * overlay — only exists for a body in the room you are standing in. Agents and pets are
  * engine entities rather than sessions, so they are absent by construction, not
  * by a filter here.
  */
@@ -21,6 +24,10 @@ export interface OnlineUser {
   zone: string;
   zoneLabel: string;
   isAdmin: boolean;
+  /** Mumble channel they are sitting in, or '' — the same fact the hover overlay
+   *  shows over a body, said here about people in other zones too. Optional
+   *  because a server older than this field simply omits it. */
+  voice?: string;
 }
 
 export interface OnlineListHooks {
@@ -131,13 +138,27 @@ export class OnlineListUI {
       const dot = document.createElement('span');
       dot.className = u.zone === here ? 'dot here' : 'dot';
       dot.title = u.zone === here ? 'In this zone' : 'In another zone';
+      // Name over channel, in one column: the top line stays exactly what it
+      // was, and the row only grows for someone who is actually reachable in
+      // Mumble. Beside the name instead would fight the zone label for the
+      // width an 18rem panel does not have.
+      const who = document.createElement('div');
+      who.className = 'who';
       const nm = document.createElement('span');
       nm.className = 'nm';
       nm.textContent = u.name + (u.isAdmin ? ' ★' : '') + (u.userId === me ? ' (you)' : '');
       nm.title = u.userId;
+      who.appendChild(nm);
+      if (u.voice) {
+        const voice = document.createElement('span');
+        voice.className = 'voice';
+        voice.textContent = `🎧 ${u.voice}`;
+        voice.title = `In Mumble — ${u.voice}`;
+        who.appendChild(voice);
+      }
       const zone = document.createElement('small');
       zone.textContent = u.zoneLabel;
-      row.append(dot, nm, zone);
+      row.append(dot, who, zone);
       this.list.appendChild(row);
     }
   }
@@ -166,7 +187,13 @@ function injectStyle(): void {
     #pa-online .dot{flex:0 0 auto;width:0.5rem;height:0.5rem;border-radius:50%;background:#818586;}
     /* Green is a status indicator, never a button — same use as elsewhere. */
     #pa-online .dot.here{background:#7fbf6a;}
-    #pa-online .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.95rem;}
+    /* The name and, under it, where they can be talked to. min-width:0 on both
+       is what lets the ellipsis happen instead of the row widening past the panel. */
+    #pa-online .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.1rem;}
+    #pa-online .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.95rem;}
+    /* Dim, like the zone label it sits under — an attribute of the person, not an alert. */
+    #pa-online .voice{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      color:#818586;font-size:0.8rem;}
     #pa-online small{flex:0 0 auto;color:#818586;font-size:0.8rem;max-width:7rem;overflow:hidden;
       text-overflow:ellipsis;white-space:nowrap;}
     #pa-online .empty{color:#adb0b2;font-style:italic;font-size:0.9rem;padding:0.4rem 0;}`;

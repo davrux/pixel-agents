@@ -955,9 +955,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *
    * The same facts `/users online` prints (name, id, ★ admin, zone), plus the
    * zone's label so the list reads like the zone switcher rather than showing
-   * raw ids. Nothing here is secret to a signed-in viewer — that command has
-   * always been in the `user` group — but it IS account data, so it goes only
-   * to authenticated clients.
+   * raw ids, and the Mumble channel each one is in — the roster's version of
+   * what a hover already says over a body in this room, and the only place it
+   * can be said about somebody standing two zones away. Nothing here is secret
+   * to a signed-in viewer — that command has always been in the `user` group —
+   * but it IS account data, so it goes only to authenticated clients.
    */
   private onlineUsersMessage(): Record<string, unknown> {
     const users = presence
@@ -968,6 +970,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         zone: u.zone,
         zoneLabel: this.zones.get(u.zone)?.label ?? u.zone,
         isAdmin: !!userStore.get(u.userId)?.isAdmin,
+        voice: u.voice,
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId));
     return { type: 'onlineUsers', users };
@@ -1408,6 +1411,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const name = cleanName(msg?.name, MAX_NAME_LEN);
       if (name) this.voiceChannels.set(id, name);
       else this.voiceChannels.delete(id);
+      // The same fact reaches two surfaces that ask different questions, so it
+      // is stored twice rather than derived: the map above is keyed by PAWN and
+      // feeds this room's synced characters (the hover overlay), while presence
+      // is keyed by ACCOUNT and feeds the cross-zone online list — which has to
+      // answer for people no room here can see. One writer, so they cannot drift.
+      const { userId } = authOf(client);
+      if (userId) presence.setVoice(userId, name);
     });
 
     // Personal viewer prefs — keyed per user (never global). Anonymous viewers
