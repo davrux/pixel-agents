@@ -31,7 +31,7 @@ import test from 'node:test';
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { createPet, type PetAffordances } from '@pixel/shared/office/engine/pets.js';
 import { resolvePetConfig } from '@pixel/shared/office/sprites/characterSpec.js';
-import { CHASES, chases, fleesFrom, PetKind, PetState } from '@pixel/shared/office/types';
+import { CHASES, chases, fleesFrom, PetKind, PetState, type Pet } from '@pixel/shared/office/types';
 
 test('the table states the relation and nothing states the reverse', () => {
   assert.deepEqual(CHASES[PetKind.DOG], ['cat'], 'a dog hunts cats');
@@ -145,6 +145,85 @@ test('the engine resolves chase and flee from the table alone', () => {
   );
   assert.equal(far.get(1)!.canChase, false, 'a dog across the map is offered a chase it cannot see');
   assert.equal(far.get(2)!.threatened, false, 'and the cat there has nothing to fear');
+});
+
+test('a walking pet notices what it passes, and a sitting one is left in peace', () => {
+  // The complaint this answers: Emma and a cat walked straight past each other. A pet used to look
+  // for a quarry only at its own decision points, and those are PET_WANDER_PAUSE_MIN..MAX apart
+  // (1.5-8 s, and a sit is 8-25 s) — at 2.5 tiles per second the other animal is out of the
+  // five-tile radius long before the next look. So a WALKING pet now checks on the same cadence it
+  // re-aims with, and both roles get it: whoever notices sooner closes distance sooner, and only
+  // geometry is meant to decide a chase.
+  const world = (): OfficeState => {
+    const cols = 40;
+    return new OfficeState({
+      cols,
+      rows: 8,
+      tiles: new Array(cols * 8).fill(1),
+      walls: { horizontal: [], vertical: [] },
+      furniture: [],
+    } as never);
+  };
+  const start = (os: OfficeState, id: number, kind: PetKind, col: number, row: number): Pet => {
+    const pet = createPet(id, kind, 0, { col, row });
+    pet.state = PetState.IDLE;
+    pet.effect = null;
+    pet.wanderTimer = 999; // stand still unless this test says otherwise
+    os.pets.set(id, pet);
+    return pet;
+  };
+  /**
+   * Put a pet on a walk along its row, without going through a decision.
+   *
+   * Deliberately not "let it decide to wander": that picks a RANDOM target, and a roll that lands
+   * on the pet's own tile leaves it idling for up to eight seconds — which made the first version
+   * of this test fail about one run in three for a reason that had nothing to do with the claim.
+   * The claim is about a pet that IS walking.
+   */
+  const sendWalking = (pet: Pet, toCol: number): void => {
+    pet.state = PetState.WANDER;
+    pet.path = [];
+    for (let c = pet.tileCol + Math.sign(toCol - pet.tileCol); ; c += Math.sign(toCol - pet.tileCol)) {
+      pet.path.push({ col: c, row: pet.tileRow });
+      if (c === toCol) break;
+    }
+    pet.moveProgress = 0;
+  };
+
+  // A dog told to WANDER — so the decision point itself never offers a chase; the interrupt is the
+  // only thing that can start one.
+  const os = world();
+  const dog = start(os, 1, PetKind.DOG, 4, 4);
+  start(os, 2, PetKind.CAT, 7, 4); // held still: this is about the dog noticing
+  os.setPetDecider(() => 'wander');
+  sendWalking(dog, 30); // off across the map, straight past the cat
+  for (let i = 0; i < 40 && dog.reaction === null; i++) os.update(1 / 20);
+
+  assert.equal(dog.reaction, 'chase', 'a dog walking three tiles from a cat never looked up');
+  assert.ok(dog.path.length > 0, 'it noticed the cat but has no path to it');
+
+  // The mirror, and the reason it is not optional: if only the hunter noticed mid-walk, the hunter
+  // would effectively be faster, which is the one thing this design refuses.
+  const os2 = world();
+  const cat2 = start(os2, 1, PetKind.CAT, 20, 4);
+  const dog2 = start(os2, 2, PetKind.DOG, 23, 4);
+  os2.setPetDecider(() => 'wander');
+  sendWalking(cat2, 2);
+  for (let i = 0; i < 40 && cat2.reaction === null; i++) os2.update(1 / 20);
+  assert.equal(cat2.reaction, 'flee', 'a cat walking past a dog did not bolt');
+  assert.equal(dog2.reaction, null, 'the pinned dog should not have moved at all here');
+
+  // And the exception that was asked for by name: a SITTING animal keeps sitting. A dog that shoots
+  // out of a nap because a cat passed three tiles away is a different world.
+  const os3 = world();
+  const napping = start(os3, 1, PetKind.DOG, 4, 4);
+  napping.state = PetState.SIT;
+  napping.sitTimer = 60;
+  start(os3, 2, PetKind.CAT, 6, 4);
+  os3.setPetDecider(() => 'wander');
+  for (let i = 0; i < 60; i++) os3.update(1 / 20);
+  assert.equal(napping.state, PetState.SIT, 'the napping dog got up');
+  assert.equal(napping.reaction, null, 'a sitting pet must not take up a chase');
 });
 
 test('a pet saved before the rename keeps its switches', () => {

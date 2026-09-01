@@ -108,6 +108,14 @@ interface PetUpdateContext {
    *  ('chase') or away from the nearest dog ('flee'). OfficeState supplies it
    *  (it knows every pet's position); null when no path applies. */
   navigateReaction?: (pet: Pet, action: PetAction) => Array<{ col: number; row: number }> | null;
+  /**
+   * Is there something worth reacting to RIGHT NOW — a quarry to hunt, or a hunter to run from?
+   * Asked while the pet is WALKING, so it notices what it passes instead of only looking at its
+   * own decision points, which are 1.5-8 s apart. OfficeState answers it because the question
+   * needs every pet's position, the per-variant switches and the chase cooldown; it returns the
+   * action AND the path, so nothing has to be resolved twice.
+   */
+  noticeReaction?: (pet: Pet) => { action: NonNullable<Pet['reaction']>; path: Array<{ col: number; row: number }> } | null;
   /** Playback length (frame count) of the pet's *current* pose track, used to
    *  advance `frame` spec-driven instead of with hardcoded per-state moduli.
    *  Server resolves it from the pet's sheet; absent → a static single frame. */
@@ -355,6 +363,26 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
 
     case PetState.WANDER: {
       advancePetFrame(pet, ctx, PET_WALK_FRAME_DURATION_SEC, 4);
+
+      // Not reacting yet: look up from the walk. A pet used to notice a quarry only at its own
+      // decision points, and those are 1.5-8 s apart (a sit is 8-25 s) — so a dog crossing paths
+      // with a cat walked straight past it, and by its next look the cat was long out of the
+      // five-tile radius at 2.5 tiles per second. Both roles get this, for the same reason both
+      // re-aim on one cadence: whoever notices sooner closes distance sooner, and only geometry
+      // is supposed to decide a chase. A SITTING animal is deliberately left alone — a dog that
+      // shoots out of a nap because a cat passed three tiles away is a different world.
+      if (!pet.reaction) {
+        pet.reactionTimer -= dt;
+        if (pet.reactionTimer <= 0) {
+          pet.reactionTimer = PET_REACTION_REPATH_SEC;
+          const seen = ctx.noticeReaction?.(pet) ?? null;
+          if (seen && seen.path.length > 0) {
+            pet.reaction = seen.action;
+            pet.path = seen.path;
+            pet.moveProgress = 0;
+          }
+        }
+      }
 
       // Re-aim a chase or an escape at what the other animal is doing NOW. Both sides do this on
       // the same cadence on purpose: whoever reacts more often closes distance faster, which would

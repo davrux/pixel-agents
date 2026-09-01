@@ -2239,9 +2239,9 @@ export class OfficeState {
     return {
       canRest: b.rest && this.hasRestAffordance(pet),
       // Who hunts whom comes from one table, and fleeing is the same table read backwards — see
-      // CHASES / fleesFrom. Nothing here names a species, so a new pairing is a word in that table.
-      canChase: b.chase && pet.chaseCooldown <= 0 && this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]) !== null,
-      threatened: b.flee && this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind)) !== null,
+      // chaseQuarryFor / hunterNear, which are the same two questions the walking interrupt asks.
+      canChase: this.chaseQuarryFor(pet) !== null,
+      threatened: this.hunterNear(pet) !== null,
       // A pet uses the appliances pets may use — a fountain or a bowl, never a coffee machine —
       // and only if the map has one. None placed, no visit: the absence is the answer, not a
       // special case. Which of the two it lands at decides what it does there (see APPLIANCES).
@@ -2355,6 +2355,40 @@ export class OfficeState {
       return { col: item.col + dc, row: bottomRow, lift: entry.height - TILE_SIZE };
     }
     return null;
+  }
+
+  /**
+   * The quarry this pet may hunt right now, or null — the switch is on, the cooldown is spent, and
+   * something its species hunts is within shoo range.
+   *
+   * One place, because two callers ask it: the affordance handed to the brain at a decision point,
+   * and the interrupt that lets a WALKING pet notice what it passes. Two copies of this would be
+   * two places to forget the cooldown.
+   */
+  private chaseQuarryFor(pet: Pet): Pet | null {
+    const b = getPetConfig(pet.kind, pet.variant).behaviors;
+    if (!b.chase || pet.chaseCooldown > 0) return null;
+    return this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]);
+  }
+
+  /** The hunter this pet should run from right now, or null. `fleesFrom` derives the kinds. */
+  private hunterNear(pet: Pet): Pet | null {
+    const b = getPetConfig(pet.kind, pet.variant).behaviors;
+    if (!b.flee) return null;
+    return this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind));
+  }
+
+  /**
+   * What a walking pet should drop everything for, with the path to do it — or null.
+   *
+   * Running away wins over hunting, the same order the behaviour tree uses at a decision point:
+   * being prey is the more urgent fact about your situation than being hungry.
+   */
+  private reactionOpportunity(pet: Pet): { action: NonNullable<Pet['reaction']>; path: Array<{ col: number; row: number }> } | null {
+    const action: Pet['reaction'] = this.hunterNear(pet) ? 'flee' : this.chaseQuarryFor(pet) ? 'chase' : null;
+    if (!action) return null;
+    const path = this.navigatePetReaction(pet, action);
+    return path && path.length > 0 ? { action, path } : null;
   }
 
   /**
@@ -2475,6 +2509,7 @@ export class OfficeState {
         ? (pet: Pet) => this.petDecide!(pet, this.computePetAffordances(pet))
         : undefined,
       navigateReaction: (pet: Pet, action: PetAction) => this.navigatePetReaction(pet, action),
+      noticeReaction: (pet: Pet) => this.reactionOpportunity(pet),
       // Spec-driven frame advance: cycle within the current pose track's real
       // length (resolved from the pet's sheet), so server and client agree and
       // longer custom tracks aren't truncated by a hardcoded modulo.

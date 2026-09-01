@@ -206,6 +206,16 @@ eight seconds, so it lost by construction. Five rules, and each is a decision ra
   quarry re-picks its escape on the SAME cadence, deliberately, because reacting twice as often is
   a speed advantage wearing a different hat. So a catch means walls, furniture or a dead end. A dog
   that outruns a cat would be zoologically false and would take the tension out of the chase.
+- **A walking pet looks up; a sitting one is left alone.** Noticing used to happen only at a pet's
+  own decision points, and those are 1.5-8 s apart (a sit is 8-25 s) — so a dog crossing paths with
+  a cat walked straight past it, and at 2.5 tiles per second the cat was out of the five-tile radius
+  before the next look. The `WANDER` state therefore asks `noticeReaction` on the re-aim cadence and
+  takes up a chase or an escape at once. BOTH roles get it, for the same reason both re-aim on one
+  cadence. A sitting animal deliberately does not: a dog that shoots out of a nap because a cat
+  passed three tiles away is a different world, and that exception was asked for by name.
+  `chaseQuarryFor` / `hunterNear` are the two questions, in one place each, because the affordance
+  handed to the brain and the walking interrupt both ask them — two copies is two places to forget
+  the cooldown.
 - **Pursuit earns it.** The catch needs `pet.reaction === 'chase'`; a dog wandering past a sitting
   cat starts nothing, or the world would be wall-to-wall clouds.
 - **A cloud is a PAIR, and the server says who is in it.** Both animals point at each other through
