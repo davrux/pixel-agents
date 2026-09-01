@@ -568,6 +568,15 @@ export function injectMatrixSkin(): void {
 .mx-lightbox-bar{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem}
 .mx-lightbox-bar .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem}
 .mx-lightbox-bar .pa-b{text-decoration:none}
+/* The player (MatrixUI.openVideoViewer) shares the lightbox: same box, same
+   toolbar. A minimum width because a <video> with no metadata yet has no
+   intrinsic size at all, so the dialog would shrink-wrap to the toolbar and
+   then jump the moment the first frame arrives. */
+.mx-lightbox video{
+  display:block;max-width:100%;max-height:calc(92vh - 4rem);min-width:min(80vw,30rem);
+  margin:0 auto;background:#0a0908;
+}
+.mx-video-err{padding:1.2rem 0.6rem;text-align:center;color:#adb0b2;font-size:0.85rem}
 
 /* A file row (timeline.ts's file path): a name, a size and a download. Sized
    like .mx-img so a timeline of both doesn't look like two different clients,

@@ -63,6 +63,7 @@ import { MatrixStore } from './store.js';
 import {
   fileContentOf,
   imageContentOf,
+  isPlayableVideo,
   MAX_FILE_BYTES,
   type MxFileContent,
   type MxImageContent,
@@ -1625,6 +1626,9 @@ export class MatrixUI {
       loadFile: (content) =>
         this.store ? this.store.attachmentUrl(content) : Promise.reject(new Error('Not connected.')),
       onSaveFile: (content, url) => saveBlobUrl(content.body, url),
+      loadVideo: (content) =>
+        this.store ? this.store.videoUrl(content) : Promise.reject(new Error('Not connected.')),
+      onOpenVideo: (content, url) => openVideoViewer(content.body, url),
       onOpenActions: (ev, anchor) => this.openMessageActions(ev, anchor),
       onToggleReaction: (eventId, key) => void this.handleToggleReaction(eventId, key),
       onJumpToReply: (eventId) => {
@@ -3184,16 +3188,18 @@ export class MatrixUI {
   }
 
   /** One file row: a name, a size and a download on click — never bytes
-   *  fetched on the reader's behalf, exactly like the timeline's file chip. */
+   *  fetched on the reader's behalf, exactly like the timeline's file chip,
+   *  and playing instead of saving for a video on the same terms. */
   private buildMediaFileRow(roomId: string, ev: MxEvent, content: MxFileContent): HTMLElement {
+    const play = isPlayableVideo(content);
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'mx-file mx-media-file';
     chip.title = this.mediaTooltip(roomId, ev, content.body);
-    chip.setAttribute('aria-label', `Save ${content.body}`);
+    chip.setAttribute('aria-label', `${play ? 'Play' : 'Save'} ${content.body}`);
     const icon = document.createElement('span');
     icon.className = 'i';
-    icon.textContent = '📎';
+    icon.textContent = play ? '▶' : '📎';
     const main = document.createElement('span');
     main.className = 'mx-file-main';
     const name = document.createElement('span');
@@ -3213,19 +3219,20 @@ export class MatrixUI {
       chip.classList.add('loading');
       chip.classList.remove('failed');
       meta.textContent = 'Downloading…';
-      this.store
-        .attachmentUrl(content)
+      (play ? this.store.videoUrl(content) : this.store.attachmentUrl(content))
         .then((u) => {
           state = 'idle';
           chip.classList.remove('loading');
           meta.textContent = describeFile(content);
-          saveBlobUrl(content.body, u);
+          if (play) openVideoViewer(content.body, u);
+          else saveBlobUrl(content.body, u);
         })
         .catch((err: unknown) => {
           state = 'idle';
           chip.classList.remove('loading');
           chip.classList.add('failed');
-          meta.textContent = `${err instanceof Error && err.message ? err.message : "Couldn't download this file."} — click to retry`;
+          const fallback = play ? "Couldn't load this video." : "Couldn't download this file.";
+          meta.textContent = `${err instanceof Error && err.message ? err.message : fallback} — click to retry`;
         });
     });
     return chip;
@@ -3972,6 +3979,87 @@ function confirmAttachment(o: {
     dialog.showModal();
     send.focus();
   });
+}
+
+/**
+ * The player, for an attachment `isPlayableVideo` accepts.
+ *
+ * The same `<dialog>` as `openImageViewer` and for the same reason (the desktop
+ * shell denies every `window.open`, so a new tab is not a thing that exists
+ * here) — and no "Copy", because there is no clipboard flavour for a clip the
+ * way there is for a picture.
+ *
+ * `url` is a blob: URL owned by the media cache, so it is deliberately NOT
+ * revoked on close: the cache hands the same one back on the next play, and
+ * revoking it here would break every later open of the same clip. It goes with
+ * the rest on sign-out (`MatrixMedia.destroy`).
+ *
+ * A container this client accepts can still hold a codec the browser cannot
+ * decode — an HEVC MP4 is the everyday case — and the element's failure for
+ * that is silent (a black box with dead controls). Hence the `error` handler:
+ * a reader who cannot play it here still has bytes worth saving.
+ */
+function openVideoViewer(name: string, url: string): void {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'pa-ui mx-lightbox';
+
+  const video = document.createElement('video');
+  video.src = url;
+  video.controls = true;
+  // The reader clicked "play" and the tab therefore has sticky user
+  // activation, so this is not a blocked autoplay in either browser.
+  video.autoplay = true;
+
+  const err = document.createElement('div');
+  err.className = 'mx-video-err';
+  err.hidden = true;
+  err.textContent = "This client can't decode that video — save it and open it in a player.";
+  /** Set before the teardown below, which detaches the source and therefore
+   *  fires `error` itself — without this the dialog paints a decode failure on
+   *  its way out. */
+  let closing = false;
+  video.addEventListener('error', () => {
+    if (closing) return;
+    err.hidden = false;
+    video.hidden = true;
+  });
+
+  const bar = document.createElement('div');
+  bar.className = 'mx-lightbox-bar';
+  const label = document.createElement('span');
+  label.className = 'nm';
+  label.textContent = name;
+  const save = document.createElement('a');
+  save.className = 'pa-b';
+  save.textContent = 'Save';
+  save.href = url;
+  save.download = name;
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'pa-b';
+  close.textContent = 'Close';
+  close.addEventListener('click', () => dialog.close());
+  bar.append(label, save, close);
+
+  dialog.append(bar, video, err);
+  dialog.addEventListener('mousedown', (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  // Stop the audio on every close path (button, Esc, backdrop): a closed
+  // dialog is removed from the DOM, but a detached <video> keeps playing.
+  dialog.addEventListener('close', () => {
+    closing = true;
+    video.pause();
+    // Detaching the source releases the decoder now rather than whenever the
+    // element is collected. The blob URL itself stays valid — it belongs to the
+    // media cache, which hands the same one back on the next play.
+    video.removeAttribute('src');
+    video.load();
+    dialog.remove();
+  });
+  (document.getElementById('game') ?? document.body).appendChild(dialog);
+  dialog.showModal();
+  close.focus();
 }
 
 /** Full-size viewer. A native <dialog> rather than a new tab: the desktop

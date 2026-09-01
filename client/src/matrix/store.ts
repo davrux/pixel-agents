@@ -2040,6 +2040,15 @@ export class MatrixStore {
     return media.attachmentUrl(content);
   }
 
+  /** The same for a video the reader asked to play: a blob carrying its real
+   *  (allowlisted) type, so a `<video>` can decode it. Click-only like
+   *  `attachmentUrl`, and cached separately from it — see MatrixMedia. */
+  videoUrl(content: MxFileContent): Promise<string> {
+    const media = this.media_;
+    if (!media) return Promise.reject(new MatrixError(0, '', 'Not connected.'));
+    return media.videoUrl(content);
+  }
+
   async retrySend(roomId: string, txnId: string): Promise<void> {
     const client = this.client;
     const room = client?.getRoom(roomId);

@@ -23,7 +23,7 @@
  */
 import { type MxDecryptAction, type MxEvent, type MxReader } from './types.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
-import { fileContentOf, imageContentOf, type MxFileContent, type MxImageContent } from './media.js';
+import { fileContentOf, imageContentOf, isPlayableVideo, type MxFileContent, type MxImageContent } from './media.js';
 import { hasFormattedBody, renderFormattedBody } from './richHtml.js';
 import { copyText } from './clipboard.js';
 
@@ -191,6 +191,13 @@ export interface TimelineHooks {
   /** The bytes for a file row are in hand — hand them to the browser to save
    *  under `content.body`. */
   onSaveFile(content: MxFileContent, url: string): void;
+  /** Resolve a *playable* blob: URL for an attachment `isPlayableVideo`
+   *  accepts. Same click-only rule as `loadFile` — the difference is that this
+   *  blob carries a real MIME type, so a `<video>` can decode it. Rejects with
+   *  a display-ready message. */
+  loadVideo(content: MxFileContent): Promise<string>;
+  /** The bytes for a video row are in hand — open the player. */
+  onOpenVideo(content: MxFileContent, url: string): void;
   /** The row's ⋯ button was activated: open the message menu (react / reply /
    *  edit / delete) for this event, anchored to `anchor`. */
   onOpenActions(ev: MxEvent, anchor: HTMLElement): void;
@@ -347,7 +354,7 @@ export function describeFile(content: MxFileContent): string {
   if (size) parts.push(size);
   const subtype = /^[\w.+-]+\/([\w.+-]{1,24})$/.exec(content.info.mimetype)?.[1];
   if (subtype && subtype !== 'octet-stream') parts.push(subtype.toUpperCase());
-  parts.push('click to save');
+  parts.push(isPlayableVideo(content) ? 'click to play' : 'click to save');
   return parts.join(' · ');
 }
 
@@ -691,7 +698,11 @@ function buildMsgRow(deps: RowDeps): MsgRow {
   // ---- file -------------------------------------------------------------
   // A file is a name, a size and a download — never bytes we fetch on the
   // reader's behalf (that is the whole difference from the picture path above:
-  // a room full of files must not pull them all down to draw a row).
+  // a room full of files must not pull them all down to draw a row). A video
+  // this client can play is the same chip with a different destination: still
+  // one click, still nothing fetched before it, but the bytes go to the player
+  // instead of to the browser's save dialog (the viewer offers Save from
+  // there, so nothing is lost by not offering it twice).
   const fileChip = document.createElement('button');
   fileChip.type = 'button';
   fileChip.className = 'mx-file';
@@ -720,23 +731,29 @@ function buildMsgRow(deps: RowDeps): MsgRow {
   fileChip.addEventListener('click', () => {
     const content = fileContentOf(lastEvent?.content ?? {});
     if (!content || fileState === 'loading') return;
+    const play = isPlayableVideo(content);
     const key = content.file?.url ?? content.url ?? '';
     fileKey = key;
     fileState = 'loading';
     paintFile(content);
-    deps
-      .loadFile(content)
+    (play ? deps.loadVideo(content) : deps.loadFile(content))
       .then((url) => {
         if (fileKey !== key) return;
         fileState = 'idle';
         fileErr = '';
         paintFile(content);
-        deps.onSaveFile(content, url);
+        if (play) deps.onOpenVideo(content, url);
+        else deps.onSaveFile(content, url);
       })
       .catch((err: unknown) => {
         if (fileKey !== key) return;
         fileState = 'error';
-        fileErr = err instanceof Error && err.message ? err.message : "Couldn't download this file.";
+        fileErr =
+          err instanceof Error && err.message
+            ? err.message
+            : play
+              ? "Couldn't load this video."
+              : "Couldn't download this file.";
         paintFile(content);
       });
   });
@@ -748,6 +765,9 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     // view to re-pin on each of those would be 400 scrolls for no movement.
     const grew = fileChip.hidden;
     fileChip.hidden = false;
+    const play = isPlayableVideo(content);
+    const verb = play ? 'Play' : 'Save';
+    fileIcon.textContent = play ? '▶' : '📎';
     fileName.textContent = content.body;
     fileMeta.textContent =
       fileState === 'loading'
@@ -757,8 +777,8 @@ function buildMsgRow(deps: RowDeps): MsgRow {
           : describeFile(content);
     fileChip.classList.toggle('loading', fileState === 'loading');
     fileChip.classList.toggle('failed', fileState === 'error');
-    fileChip.title = fileState === 'loading' ? content.body : `Save ${content.body}`;
-    fileChip.setAttribute('aria-label', `Save ${content.body}`);
+    fileChip.title = fileState === 'loading' ? content.body : `${verb} ${content.body}`;
+    fileChip.setAttribute('aria-label', `${verb} ${content.body}`);
     // The chip carries the filename itself, so the caption row would say it
     // twice.
     txt.hidden = true;

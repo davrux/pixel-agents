@@ -10,11 +10,18 @@
  *   (`RENDERABLE_TYPES`): an attachment from another client is shown if a
  *   browser can decode it safely, because refusing to render a WebP someone
  *   sent from Element is worse for the reader than the format asymmetry.
- * - **Files** (`m.file`, plus other clients' `m.audio`/`m.video`) are never
- *   rendered — they are a name, a size and a download. That is what makes
- *   "any file from disk" safe to support: the bytes only ever leave here as an
+ * - **Files** (`m.file`, plus other clients' `m.audio`/`m.video`) are a name, a
+ *   size and a download. That is what makes "any file from disk" safe to
+ *   support: the bytes normally only ever leave here as an
  *   `application/octet-stream` blob for the browser to save, so no sniffing,
  *   no allowlist and no decoder is involved on the way in or out.
+ * - **Video** is the one exception to that, and it is the picture rule rather
+ *   than a third one: an attachment whose *declared* type is in
+ *   `PLAYABLE_VIDEO_TYPES` can additionally be fetched as a real, typed blob
+ *   for a `<video>` (`videoUrl`), on an explicit click and never to draw a row.
+ *   The same bytes stay available as an opaque download under their own cache
+ *   key — the two entries differ in exactly the thing that matters, the blob's
+ *   type.
  *
  * Two things here are security-load-bearing and must not be "simplified":
  *
@@ -71,6 +78,16 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
  *  `image/svg+xml` — see the file header. */
 const RENDERABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/apng', 'image/bmp']);
 
+/** MIME types we will hand to a `<video>`. Same rule as `RENDERABLE_TYPES`, for
+ *  the same reason: the type is the *event's* claim passed through an allowlist,
+ *  so a homeserver's Content-Type can never decide what a decoder is pointed at,
+ *  and anything else stays an opaque blob no element will play. All three play
+ *  in both browsers this client supports (AGENTS rule 9) — Firefox reaches
+ *  H.264 through the OS decoder. A container this list accepts can still hold a
+ *  codec the browser cannot decode (HEVC in an MP4), which is why the viewer has
+ *  a failure path and not just a `<video>`. */
+const PLAYABLE_VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/ogg']);
+
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /** The spec's `EncryptedFile`: the JWK + IV + ciphertext hash that replace a
@@ -105,7 +122,8 @@ export interface MxImageContent {
 
 /** A downloadable attachment: what we send for anything that is not one of the
  *  three picture formats, and what we accept for the `m.audio`/`m.video` other
- *  clients send (we play neither — both are a named download here). */
+ *  clients send. Always saveable; additionally playable when `isPlayableVideo`
+ *  recognises its declared type. */
 export interface MxFileContent {
   msgtype: 'm.file' | 'm.audio' | 'm.video';
   body: string;
@@ -414,6 +432,18 @@ export function fileContentOf(content: Record<string, unknown>): MxFileContent |
   };
 }
 
+/** Can this attachment be played in place, or only saved?
+ *
+ *  Keyed off the *declared type* rather than the msgtype, deliberately: another
+ *  client's `m.video` and the `m.file` this one sends for the very same clip
+ *  (uploads are only ever `m.image` or `m.file` — see `uploadAttachment`) are
+ *  the same bytes, and a reader has no use for that distinction. The type is
+ *  remote text either way, which is exactly why the answer is an allowlist
+ *  lookup and not a `startsWith('video/')`. */
+export function isPlayableVideo(content: MxFileContent): boolean {
+  return PLAYABLE_VIDEO_TYPES.has(content.info.mimetype);
+}
+
 /** The cache key for a piece of media: its mxc URI, which is content-addressed
  *  by the homeserver and identical for the encrypted and plain cases. */
 export function mediaKeyOf(content: { url?: string; file?: MxEncryptedFile }): string {
@@ -448,6 +478,20 @@ export class MatrixMedia {
     const mxc = mediaKeyOf(content);
     if (!mxc) return Promise.reject(new MatrixError(0, '', 'This file has no address.'));
     return this.cached(cacheKey('file', mxc), () => this.downloadFile(content));
+  }
+
+  /** A *playable* blob: URL for a video attachment — a third cache entry for the
+   *  same mxc, for precisely the reason `attachmentUrl` is a second one: these
+   *  blobs differ only in their type, and this is the one that carries a real
+   *  one. Same click-only rule as a file: a room full of clips must never
+   *  download itself to draw its rows. */
+  videoUrl(content: MxFileContent): Promise<string> {
+    const mxc = mediaKeyOf(content);
+    if (!mxc) return Promise.reject(new MatrixError(0, '', 'This video has no address.'));
+    if (!isPlayableVideo(content)) {
+      return Promise.reject(new MatrixError(0, '', "This client can't play that video format."));
+    }
+    return this.cached(cacheKey('video', mxc), () => this.downloadVideo(content));
   }
 
   /** A cropped square thumbnail of a profile/room avatar, cached per
@@ -670,6 +714,18 @@ export class MatrixMedia {
     return URL.createObjectURL(new Blob([plain], { type: 'application/octet-stream' }));
   }
 
+  private async downloadVideo(content: MxFileContent): Promise<string> {
+    const mxc = mediaKeyOf(content);
+    const buf = await this.fetchMedia(mxc, { cap: MAX_FILE_BYTES, what: 'video' });
+    const plain = content.file ? await decryptAttachment(buf, content.file) : buf;
+    // The event's claim, allowlisted — never the server's Content-Type (see the
+    // file header). `videoUrl` already refused anything else, so this cannot
+    // fall through in practice; it stays because the fallback is what makes the
+    // rule true of this function rather than of one caller.
+    const type = isPlayableVideo(content) ? content.info.mimetype : 'application/octet-stream';
+    return URL.createObjectURL(new Blob([plain], { type }));
+  }
+
   /** `sizePx` undefined means the original, un-thumbnailed bytes — still
    *  capped and still sniffed like any thumbnail. */
   private async downloadThumbnail(mxc: string, sizePx: number | undefined): Promise<string> {
@@ -710,7 +766,7 @@ export class MatrixMedia {
 /** Which flavour of blob a cache entry holds — the cache is keyed by it (see
  *  `attachmentUrl`), and it decides the blob's type on both the upload-seed and
  *  the download side. */
-type MediaKind = 'img' | 'file' | 'avatar';
+type MediaKind = 'img' | 'file' | 'video' | 'avatar';
 
 function cacheKey(kind: MediaKind, id: string): string {
   return `${kind}|${id}`;
