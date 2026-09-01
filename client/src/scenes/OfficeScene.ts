@@ -1685,8 +1685,25 @@ export class OfficeScene extends Phaser.Scene {
   private setupInput(): void {
     const cam = this.cameras.main;
     this.input.mouse?.disableContextMenu();
-    this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      cam.setZoom(Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 1, 14));
+    // Zoom towards the pointer, not the middle of the screen: the world point
+    // under the cursor stays under the cursor, so you can push the wheel at the
+    // thing you want to look at instead of centring it first. A screen point px
+    // maps to world `scrollX + halfW + (px - halfW) / zoom` (see the camera's
+    // preRender), so holding that fixed across a zoom change is one term.
+    // Bounds are re-applied because their margin is derived from the zoom, and
+    // they clamp the scroll we just set.
+    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
+      const before = cam.zoom;
+      const after = Phaser.Math.Clamp(before * (dy > 0 ? 0.9 : 1.1), 1, 14);
+      if (after === before) return;
+      const halfW = cam.width / 2;
+      const halfH = cam.height / 2;
+      cam.setZoom(after);
+      this.applyCameraBounds();
+      cam.setScroll(
+        cam.scrollX + (p.x - cam.x - halfW) * (1 / before - 1 / after),
+        cam.scrollY + (p.y - cam.y - halfH) * (1 / before - 1 / after),
+      );
     });
     let dragging = false;
     let moved = false;
