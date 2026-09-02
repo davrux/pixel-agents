@@ -4223,10 +4223,14 @@ export class OfficeScene extends Phaser.Scene {
    *  unreachable is this world, and the docked application windows beside it —
    *  Matrix on the left, Mumble on the right — talk to their own servers and
    *  keep working. Greying out a chat you can still read, and a call you are
-   *  still in, because the pixel server restarted is a lie about what is down. */
+   *  still in, because the pixel server restarted is a lie about what is down.
+   *  `pa-curtain` keeps the top bar and its menus above it for the same reason:
+   *  opening either window is what you are most likely to want while the world
+   *  is away, and that is the only way in. */
   private handleDisconnect(): void {
     if (this.reconnecting || this.leavingIntentionally) return;
     this.reconnecting = true;
+    document.documentElement.classList.add('pa-curtain'); // see paSkin.ts
     let overlay = document.getElementById('pa-reconnect');
     if (!overlay) {
       overlay = document.createElement('div');
@@ -4251,14 +4255,16 @@ export class OfficeScene extends Phaser.Scene {
   /** An admin kicked us: show a notice and do NOT auto-reconnect (a manual
    *  reload / re-login is required). The overlay covers the world on purpose —
    *  there is nothing left to play with — but only the world (`GAME_COLUMN_CSS`),
-   *  since being thrown out of this one does not end the Matrix chat or the
-   *  Mumble call docked beside it. It carries the way out itself: a
+   *  and not the top bar (`pa-curtain`), since being thrown out of this one does
+   *  not end the Matrix chat or the Mumble call docked beside it, nor should it
+   *  take away the menu that opens them. It carries the way out itself: a
    *  Reload button, because on the desktop the shell has no address bar and no
    *  refresh, so "reload the page" used to mean quitting and relaunching the app.
    *  Goes through reloadApp(), the only reload that works from the `app://`
    *  origin (a renderer-initiated location.reload() is dropped there). */
   private showKicked(): void {
     injectPaSkin(); // .pa-panel / .pa-b, in case we were kicked before the UI was built
+    document.documentElement.classList.add('pa-curtain'); // the bar stays usable — see paSkin.ts
     let overlay = document.getElementById('pa-reconnect'); // reuse the disconnect overlay if present
     if (!overlay) {
       overlay = document.createElement('div');

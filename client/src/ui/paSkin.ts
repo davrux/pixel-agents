@@ -35,6 +35,22 @@ export function injectPaSkin(): void {
       #pa-menubar{position:fixed;top:0.6rem;left:calc(0.75rem + var(--pa-dock-l, 0px));
         right:calc(0.75rem + var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));
         z-index:60;display:flex;align-items:center;gap:0.55rem;}
+      /* While a curtain covers the game column (GAME_COLUMN_CSS at z 200 — the
+         reconnect overlay and the kicked notice, see OfficeScene), the top bar
+         stays above it. It is not decoration during an outage: it is how you
+         open Matrix and Mumble, which keep working while this world does not,
+         and both are a click away in there.
+
+         The bar and its popovers rise TOGETHER, deliberately. A bar you can
+         click whose menus open behind the curtain is worse than one you cannot:
+         every button reads as dead. Docked windows are .pa-panel too and are
+         left out — they are outboard of the column, so nothing covers them
+         anyway, and they own their layer (z 56, see dockWindow.ts).
+
+         Set by whoever raises the curtain, on <html>, and never taken down:
+         both curtains end in a reload. */
+      html.pa-curtain #pa-menubar,
+      html.pa-curtain .pa-panel:not(.pa-window){z-index:201;}
       .pa-btn{display:inline-flex;align-items:center;gap:0.45rem;cursor:pointer;position:relative;white-space:nowrap;
         background:#242220;border:2px solid #0a0908;border-radius:0.45rem;color:#f1efec;
         font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.8rem;
