@@ -88,7 +88,7 @@ import { TimeTrackingUI } from '../timetracking/TimeTrackingUI.js';
 import { ChatUI } from '../ui/chatUI.js';
 import { OnlineListUI, type OnlineUser } from '../ui/onlineList.js';
 import { injectPaSkin } from '../ui/paSkin.js';
-import { DockWindow } from '../ui/dockWindow.js';
+import { DockWindow, GAME_COLUMN_CSS, GAME_COLUMN_SLIDE } from '../ui/dockWindow.js';
 import type { MatrixClientHandle } from '../matrix/index.js';
 import { hasMatrixSession, storedSessionUserIds } from '../matrix/sessionProbe.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
@@ -4217,7 +4217,13 @@ export class OfficeScene extends Phaser.Scene {
   /** Switch to another zone (remember it, then reload at ?zone=). Used by the
    *  zone switcher and by walk-in portals (P5). */
   /** Connection dropped (likely a server restart): wait for /health, then reload
-   *  so the player rejoins automatically. Shows a small "reconnecting" overlay. */
+   *  so the player rejoins automatically. Shows a small "reconnecting" overlay.
+   *
+   *  The overlay spans the GAME COLUMN only (`GAME_COLUMN_CSS`): what is
+   *  unreachable is this world, and the docked application windows beside it —
+   *  Matrix on the left, Mumble on the right — talk to their own servers and
+   *  keep working. Greying out a chat you can still read, and a call you are
+   *  still in, because the pixel server restarted is a lie about what is down. */
   private handleDisconnect(): void {
     if (this.reconnecting || this.leavingIntentionally) return;
     this.reconnecting = true;
@@ -4226,7 +4232,8 @@ export class OfficeScene extends Phaser.Scene {
       overlay = document.createElement('div');
       overlay.id = 'pa-reconnect';
       overlay.style.cssText =
-        'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
+        GAME_COLUMN_CSS +
+        `transition:${GAME_COLUMN_SLIDE};z-index:200;display:flex;align-items:center;justify-content:center;` +
         "background:rgba(10,12,18,.82);color:#f4f2ee;font:1.1rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;";
       overlay.textContent = 'Connection lost — reconnecting…';
       (document.getElementById('game') ?? document.body).appendChild(overlay);
@@ -4243,7 +4250,9 @@ export class OfficeScene extends Phaser.Scene {
 
   /** An admin kicked us: show a notice and do NOT auto-reconnect (a manual
    *  reload / re-login is required). The overlay covers the world on purpose —
-   *  there is nothing left to play with — but it carries the way out itself: a
+   *  there is nothing left to play with — but only the world (`GAME_COLUMN_CSS`),
+   *  since being thrown out of this one does not end the Matrix chat or the
+   *  Mumble call docked beside it. It carries the way out itself: a
    *  Reload button, because on the desktop the shell has no address bar and no
    *  refresh, so "reload the page" used to mean quitting and relaunching the app.
    *  Goes through reloadApp(), the only reload that works from the `app://`
@@ -4258,7 +4267,8 @@ export class OfficeScene extends Phaser.Scene {
     }
     overlay.className = 'pa-ui';
     overlay.style.cssText =
-      'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
+      GAME_COLUMN_CSS +
+      `transition:${GAME_COLUMN_SLIDE};z-index:200;display:flex;align-items:center;justify-content:center;` +
       "background:rgba(10,12,18,.9);color:#f1efec;font:1.15rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;padding:1rem;";
     overlay.textContent = '';
 

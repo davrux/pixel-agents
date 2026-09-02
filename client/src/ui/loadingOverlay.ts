@@ -15,6 +15,8 @@
  * default.
  */
 
+import { GAME_COLUMN_CSS, GAME_COLUMN_SLIDE } from './dockWindow.js';
+
 export interface LoadingProgress {
   /** Announce one more thing to wait for. Safe to call while already running. */
   expect(count?: number): void;
@@ -27,17 +29,23 @@ export interface LoadingProgress {
 }
 
 const STYLE_ID = 'pa-loading-style';
+/* The panel covers the game column, not the screen (GAME_COLUMN_CSS): the two
+   docked application windows are started before the world is (see OfficeScene's
+   create), talk to their own servers, and are usable while this is up — Matrix
+   even restores from a stored session when our own server cannot be reached at
+   all. Both transitions are named in one declaration on purpose: a second one
+   would silently replace the first. */
 const CSS = `
 .pa-loading {
-  position: fixed; inset: 0; z-index: 40;
+  ${GAME_COLUMN_CSS} z-index: 40;
   display: flex; align-items: center; justify-content: center;
   background: #171514;
   font-family: 'FS Pixel Sans', ui-monospace, monospace;
-  transition: opacity .18s ease-out;
+  transition: opacity .18s ease-out, ${GAME_COLUMN_SLIDE};
 }
 .pa-loading.gone { opacity: 0; pointer-events: none; }
 .pa-loading-box {
-  min-width: 18rem; max-width: min(28rem, 80vw);
+  min-width: 18rem; max-width: min(28rem, 80vw, calc(var(--pa-hud-gap, 100vw) - 1.5rem));
   padding: 1.1rem 1.25rem 1.25rem;
   background: #1c1a19; border: 2px solid #0a0908; border-radius: .6rem;
   box-shadow: inset 0 2px 0 #292725, inset 0 -3px 0 #030303, 0 12px 28px rgba(0,0,0,.55);

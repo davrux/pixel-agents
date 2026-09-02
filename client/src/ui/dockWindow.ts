@@ -19,6 +19,29 @@
  */
 export type DockSide = 'left' | 'right';
 
+/**
+ * Declarations that make a fixed element span exactly the game column — the same
+ * three variables `#game` (index.html) is inset by, so a curtain lines up with
+ * the canvas whatever is docked beside it. Ends in a semicolon, so it
+ * concatenates into a `cssText` or drops into a rule body.
+ *
+ * For anything that covers the WORLD rather than the screen. Neither application
+ * window depends on this server: Matrix and Mumble each talk to their own, so
+ * they are neither down while the world reconnects, nor gone when an admin kicks
+ * you out of it, nor unusable while the world's art is still arriving. A curtain
+ * drawn across them says something untrue about a chat you can still read and a
+ * call you are still in.
+ */
+export const GAME_COLUMN_CSS =
+  'position:fixed;top:0;bottom:0;left:var(--pa-dock-l, 0px);' +
+  'right:calc(var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));';
+
+/** The `transition` VALUE that matches `#game`'s own slide — a curtain without it
+ *  jumps to its new column while the canvas underneath glides to it. Kept apart
+ *  from the geometry because a user of both may be transitioning something else
+ *  as well, and a second `transition` declaration would silently drop this one. */
+export const GAME_COLUMN_SLIDE = 'left 0.18s ease, right 0.18s ease';
+
 export interface DockWindowOptions {
   side: DockSide;
   /** localStorage prefix: `${key}-w` (dragged width), `${key}-open`. */
