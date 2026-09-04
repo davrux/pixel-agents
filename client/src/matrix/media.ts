@@ -66,13 +66,26 @@ import { MatrixError } from './types.js';
  *  fetched without the reader asking for it. */
 export const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 
-/** The same ceiling for a plain file, which is only ever downloaded on an
- *  explicit click and never decoded. 50 MB matches Synapse's default
- *  `max_upload_size`, so the usual failure is our own message rather than an
- *  M_TOO_LARGE after a full upload — and an encrypted send still holds the
- *  plaintext *and* the ciphertext in the tab's heap at once, which is the real
- *  reason this is not simply "whatever the server allows". */
+/** The UPLOAD ceiling for a plain file (a picture uploads under the smaller cap
+ *  above). 50 MB matches Synapse's default `max_upload_size`, so the usual
+ *  failure is our own message rather than an M_TOO_LARGE after a full upload —
+ *  and an encrypted send still holds the plaintext *and* the ciphertext in the
+ *  tab's heap at once, which is the real reason this is not simply "whatever
+ *  the server allows". Downloads have their own, higher ceiling below. */
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
+
+/** The ceiling for a file or video the reader CLICKED to fetch. Higher than the
+ *  upload cap on purpose: the two numbers answer different questions. The
+ *  upload cap is about what this tab should attempt to encrypt and what Synapse
+ *  accepts by default; a download is an explicit choice by somebody who was
+ *  shown the size first, and other clients on other homeservers send clips
+ *  well past 50 MB (which is what the split was made for — a video that played
+ *  in Element failed here as "larger than this client will download"). It is
+ *  still a ceiling and not infinity: the bytes are read into one buffer and then
+ *  a blob, and an encrypted clip holds ciphertext and plaintext at once, so a
+ *  tab on a small machine has to be able to hold twice this. Pictures keep
+ *  `MAX_IMAGE_BYTES` — they are fetched unasked and decoded into a bitmap. */
+export const MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024;
 
 /** MIME types we will hand to an `<img>`. Deliberately excludes
  *  `image/svg+xml` — see the file header. */
@@ -706,7 +719,7 @@ export class MatrixMedia {
 
   private async downloadFile(content: MxFileContent): Promise<string> {
     const mxc = mediaKeyOf(content);
-    const buf = await this.fetchMedia(mxc, { cap: MAX_FILE_BYTES, what: 'file' });
+    const buf = await this.fetchMedia(mxc, { cap: MAX_DOWNLOAD_BYTES, what: 'file' });
     const plain = content.file ? await decryptAttachment(buf, content.file) : buf;
     // Always opaque, never `info.mimetype`: this blob's only destination is a
     // `download` link, and a type is the one thing that could turn a saved
@@ -716,7 +729,7 @@ export class MatrixMedia {
 
   private async downloadVideo(content: MxFileContent): Promise<string> {
     const mxc = mediaKeyOf(content);
-    const buf = await this.fetchMedia(mxc, { cap: MAX_FILE_BYTES, what: 'video' });
+    const buf = await this.fetchMedia(mxc, { cap: MAX_DOWNLOAD_BYTES, what: 'video' });
     const plain = content.file ? await decryptAttachment(buf, content.file) : buf;
     // The event's claim, allowlisted — never the server's Content-Type (see the
     // file header). `videoUrl` already refused anything else, so this cannot
@@ -798,7 +811,11 @@ async function doFetch(url: string, headers: Record<string, string>, what: strin
 }
 
 async function readCapped(res: Response, o: { cap: number; what: string }): Promise<ArrayBuffer> {
-  const tooBig = new MatrixError(0, '', `That ${o.what} is larger than this client will download.`);
+  const tooBig = new MatrixError(
+    0,
+    '',
+    `That ${o.what} is larger than this client will download (limit ${Math.floor(o.cap / 1024 / 1024)} MB).`,
+  );
   const declared = Number(res.headers.get('content-length') ?? '0');
   if (declared > o.cap) throw tooBig;
   const buf = await res.arrayBuffer();
