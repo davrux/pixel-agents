@@ -194,15 +194,19 @@ export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): 
  *
  * The other thing a talking object says. Not the hour: a line out of a pool the
  * repo carries as a text file (assets/quotes/talking-objects.txt), at a random
- * moment inside a 20-to-60-minute window, rolled again after each one.
+ * moment inside a 20-to-60-minute window, rolled again after each one. WHICH
+ * line is not a draw but a deal: the pool is shuffled once at the start and
+ * said through in that order, so no line comes twice before every line has come
+ * once (QuoteDeck).
  *
  * Three decisions worth stating, because each could plausibly have gone the
  * other way:
  *
- *   - The RANDOMNESS is the server's, like the clock. One roll decides both when
- *     and what, and the line is broadcast, so everybody at the whale sees the
- *     same quote at the same moment. A client-side roll would give each viewer
- *     their own whale, which is the same mistake as a client-side clock.
+ *   - The RANDOMNESS is the server's, like the clock. The server rolls when, the
+ *     server deals what (a shuffled deck, see QuoteDeck), and the line is
+ *     broadcast, so everybody at the whale sees the same quote at the same
+ *     moment. A client-side roll would give each viewer their own whale, which
+ *     is the same mistake as a client-side clock.
  *   - The SCHEDULE is per placement, keyed by uid, and independent of the hour.
  *     Two whales in a zone drift apart within the first hour instead of chanting
  *     in unison — and unison is what a shared timer would give, since they would
@@ -226,14 +230,74 @@ export function quoteDelayMs(rnd: number): number {
   return Math.round(QUOTE_MIN_MS + r * (QUOTE_MAX_MS - QUOTE_MIN_MS));
 }
 
-/** One line out of the pool, or null when there is nothing to say. The
+/**
+ * The pool as a shuffled deck: every line once, in a random order, then the
+ * whole pool again in a fresh order.
+ *
+ * An independent draw per quote (what this used to be) repeats itself — with 25
+ * lines, one quote in 25 is the one just said, and a viewer who hears the same
+ * line twice in an afternoon takes the pool for five lines long. A deck says
+ * each line exactly once before any line comes twice, which is what "random"
+ * means to somebody listening.
+ *
+ * The one place a deck CAN repeat is the boundary: the last card of one pass and
+ * the first of the next may be the same line. Rather than reshuffling until they
+ * differ (a loop whose length is a random variable, and a loop that never ends
+ * on a pool of one), the offending first card is swapped with a random card
+ * further down the deck — one roll, always terminates, and every other card of
+ * the new pass is as random as before. A pool of one line has nothing to swap
+ * with and repeats, which is the only honest thing a pool of one can do.
+ *
+ * The shuffle is Fisher-Yates walking FORWARD, so a die that always rolls 0
+ * leaves the pool in file order — which is what lets a test with a pinned die
+ * say "the first line, then the second" rather than working out where an
+ * all-zero backward shuffle would have put them.
+ */
+export class QuoteDeck {
+  private deck: string[] = [];
+  private next = 0;
+  /** The line said most recently, across passes; what the boundary rule checks. */
+  private last: string | null = null;
+
+  constructor(private readonly quotes: readonly string[], private readonly rnd: () => number) {
+    this.deck = shuffled(quotes, rnd);
+  }
+
+  get size(): number {
+    return this.quotes.length;
+  }
+
+  /** The next line, or null when the pool is empty. */
+  draw(): string | null {
+    const n = this.deck.length;
+    if (n === 0) return null;
+    if (this.next >= n) {
+      this.deck = shuffled(this.quotes, this.rnd);
+      this.next = 0;
+      if (n > 1 && this.deck[0] === this.last) {
+        const j = 1 + Math.min(n - 2, Math.max(0, Math.floor(this.rnd() * (n - 1))));
+        [this.deck[0], this.deck[j]] = [this.deck[j], this.deck[0]];
+      }
+    }
+    const text = this.deck[this.next++];
+    this.last = text;
+    return text;
+  }
+}
+
+/** A uniformly random permutation of `items` (Fisher-Yates), leaving the input
+ *  alone. Walks forward so `rnd` ≡ 0 is the identity — see QuoteDeck. The
  *  `length - 1` clamp is for the `rnd() === 1` a hand-written generator can
- *  produce; Math.random never does, and an out-of-range index would be a
- *  bubble reading `undefined`. */
-export function pickQuote(quotes: readonly string[], rnd: number): string | null {
-  if (quotes.length === 0) return null;
-  const i = Math.min(quotes.length - 1, Math.max(0, Math.floor(rnd * quotes.length)));
-  return quotes[i];
+ *  produce; Math.random never does, and an out-of-range index would put an
+ *  `undefined` in the deck and a bubble reading `undefined` on the whale. */
+export function shuffled<T>(items: readonly T[], rnd: () => number): T[] {
+  const out = items.slice();
+  for (let i = 0; i < out.length - 1; i++) {
+    const span = out.length - i;
+    const j = i + Math.min(span - 1, Math.max(0, Math.floor(rnd() * span)));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 /**
@@ -249,7 +313,10 @@ export function pickQuote(quotes: readonly string[], rnd: number): string | null
  * either verified or merely believed.
  */
 export class QuoteSchedule {
-  private quotes: readonly string[] = [];
+  /** One deck per room, shared by every talker in it: two whales in a zone
+   *  draw from the same pass, so the viewer who can see both never hears one
+   *  line from each within the hour. Empty until setQuotes. */
+  private deck = new QuoteDeck([], Math.random);
   private rnd: () => number;
   /** uid → the moment this placement says its next quote. Keyed by something
    *  that comes and goes, so `prune` below is not optional — see AGENTS.md
@@ -260,7 +327,10 @@ export class QuoteSchedule {
     this.rnd = rnd;
   }
 
-  /** Install the world's quote pool (see the header: the server owns the file).
+  /** Install the world's quote pool (see the header: the server owns the file)
+   *  and shuffle it — the deck's first pass is dealt here, at the start of the
+   *  service, so the die is rolled `quotes.length - 1` times before the first
+   *  wait is scheduled (a test with a scripted die has to account for that).
    *  Safe to call at any time — a pool arriving after the first tick simply
    *  starts the first wait then.
    *
@@ -269,8 +339,8 @@ export class QuoteSchedule {
    *  way a test can assert "this quote, twenty minutes after that one" through
    *  the real engine rather than through this class in isolation. */
   setQuotes(quotes: readonly string[], rnd?: () => number): void {
-    this.quotes = quotes;
     if (rnd) this.rnd = rnd;
+    this.deck = new QuoteDeck(quotes, this.rnd);
   }
 
   /**
@@ -290,7 +360,7 @@ export class QuoteSchedule {
    * interval a claim with an exception in it.
    */
   chimes(talkers: readonly PlacedFurniture[], nowMs: number): SpokenLine[] {
-    if (this.quotes.length === 0) return [];
+    if (this.deck.size === 0) return [];
     const out: SpokenLine[] = [];
     for (const f of talkers) {
       const due = this.dueAt.get(f.uid);
@@ -299,7 +369,7 @@ export class QuoteSchedule {
         continue;
       }
       this.dueAt.set(f.uid, nowMs + quoteDelayMs(this.rnd()));
-      const text = pickQuote(this.quotes, this.rnd());
+      const text = this.deck.draw();
       if (text) out.push({ col: f.col, row: f.row, text, from: speakerName(f) });
     }
     return out;

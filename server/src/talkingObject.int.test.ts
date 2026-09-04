@@ -44,8 +44,9 @@ import {
   hourText,
   speakerName,
   type SpokenLine,
-  pickQuote,
+  QuoteDeck,
   QuoteSchedule,
+  shuffled,
   quoteDelayMs,
   QUOTE_MAX_MS,
   QUOTE_MIN_MS,
@@ -345,16 +346,57 @@ test('every wait is between 20 and 60 minutes, at both ends of the roll', () => 
   assert.equal(quoteDelayMs(7), QUOTE_MAX_MS);
 });
 
-test('the pick reaches every quote in the pool and never falls off the end', () => {
-  const pool = ['one', 'two', 'three'];
-  assert.equal(pickQuote(pool, 0), 'one');
-  assert.equal(pickQuote(pool, 0.5), 'two');
-  assert.equal(pickQuote(pool, 0.99), 'three');
-  assert.equal(pickQuote(pool, 1), 'three', 'rnd() === 1 must not index past the pool');
-  assert.equal(pickQuote([], 0.4), null, 'nothing to say is not an empty bubble');
-  const seen = new Set<string>();
-  for (let i = 0; i < 300; i++) seen.add(pickQuote(pool, i / 300)!);
-  assert.deepEqual([...seen].sort(), ['one', 'three', 'two'], 'every line is reachable');
+test('the deck says every line once before any line comes twice', () => {
+  const pool = ['one', 'two', 'three', 'four', 'five'];
+  const deck = new QuoteDeck(pool, Math.random);
+  for (let pass = 0; pass < 40; pass++) {
+    const said = Array.from({ length: pool.length }, () => deck.draw());
+    assert.deepEqual([...said].sort(), [...pool].sort(), `pass ${pass} is not the whole pool exactly once`);
+  }
+  assert.equal(new QuoteDeck([], Math.random).draw(), null, 'nothing to say is not an empty bubble');
+});
+
+test('the seam between two passes never repeats a line, and it costs one roll, not a reshuffle', () => {
+  // A pool of two on a die stuck at 0: every shuffle is the identity, so a pass
+  // ends on y and the next opens on x — no collision, no swap, and the deck
+  // simply alternates.
+  const two = new QuoteDeck(['x', 'y'], scripted(0));
+  assert.deepEqual([two.draw(), two.draw(), two.draw(), two.draw()], ['x', 'y', 'x', 'y']);
+
+  // Now force the collision. Pool [a b c]: the first shuffle rolls (0, 0) → the
+  // identity, so the pass ends on c. The second rolls (0.99, 0): i=0 picks j=2 →
+  // [c b a], i=1 picks j=1 → still [c b a], which opens on the c just said. The
+  // boundary rule then rolls exactly once more (0) → j=1 and swaps c with b.
+  const deck = new QuoteDeck(['a', 'b', 'c'], scripted(0, 0, 0.99, 0, 0));
+  assert.deepEqual([deck.draw(), deck.draw(), deck.draw()], ['a', 'b', 'c']);
+  assert.equal(deck.draw(), 'b', 'the colliding first card was swapped down the deck');
+  assert.deepEqual([deck.draw(), deck.draw()].sort(), ['a', 'c'], 'and the pass still holds the whole pool');
+});
+
+test('over many passes with a real die, the seam never repeats (and a pool of one has no choice)', () => {
+  const pool = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'];
+  const deck = new QuoteDeck(pool, Math.random);
+  let prev = deck.draw();
+  for (let i = 1; i < 7 * 500; i++) {
+    const cur = deck.draw();
+    assert.notEqual(cur, prev, `draw ${i} repeated "${cur}"`);
+    prev = cur;
+  }
+  const one = new QuoteDeck(['only'], Math.random);
+  assert.deepEqual([one.draw(), one.draw(), one.draw()], ['only', 'only', 'only']);
+});
+
+test('the shuffle is a permutation, is the identity on an all-zero die, and never indexes past the end', () => {
+  const pool = ['one', 'two', 'three', 'four'];
+  assert.deepEqual(shuffled(pool, () => 0), pool, 'rnd ≡ 0 keeps file order — what the pinned-die tests lean on');
+  const ones = shuffled(pool, () => 1);
+  assert.ok(!ones.includes(undefined as never), 'rnd() === 1 must not put undefined in the deck');
+  assert.deepEqual(ones.slice().sort(), pool.slice().sort(), 'still a permutation');
+  assert.deepEqual(pool, ['one', 'two', 'three', 'four'], 'the input is left alone');
+  // Uniform enough: over many shuffles every line lands in every position.
+  const seen = Array.from({ length: pool.length }, () => new Set<string>());
+  for (let n = 0; n < 2000; n++) shuffled(pool, Math.random).forEach((q, i) => seen[i].add(q));
+  for (const s of seen) assert.equal(s.size, pool.length, 'every line reaches every position');
 });
 
 // ── 7. quotes through the engine, on a pinned clock and a pinned die ────────
@@ -375,8 +417,8 @@ function talkingWorld(pool = POOL, rnd = scripted(0)): { os: OfficeState; uid: s
 }
 
 test('a quote comes at the end of the wait, not before, and then the wait starts over', () => {
-  // rnd 0 = the shortest wait (20 min) and the first line, so every moment
-  // below is a stated fact rather than a range.
+  // rnd 0 = the shortest wait (20 min) and a deck in file order, so every
+  // moment and every line below is a stated fact rather than a range.
   const { os } = talkingWorld(POOL, scripted(0));
 
   os.update(0.05, at(9, 0, 30));
@@ -392,7 +434,7 @@ test('a quote comes at the end of the wait, not before, and then the wait starts
   assert.deepEqual(os.takeSpokenLines(), [], 'and not again on the very next tick');
 
   os.update(0.05, at(9, 40, 30));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')], 'the next wait ran out');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Second line.')], 'the next wait ran out, and the deck moved on');
 });
 
 test('a whale with no quotes still tells the time, and says nothing else ever', () => {
@@ -425,7 +467,7 @@ test('the two clocks are independent: a quote due on the hour is still said', ()
   // The next wait ran from when the quote was SAID, not from a re-roll it was
   // pushed into: 20 minutes after 10:00:00, not after the tick that follows.
   os.update(0.05, at(10, 20, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Second line.')]);
 });
 
 test('two talking objects drift apart instead of chanting in unison', () => {
@@ -433,9 +475,10 @@ test('two talking objects drift apart instead of chanting in unison', () => {
     piece('a', 5, 5, { kind: 'talkingObject' }),
     piece('b', 12, 3, { kind: 'talkingObject' }),
   ]);
-  // Scheduling walks the talkers in map order: the first draws 0 (20 min), the
-  // second 1 (60 min). Picking a line consumes a roll too, hence the 0s after.
-  os.setQuotes(POOL, scripted(0, 1, 0, 0, 0, 0));
+  // setQuotes deals the deck first — two rolls for a pool of three, both 0 so
+  // it stays in file order. Scheduling then walks the talkers in map order: the
+  // first draws 0 (20 min), the second 1 (60 min); the 0 after is the re-roll.
+  os.setQuotes(POOL, scripted(0, 0, 0, 1, 0));
   os.update(0.05, at(9, 0, 0));
 
   os.update(0.05, at(9, 20, 0));
@@ -531,5 +574,5 @@ test('the hour and the quote are attributed the same way, through the engine', (
   ]);
 
   os.update(0.05, at(10, 20, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.', 'Talking Whale')]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Second line.', 'Talking Whale')]);
 });

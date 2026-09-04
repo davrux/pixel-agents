@@ -2,7 +2,10 @@
 #
 # Every piece of furniture carrying the `talkingObject` action draws from this
 # one pool (see README's Actions chapter). It says the hour on the hour, and a
-# random line from here at a random moment every 20 to 60 minutes.
+# line from here at a random moment every 20 to 60 minutes. The pool is dealt
+# like a shuffled deck: every line once, in a random order, before any line
+# comes a second time — and the first line of a new pass is never the last line
+# of the old one.
 #
 # The format is a line of text, and that is deliberately all it is: no JSON
 # escaping around an apostrophe or a "quotation mark", one line per quote in a
