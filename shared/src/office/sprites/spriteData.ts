@@ -188,6 +188,7 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], bi
   };
   loadedPets = { dog: dogs.map(toPet), cat: cats.map(toPet), bird: birds.map(toPet) };
   petSpriteCache.clear();
+  petConfigCache.clear(); // the stored configs are where these answers come from
 }
 
 
@@ -488,10 +489,36 @@ export function getPetRoster(): Array<{ kind: PetKindName; variant: number; data
   return out;
 }
 
-/** Spawn + behaviour config of a pet variant, normalised (fills defaults,
- *  clamps, and back-fills `behaviors` for configs saved before they existed). */
+/**
+ * Spawn + behaviour config of a pet variant, normalised (fills defaults, clamps, and back-fills
+ * `behaviors` for configs saved before they existed) — and memoized, because it is read from the
+ * tick.
+ *
+ * `resolvePetConfig` builds a fresh object with a nested one inside it on every call, which
+ * measured 418 ns against 3 ns for reading a table. It is asked three times per pet decision (the
+ * affordances plus `chaseQuarryFor`/`hunterNear`) and twice more per walking interrupt, so the cost
+ * was allocation churn in the one loop that must stay cheap. Same shape as the `getCatalogEntry`
+ * fix (AGENTS.md § Measuring performance): the answer never changed between calls, only the object
+ * did.
+ *
+ * Bounded by the roster (one entry per kind × variant) and cleared where the templates are
+ * replaced, which is the only thing that can change an answer.
+ */
+const petConfigCache = new Map<string, PetConfig>();
+
 export function getPetConfig(kind: PetKindName, variant: number): PetConfig {
   const arr = loadedPets[kind];
-  return resolvePetConfig(arr?.[variant % (arr.length || 1)]?.petConfig);
+  const index = variant % (arr?.length || 1);
+  const key = `${kind}_${index}`;
+  const hit = petConfigCache.get(key);
+  if (hit) return hit;
+  // Frozen, both levels: every caller today only reads (`.behaviors.chase`, `.maxConcurrent`), and
+  // a shared object that somebody later writes to would poison every pet of that variant. This way
+  // that mistake throws where it is made instead of becoming a behaviour nobody can explain.
+  const cfg = resolvePetConfig(arr?.[index]?.petConfig);
+  Object.freeze(cfg.behaviors);
+  Object.freeze(cfg);
+  petConfigCache.set(key, cfg);
+  return cfg;
 }
 

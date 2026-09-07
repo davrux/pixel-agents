@@ -105,6 +105,8 @@ const PET_BADGE_OFFSET_PX = 18;
 const SIP_PERIOD_MS = 2200;
 /** Shared empty list — most characters carry no marker on any given frame. */
 const NO_MARKERS: MarkerSpec[] = [];
+/** Shared empty set — on almost every frame no pet is hidden behind a scuffle cloud. */
+const NO_PETS: Set<number> = new Set();
 
 /** Coffee "sip": tilt back, then straighten while lifted, on a 2.2 s loop.
  *  `lift` is in em (multiplied by the marker's world size by the caller). */
@@ -585,6 +587,12 @@ export class PhaserRenderer {
    * invariant 2) — the cadence is the one in `poseFrameMs`, never a number of this file's own.
    */
   private syncScuffleClouds(pets: readonly Pet[]): Set<number> {
+    // The common case is "nobody is fighting", and it must cost nothing: this runs on every
+    // rendered frame, and the Map + Set + intermediate array below were being allocated sixty
+    // times a second to discover that there was nothing to draw. One scan, no garbage — and the
+    // clouds still get cleaned up on the frame a pair ends, because the emptiness check asks about
+    // the pool too.
+    if (!pets.some((p) => p.state === PetState.SCUFFLE) && this.scuffleClouds.size === 0) return NO_PETS;
     const hidden = new Set<number>();
     const byId = new Map(pets.map((p) => [p.id, p]));
     const live = new Set<string>();
