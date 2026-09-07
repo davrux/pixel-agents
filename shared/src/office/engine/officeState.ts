@@ -2405,10 +2405,14 @@ export class OfficeState {
   private resolveScuffles(): void {
     // Pairs first: a partner that despawned, aged out or was deleted leaves one animal standing
     // invisible behind a cloud the renderer will not draw (it needs both ends to place one).
+    // A pair is "in a scuffle" for the cloud AND for the beat that follows it: the loser's retreat
+    // reads the partner id, so a WIN/LOSE pet still has one and must still be checked.
+    const paired = (p: Pet): boolean =>
+      p.state === PetState.SCUFFLE || p.state === PetState.WIN || p.state === PetState.LOSE;
     for (const pet of this.pets.values()) {
-      if (pet.state !== PetState.SCUFFLE) continue;
+      if (!paired(pet)) continue;
       const partner = pet.scufflePartnerId === null ? undefined : this.pets.get(pet.scufflePartnerId);
-      if (!partner || partner.state !== PetState.SCUFFLE || partner.scufflePartnerId !== pet.id) {
+      if (!partner || !paired(partner) || partner.scufflePartnerId !== pet.id) {
         endScuffleAlone(pet);
       }
     }
@@ -2424,6 +2428,7 @@ export class OfficeState {
       // A quarry already in somebody else's cloud is not available: a scuffle is a pair, so a
       // second dog joining would need a third partner id and there is nothing to point it at.
       if (!quarry || quarry.state === PetState.SCUFFLE) continue;
+      // Order matters now: beginScuffle rolls the outcome in the hunter's favour.
       beginScuffle(hunter, quarry);
     }
   }
@@ -2448,6 +2453,19 @@ export class OfficeState {
     return best;
   }
 
+  /**
+   * A retreat away from ONE named pet — the animal that just won the cloud.
+   *
+   * Separate from the 'flee' reaction on purpose: that one runs from whatever this SPECIES flees,
+   * and a cat that lost to a bird flees no bird by species. Losing is about who beat you, not about
+   * what your kind is afraid of.
+   */
+  private fleePathFrom(pet: Pet, otherId: number | null): Array<{ col: number; row: number }> | null {
+    const other = otherId === null ? undefined : this.pets.get(otherId);
+    if (!other) return null;
+    return this.pathAwayFrom(pet, other);
+  }
+
   /** Reactive movement path: a hunter paths toward its nearest quarry ('chase');
    *  the quarry paths to a reachable tile that increases its distance from the
    *  nearest hunter ('flee'). Which kinds those are comes from `CHASES` in both
@@ -2461,24 +2479,33 @@ export class OfficeState {
     }
     if (action === 'flee') {
       const hunter = this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind));
-      if (!hunter) return null;
-      const distFromDog = (c: number, r: number): number =>
-        Math.max(Math.abs(c - hunter.tileCol), Math.abs(r - hunter.tileRow));
-      const cur = distFromDog(pet.tileCol, pet.tileRow);
-      // Prefer reachable tiles that get farther from the hunter but stay within a
-      // flee range (so the quarry doesn't bolt across the whole office).
-      const candidates = this.walkableTiles
-        .filter(
-          (t) =>
-            distFromDog(t.col, t.row) > cur &&
-            Math.max(Math.abs(t.col - pet.tileCol), Math.abs(t.row - pet.tileRow)) <= PET_FLEE_RANGE_TILES,
-        )
-        .sort((a, b) => distFromDog(b.col, b.row) - distFromDog(a.col, a.row));
-      for (const t of candidates.slice(0, 8)) {
-        const path = findPath(pet.tileCol, pet.tileRow, t.col, t.row, this.tileMap, this.blockedTiles, undefined, this.walls);
-        if (path.length > 0) return path;
-      }
-      return null;
+      return hunter ? this.pathAwayFrom(pet, hunter) : null;
+    }
+    return null;
+  }
+
+  /**
+   * A reachable tile that puts more distance between `pet` and `from`, and the path to it.
+   *
+   * One implementation, two callers: the 'flee' reaction (away from whatever the species flees) and
+   * the loser's retreat after a cloud (away from the animal that beat it). It was inline in the
+   * reaction before; a second copy for the retreat is a second place to get the range wrong.
+   */
+  private pathAwayFrom(pet: Pet, from: Pet): Array<{ col: number; row: number }> | null {
+    const dist = (c: number, r: number): number => Math.max(Math.abs(c - from.tileCol), Math.abs(r - from.tileRow));
+    const cur = dist(pet.tileCol, pet.tileRow);
+    // Prefer reachable tiles that get farther away but stay within a flee range, so nobody bolts
+    // across the whole office.
+    const candidates = this.walkableTiles
+      .filter(
+        (t) =>
+          dist(t.col, t.row) > cur &&
+          Math.max(Math.abs(t.col - pet.tileCol), Math.abs(t.row - pet.tileRow)) <= PET_FLEE_RANGE_TILES,
+      )
+      .sort((a, b) => dist(b.col, b.row) - dist(a.col, a.row));
+    for (const t of candidates.slice(0, 8)) {
+      const path = findPath(pet.tileCol, pet.tileRow, t.col, t.row, this.tileMap, this.blockedTiles, undefined, this.walls);
+      if (path.length > 0) return path;
     }
     return null;
   }
@@ -2510,6 +2537,7 @@ export class OfficeState {
         : undefined,
       navigateReaction: (pet: Pet, action: PetAction) => this.navigatePetReaction(pet, action),
       noticeReaction: (pet: Pet) => this.reactionOpportunity(pet),
+      fleeFrom: (pet: Pet, otherId: number | null) => this.fleePathFrom(pet, otherId),
       // Spec-driven frame advance: cycle within the current pose track's real
       // length (resolved from the pet's sheet), so server and client agree and
       // longer custom tracks aren't truncated by a hardcoded modulo.

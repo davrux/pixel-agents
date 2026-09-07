@@ -23,6 +23,8 @@ import {
   PET_WALK_FRAME_DURATION_SEC,
   PET_REACTION_REPATH_SEC,
   PET_SCUFFLE_COOLDOWN_SEC,
+  PET_AFTERMATH_DURATION_SEC,
+  PET_HUNTER_WIN_CHANCE,
   PET_SCUFFLE_DURATION_SEC,
   PET_WALK_SPEED_PX_PER_SEC,
   PET_WANDER_PAUSE_MAX_SEC,
@@ -116,6 +118,9 @@ interface PetUpdateContext {
    * action AND the path, so nothing has to be resolved twice.
    */
   noticeReaction?: (pet: Pet) => { action: NonNullable<Pet['reaction']>; path: Array<{ col: number; row: number }> } | null;
+  /** A retreat away from ONE named pet (the one that just won), rather than away from whatever this
+   *  species flees — see the WIN/LOSE beat. Null when there is nowhere to go. */
+  fleeFrom?: (pet: Pet, otherId: number | null) => Array<{ col: number; row: number }> | null;
   /** Playback length (frame count) of the pet's *current* pose track, used to
    *  advance `frame` spec-driven instead of with hardcoded per-state moduli.
    *  Server resolves it from the pet's sheet; absent → a static single frame. */
@@ -162,6 +167,7 @@ export function createPet(
     reactionTimer: 0,
     scufflePartnerId: null,
     scuffleTimer: 0,
+    scuffleWon: false,
     chaseCooldown: 0,
     frame: 0,
     frameTimer: 0,
@@ -192,10 +198,16 @@ export function createPet(
  * Called from OfficeState, which is the only place that can see both animals; the transition itself
  * lives here with the rest of the FSM.
  */
-export function beginScuffle(a: Pet, b: Pet): void {
-  for (const [pet, other] of [
-    [a, b],
-    [b, a],
+export function beginScuffle(hunter: Pet, quarry: Pet): void {
+  // One roll for the pair, here at the START, and stored on both sides. Rolling it per pet when
+  // the cloud ends would let both animals believe they won — each ticks its own timer — and
+  // rolling it at the end from OfficeState would need a third place to remember who the hunter
+  // was. The cloud stays suspenseful either way: nothing about the outcome is synced until it
+  // clears.
+  const hunterWins = Math.random() < PET_HUNTER_WIN_CHANCE;
+  for (const [pet, other, won] of [
+    [hunter, quarry, hunterWins],
+    [quarry, hunter, !hunterWins],
   ] as const) {
     pet.path = [];
     snapToTile(pet);
@@ -203,6 +215,7 @@ export function beginScuffle(a: Pet, b: Pet): void {
     pet.state = PetState.SCUFFLE;
     pet.scufflePartnerId = other.id;
     pet.scuffleTimer = PET_SCUFFLE_DURATION_SEC;
+    pet.scuffleWon = won;
     pet.frame = 0;
     pet.frameTimer = 0;
     // Face each other, so the beat after the cloud clears reads as two animals sizing each other up
@@ -449,16 +462,46 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       // the server owns is how long it lasts and what it leaves behind.
       pet.scuffleTimer -= dt;
       if (pet.scuffleTimer <= 0) {
-        pet.scufflePartnerId = null;
-        pet.scuffleTimer = 0;
+        // Into the beat that says how it went. The partner id is KEPT for it: the loser runs away
+        // from whoever it just lost to, and that is not the same question as "which kinds does my
+        // species flee" — a cat that lost to a bird flees no bird by species.
+        pet.state = pet.scuffleWon ? PetState.WIN : PetState.LOSE;
+        pet.scuffleTimer = PET_AFTERMATH_DURATION_SEC;
         pet.reaction = null;
-        // Only the chase is held back. The quarry may flee immediately, and that asymmetry is what
-        // lets it get away instead of being caught again two seconds later on the same tile.
-        pet.chaseCooldown = PET_SCUFFLE_COOLDOWN_SEC;
-        pet.state = PetState.IDLE;
-        pet.wanderTimer = 0;
         pet.frame = 0;
         pet.frameTimer = 0;
+      }
+      break;
+    }
+
+    case PetState.WIN:
+    case PetState.LOSE: {
+      // Existing art, no new sheet: the winner gets the two-frame talk bob (it reads as barking),
+      // the loser the sit frames (it reads as cowering). The badge over their heads is the
+      // client's business — the state is what carries the answer.
+      const won = pet.state === PetState.WIN;
+      advancePetFrame(pet, ctx, won ? PET_TALK_FRAME_DURATION_SEC : PET_TAIL_WAG_DURATION_SEC, 2);
+      pet.scuffleTimer -= dt;
+      if (pet.scuffleTimer > 0) break;
+
+      // Only the chase is held back, for both. The loser may run at once, and that asymmetry is
+      // what lets it get away instead of being caught again two seconds later on the same tile.
+      pet.chaseCooldown = PET_SCUFFLE_COOLDOWN_SEC;
+      pet.scuffleTimer = 0;
+      pet.frame = 0;
+      pet.frameTimer = 0;
+      const away = won ? null : ctx.fleeFrom?.(pet, pet.scufflePartnerId) ?? null;
+      pet.scufflePartnerId = null;
+      if (away && away.length > 0) {
+        // A one-shot retreat, deliberately without setting `reaction`: a reaction re-aims every
+        // half second at what its SPECIES flees, which for a cat that lost to a bird is nothing at
+        // all. It walks away once, which is what losing looks like.
+        pet.path = away;
+        pet.moveProgress = 0;
+        pet.state = PetState.WANDER;
+      } else {
+        pet.state = PetState.IDLE;
+        pet.wanderTimer = 0;
       }
       break;
     }
@@ -594,6 +637,14 @@ export function petPose(pet: Pet): string {
       // The cloud hides both animals, so this is only what shows if its sheet failed to load —
       // standing still is the right fallback, and better than an invisible pet.
       return 'idle';
+    // The beat after the cloud, drawn from art that already exists: the winner bobs on the talk
+    // frames (it reads as barking), the loser sits (it reads as cowering). These MUST agree with
+    // what the WIN/LOSE state advances the frame counter with — a pose resolving to a one-frame
+    // track while the counter walks two is an animation playing the wrong pictures.
+    case PetState.WIN:
+      return 'talk';
+    case PetState.LOSE:
+      return 'sit';
     default:
       return 'idle';
   }

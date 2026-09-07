@@ -240,6 +240,32 @@ eight seconds, so it lost by construction. Five rules, and each is a decision ra
   `idle` for a scuffling pet, so a client whose cloud art failed to load shows two animals standing
   rather than nothing at all.
 
+**The cloud has a winner, and it is not always the same animal.** `PET_HUNTER_WIN_CHANCE` is 0.6 —
+not even odds, because a bird that sends the cat packing is funny exactly to the degree that it is
+rare, and not certainty either, because then the cloud would have no suspense and the outcome would
+not be worth showing. The roll happens ONCE for the pair, in `beginScuffle`, and is stored on both
+sides as `scuffleWon`: each animal ticks its own timer, so rolling at the end would let both of them
+believe they won. Nothing about the outcome is synced until the cloud clears, so it stays open while
+it lasts.
+
+Then a beat of `PET_AFTERMATH_DURATION_SEC` in two new states, `WIN` and `LOSE` (two more values in
+a synced string, so still no schema change): the winner bobs on the **talk** frames, which read as
+barking, the loser sits, which reads as cowering — no new art for either. The client puts 🏆 and 💫
+over their heads for that beat (`drawPetBadge`), and then **the loser walks away**. Three details
+that are decisions rather than mechanics:
+
+- **The badge is the instant read; the retreat is the story.** An emoji alone is a scoreboard that
+  vanishes; an animal leaving is something a viewer notices from across the room, and it still says
+  who lost a second later.
+- **The retreat runs from the ANIMAL that won, not from what the species flees** (`fleeFrom` /
+  `pathAwayFrom`, one implementation shared with the `flee` reaction). `fleesFrom('cat')` is
+  `['dog']`, so a cat that lost to a bird would otherwise find nobody to run from and simply stand
+  there beside its victor. Losing is about who beat you.
+- **It is a one-shot path, not a `reaction`.** A reaction re-aims every half second at what the
+  species flees, which for that same cat is nothing at all. Where the species relation DOES apply,
+  the walking interrupt picks the retreat up one tick later and turns it into a real flight — which
+  is why `petScuffle.int.test.ts` asserts the DISTANCE grows rather than which mechanism moved it.
+
 The pet kind `duck` is `bird` since 2026-09-07: it was a species, and as a CATEGORY it takes an owl
 or a magpie without a fourth enum value. The two animals are still ducks (Rudi is a mallard drake,
 `assets/pets/README.md`) — what moved are their slot ids, `bird_0`/`bird_1`, because an id is

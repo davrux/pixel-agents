@@ -35,17 +35,21 @@ import { resolvePetConfig } from '@pixel/shared/office/sprites/characterSpec.js'
 import { CHASES, chases, fleesFrom, PetKind, PetState, type Pet } from '@pixel/shared/office/types';
 
 test('the table states the relation and nothing states the reverse', () => {
+  // A CHAIN, which is the whole point of the relation living in data: dog → cat → bird, and the
+  // middle link is both hunter and prey without a single line of code knowing that.
   assert.deepEqual(CHASES[PetKind.DOG], ['cat'], 'a dog hunts cats');
-  assert.deepEqual(CHASES[PetKind.CAT], [], 'a cat hunts nothing yet — no bird pairing is stated');
-  assert.deepEqual(CHASES[PetKind.BIRD], [], 'nothing hunts as a bird');
+  assert.deepEqual(CHASES[PetKind.CAT], ['bird'], 'a cat hunts birds');
+  assert.deepEqual(CHASES[PetKind.BIRD], [], 'the bird is the end of the chain — nothing is hunted by it');
 
   // Derived, not stored. These four are the whole of today's shoo-cat behaviour, and none of them
   // is written down anywhere.
   assert.deepEqual(fleesFrom(PetKind.CAT), ['dog'], 'a cat runs from dogs because dogs hunt cats');
   assert.deepEqual(fleesFrom(PetKind.DOG), [], 'nothing hunts a dog, so a dog runs from nothing');
-  assert.deepEqual(fleesFrom(PetKind.BIRD), [], 'a bird is hunted by nobody');
+  assert.deepEqual(fleesFrom(PetKind.BIRD), ['cat'], 'a bird runs from cats — derived from the cat row, not written down');
 
   assert.equal(chases(PetKind.DOG, PetKind.CAT), true);
+  assert.equal(chases(PetKind.CAT, PetKind.BIRD), true);
+  assert.equal(chases(PetKind.DOG, PetKind.BIRD), false, 'the chain is not transitive: a dog does not hunt birds');
   assert.equal(chases(PetKind.CAT, PetKind.DOG), false, 'the relation is one-directional unless stated twice');
   assert.equal(chases(PetKind.DOG, PetKind.DOG), false, 'nothing hunts its own kind');
 });
@@ -123,16 +127,16 @@ test('the engine resolves chase and flee from the table alone', () => {
   assert.equal(dogCat.get(1)!.canChase, true, 'a dog beside a cat is not offered the chase');
   assert.equal(dogCat.get(1)!.threatened, false, 'nothing hunts a dog');
   assert.equal(dogCat.get(2)!.threatened, true, 'a cat beside a dog does not know it is prey');
-  assert.equal(dogCat.get(2)!.canChase, false, 'a cat hunts nothing today');
+  assert.equal(dogCat.get(2)!.canChase, false, 'with no bird around, the cat has nothing to hunt');
 
-  // A bird is the case the hardcoded version could not express: it is neither, and it is neither
-  // for the same reason the dog IS — an empty row in the table.
+  // A dog beside a bird is the case the hardcoded version could not express: NEITHER hunts the
+  // other, and neither does so for the same reason the dog hunts a cat — what the table says.
   const birdPair = seen([
     [1, PetKind.BIRD],
     [2, PetKind.DOG],
   ]);
   assert.equal(birdPair.get(1)!.canChase, false, 'a bird hunts nothing');
-  assert.equal(birdPair.get(1)!.threatened, false, 'and a dog does not hunt birds, so it is not prey either');
+  assert.equal(birdPair.get(1)!.threatened, false, 'a dog does not hunt birds, so a bird beside one is not prey');
   assert.equal(birdPair.get(2)!.canChase, false, 'a dog beside a bird has nothing to chase');
 
   // And distance still matters — the relation says WHO, the radius says whether. 28 tiles apart,
@@ -248,4 +252,5 @@ test('a pet saved before the rename keeps its switches', () => {
   // The switch is a permission, not the relation: it cannot make a bird hunt.
   assert.equal(resolvePetConfig({}).behaviors.chase, true);
   assert.deepEqual(CHASES[PetKind.BIRD], [], 'an all-on bird still hunts nothing');
+  assert.equal(resolvePetConfig({}).behaviors.flee, true, 'and it may run, which is what its relation gives it');
 });

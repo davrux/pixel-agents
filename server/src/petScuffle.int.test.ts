@@ -30,7 +30,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  PET_AFTERMATH_DURATION_SEC,
   PET_CATCH_RADIUS_TILES,
+  PET_HUNTER_WIN_CHANCE,
   PET_SCUFFLE_COOLDOWN_SEC,
   PET_SCUFFLE_DURATION_SEC,
 } from '@pixel/shared/office/constants.js';
@@ -200,6 +202,103 @@ test('a third animal does not join a pair', () => {
   assert.equal(a.scufflePartnerId, b.id);
   assert.equal(b.scufflePartnerId, a.id);
   assert.equal(dogB.state === PetState.SCUFFLE ? dogA.scufflePartnerId : dogB.scufflePartnerId, null);
+});
+
+test('the cloud has a winner, once for the pair, and the loser walks away', () => {
+  // Nobody used to win: both animals left the cloud and got the cooldown. Now the outcome is
+  // rolled ONCE when the cloud starts (PET_HUNTER_WIN_CHANCE, hunter-favoured) and stored on both
+  // sides, so the two can never both believe they won — each ticks its own timer, and a roll per
+  // pet at the end would produce exactly that.
+  const os = world();
+  const dog = place(os, 1, PetKind.DOG, 4, 4);
+  const cat = place(os, 2, PetKind.CAT, 5, 4);
+  os.setPetDecider((pet) => (pet.kind === PetKind.DOG ? 'chase' : 'wander'));
+
+  tick(os, 1);
+  assert.equal(dog.state, PetState.SCUFFLE, 'no cloud to win');
+  assert.notEqual(dog.scuffleWon, cat.scuffleWon, 'both sides think the same thing about who won');
+
+  // The cloud clears into the beat that shows it: one gloats, one cowers.
+  tick(os, PET_SCUFFLE_DURATION_SEC + 0.2);
+  const winner = dog.scuffleWon ? dog : cat;
+  const loser = dog.scuffleWon ? cat : dog;
+  assert.equal(winner.state, PetState.WIN);
+  assert.equal(loser.state, PetState.LOSE);
+  // Drawn from art that exists — and the pose must match what the state advances frames with.
+  assert.equal(petPose(winner), 'talk');
+  assert.equal(petPose(loser), 'sit');
+  // The partner id is kept THROUGH the beat: the retreat below runs away from whoever won, which
+  // is not the same question as "what does my species flee".
+  assert.equal(loser.scufflePartnerId, winner.id);
+
+  const distance = (): number =>
+    Math.max(Math.abs(loser.tileCol - winner.tileCol), Math.abs(loser.tileRow - winner.tileRow));
+  const before = distance();
+  tick(os, PET_AFTERMATH_DURATION_SEC + 0.2);
+  assert.equal(winner.state === PetState.WIN, false, 'the beat never ended');
+  assert.equal(loser.state, PetState.WANDER, 'the loser did not walk away');
+  assert.ok(loser.path.length > 0, 'it is walking, but to nowhere');
+  assert.equal(loser.scufflePartnerId, null, 'a partner id outlived the pair');
+  assert.ok(loser.chaseCooldown > 0 && winner.chaseCooldown > 0, 'both sides pause before chasing again');
+
+  // The claim is the DIRECTION: away from whoever won. Deliberately not asserted as "no reaction"
+  // — this pair is a dog and a cat, so one tick later the walking interrupt sees the cat's own
+  // species hunter standing right there and turns the retreat into a proper flight. That is better
+  // than the one-shot path, and it is why the assertion is about distance rather than about which
+  // mechanism moved it.
+  tick(os, 2);
+  assert.ok(distance() > before, `the loser stayed put or came closer (${before} → ${distance()})`);
+});
+
+test('a loser retreats even when its species flees nothing of the sort', () => {
+  // The case `fleeFrom` exists for, and the one the 'flee' reaction cannot serve: a cat that lost
+  // to a BIRD. `fleesFrom('cat')` is ['dog'] — no bird is anywhere in it — so a species-driven
+  // flight would find nobody and the loser would simply stand there beside the animal that just
+  // beat it. Losing is about who beat you.
+  const os = world();
+  const cat = place(os, 1, PetKind.CAT, 6, 6);
+  const bird = place(os, 2, PetKind.BIRD, 7, 6);
+  os.setPetDecider((pet) => (pet.kind === PetKind.CAT ? 'chase' : 'wander'));
+  tick(os, 1);
+  assert.equal(cat.state, PetState.SCUFFLE, 'the cat never caught the bird');
+
+  // Force the outcome rather than rolling for it: this test is about the retreat, and the odds are
+  // pinned elsewhere. Both sides are set, exactly as beginScuffle does it.
+  cat.scuffleWon = false;
+  bird.scuffleWon = true;
+
+  const distance = (): number => Math.max(Math.abs(cat.tileCol - bird.tileCol), Math.abs(cat.tileRow - bird.tileRow));
+  const before = distance();
+  tick(os, PET_SCUFFLE_DURATION_SEC + PET_AFTERMATH_DURATION_SEC + 2.2);
+  assert.ok(distance() > before, `the beaten cat did not back off from the bird (${before} → ${distance()})`);
+});
+
+test('the hunter usually wins, and sometimes does not', () => {
+  // A statistical claim, because a die is not an assertion: 400 clouds, and the observed rate has
+  // to sit around PET_HUNTER_WIN_CHANCE rather than at 0, 1 or a half. What this pins is the thing
+  // that was asked for — the winner must not always be the same animal.
+  let hunterWins = 0;
+  const ROUNDS = 400;
+  for (let i = 0; i < ROUNDS; i++) {
+    const os = world();
+    const dog = place(os, 1, PetKind.DOG, 4, 4);
+    const cat = place(os, 2, PetKind.CAT, 5, 4);
+    os.setPetDecider((pet) => (pet.kind === PetKind.DOG ? 'chase' : 'wander'));
+    tick(os, 1);
+    assert.equal(dog.state, PetState.SCUFFLE, `round ${i}: no cloud`);
+    if (dog.scuffleWon) hunterWins++;
+    assert.notEqual(dog.scuffleWon, cat.scuffleWon, `round ${i}: both won`);
+  }
+  const rate = hunterWins / ROUNDS;
+  // A wide band on purpose: this must fail when somebody makes the outcome certain or even, and
+  // never because 400 coin flips landed unevenly. At p=0.6 the standard error is 2.4 points, so
+  // ±10 is four sigma.
+  assert.ok(
+    rate > 0.5 && rate < 0.7,
+    `the hunter won ${(rate * 100).toFixed(1)} % of ${ROUNDS} clouds; expected around ${PET_HUNTER_WIN_CHANCE * 100} %`,
+  );
+  assert.ok(hunterWins < ROUNDS, 'the hunter won every single one — the quarry can never win');
+  assert.ok(hunterWins > 0, 'the hunter never won one');
 });
 
 test('the synced partner id can hold a pet id', () => {

@@ -87,6 +87,20 @@ const MARKER_AFK_COLOR = '#ffd98a';
  *  is bottom-anchored, so the bigger glyphs grow upwards from this line. */
 const MARKER_ROW_OFFSET_PX = 34;
 const MARKER_GAP_PX = 1.5;
+/**
+ * The badge over a pet in the beat after a scuffle: 🏆 for the winner, 💫 for the loser.
+ *
+ * Two glyphs and nothing else, because at this size detail is mud — a pet sprite is 16 px, so the
+ * badge is smaller than a character's ☕, and 😼/😿 lose their faces there while a cup, a trophy and
+ * a spiral keep their silhouettes. The badge is the instant read; what makes the outcome legible
+ * from across the room is the loser walking away (see the WIN/LOSE states).
+ */
+const MARKER_SIZE_PET_BADGE = 6.5;
+const PET_BADGE_WIN: MarkerSpec = { text: '🏆', size: MARKER_SIZE_PET_BADGE };
+const PET_BADGE_LOSE: MarkerSpec = { text: '💫', size: MARKER_SIZE_PET_BADGE };
+/** Bottom of a pet's badge: just clear of a 16 px head. */
+const PET_BADGE_OFFSET_PX = 18;
+
 /** Coffee sip loop length, matching the CSS keyframes this replaces. */
 const SIP_PERIOD_MS = 2200;
 /** Shared empty list — most characters carry no marker on any given frame. */
@@ -548,6 +562,8 @@ export class PhaserRenderer {
 
   /** One cloud per scuffling pair, keyed `<lowId>:<highId>`; destroyed when the pair ends. */
   private readonly scuffleClouds = new Map<string, Phaser.GameObjects.Image>();
+  /** One badge per pet that is currently gloating or licking its wounds; destroyed with the pet. */
+  private readonly petBadges = new Map<number, Phaser.GameObjects.Image>();
 
   private removeMatrixTexture(id: number): void {
     const key = this.matrixKeys.get(id);
@@ -614,6 +630,30 @@ export class PhaserRenderer {
     return hidden;
   }
 
+  /**
+   * The 🏆 / 💫 over a pet in the WIN/LOSE beat, or nothing.
+   *
+   * A single glyph rather than the character's marker ROW: a pet has exactly one thing to say here,
+   * and the row's layout maths (centring, gaps, the sip wobble) would all collapse to the one case.
+   * The texture comes from the same resolution-aware helper, so it is packed and crisp at any zoom.
+   */
+  private drawPetBadge(pet: Pet): void {
+    const spec = pet.state === PetState.WIN ? PET_BADGE_WIN : pet.state === PetState.LOSE ? PET_BADGE_LOSE : null;
+    if (!spec) {
+      this.petBadges.get(pet.id)?.setVisible(false);
+      return;
+    }
+    const t = markerTexture(this.scene, spec, markerResolution(this.scene.cameras.main.zoom));
+    let img = this.petBadges.get(pet.id);
+    if (!img) {
+      img = this.scene.add.image(0, 0, t.key).setOrigin(0.5, 1).setDepth(MARKER_DEPTH);
+      this.petBadges.set(pet.id, img);
+    }
+    if (img.texture.key !== t.key) img.setTexture(t.key);
+    img.setDisplaySize(t.w, t.h);
+    img.setPosition(pet.x, pet.y - (pet.restLift ?? 0) - PET_BADGE_OFFSET_PX).setVisible(true);
+  }
+
   private syncPets(): void {
     const seen = new Set<number>();
     const pets = this.state.getPets();
@@ -629,6 +669,9 @@ export class PhaserRenderer {
       // destroyed image would have to be rebuilt for both of them.
       if (inCloud.has(pet.id)) {
         img.setVisible(false);
+        // And its badge with it: a pet that gets caught again right after a beat would otherwise
+        // leave a 🏆 hanging in the air over the new cloud.
+        this.petBadges.get(pet.id)?.setVisible(false);
         continue;
       }
       // Same as characters: a cell of the pet's sheet, resolved by pose (petPose) and
@@ -652,11 +695,16 @@ export class PhaserRenderer {
         alpha = Math.max(0, 1 - pet.effectTimer / PET_EFFECT_DURATION_SEC);
       }
       img.setAlpha(alpha);
+      this.drawPetBadge(pet);
     }
     for (const [id, img] of this.pets) {
       if (!seen.has(id)) {
         img.destroy();
         this.pets.delete(id);
+        // The badge goes with the animal it belonged to — a GameObject nobody destroys is a leak,
+        // and one keyed by pet id grows for as long as the world runs.
+        this.petBadges.get(id)?.destroy();
+        this.petBadges.delete(id);
       }
     }
   }

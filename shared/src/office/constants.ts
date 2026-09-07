@@ -82,6 +82,17 @@ export const PET_SCUFFLE_DURATION_SEC = 1.5;
  * flee immediately, which together with the hunter's pause is what lets it actually get away.
  */
 export const PET_SCUFFLE_COOLDOWN_SEC = 12;
+/**
+ * Who walks away from the cloud — the hunter, most of the time.
+ *
+ * Not 50:50, and not certainty either. A bird that sends the cat packing is funny exactly because
+ * it is rare; at even odds it would be noise, and at 100 % the cloud would have no suspense at all
+ * and the outcome would not be worth showing. The roll happens ONCE for the pair when the cloud
+ * starts (`beginScuffle`), so the two animals can never both think they won.
+ */
+export const PET_HUNTER_WIN_CHANCE = 0.6;
+/** The beat after the cloud: winner gloating, loser cowering, a badge over each. Then the loser runs. */
+export const PET_AFTERMATH_DURATION_SEC = 1.2;
 /** How fast the cloud's four frames cycle: brisk, because a scrap is not a walk cycle. */
 export const SCUFFLE_FRAME_DURATION_SEC = 0.09;
 // Coffee (N3.3c): chance an idle pet heads to a free appliance station, and how

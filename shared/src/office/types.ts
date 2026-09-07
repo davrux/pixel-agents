@@ -160,7 +160,7 @@ export type PetKind = (typeof PetKind)[keyof typeof PetKind];
  */
 export const CHASES: Readonly<Record<PetKind, readonly PetKind[]>> = {
   dog: ['cat'],
-  cat: [], // later, perhaps: ['bird']
+  cat: ['bird'],
   bird: [],
 };
 
@@ -204,6 +204,17 @@ export const PetState = {
    * paired with whom is the server's decision, not something a client should infer from positions.
    */
   SCUFFLE: 'scuffle',
+  /**
+   * The beat right after the cloud: `WIN` stands its ground and gloats, `LOSE` cowers and then
+   * runs. Who is which was rolled once when the cloud started (PET_HUNTER_WIN_CHANCE), so the two
+   * can never both have won.
+   *
+   * Two more values in a synced string, which costs no schema change — the same reason `FEED` and
+   * `SCUFFLE` came for free. An older client maps an unknown state to the idle pose, so it sees two
+   * animals standing where a newer one sees a badge and a retreat.
+   */
+  WIN: 'win',
+  LOSE: 'lose',
   DESPAWN: 'despawn', // fade-out, then delete
 } as const;
 export type PetState = (typeof PetState)[keyof typeof PetState];
@@ -232,8 +243,11 @@ export interface Pet {
   reactionTimer: number;
   /** The pet this one is scuffling with, or null. Synced, so the client can draw ONE cloud. */
   scufflePartnerId: number | null;
-  /** Seconds of cloud left. */
+  /** Seconds left of the current scuffle PHASE — the cloud first, then the WIN/LOSE beat. One
+   *  timer, because the phases are strictly sequential. */
   scuffleTimer: number;
+  /** Did this pet win the cloud it is in? Rolled once for the pair, so both sides agree. */
+  scuffleWon: boolean;
   /** Seconds until this pet may start a chase again (set when a scuffle ends). */
   chaseCooldown: number;
   frame: number;
