@@ -1,3 +1,4 @@
+import { agentCount } from '@pixel/shared/protocol';
 import type { AgentEvent } from '@pixel/shared';
 
 /**
@@ -87,17 +88,17 @@ export function parseLine(
     });
   }
 
-  // Token usage.
-  const usage = (rec as any).message?.usage as
-    | { input_tokens?: number; output_tokens?: number }
-    | undefined;
-  if (usage && (usage.input_tokens || usage.output_tokens)) {
-    emit({
-      t: 'tokens',
-      id: agentId,
-      inputTokens: usage.input_tokens ?? 0,
-      outputTokens: usage.output_tokens ?? 0,
-    });
+  // Token usage. Coerced through `agentCount`, never taken as it lies: a transcript that quotes
+  // the number put a string into a uint32 schema field and killed the whole server process (see
+  // agentCount's own comment). Emitted only when at least one of the two IS a number, so a line
+  // with nonsense in it does not overwrite a real count with zero.
+  const usage = (rec as { message?: { usage?: { input_tokens?: unknown; output_tokens?: unknown } } }).message?.usage;
+  if (usage) {
+    const input = agentCount(usage.input_tokens);
+    const output = agentCount(usage.output_tokens);
+    if ((input ?? 0) > 0 || (output ?? 0) > 0) {
+      emit({ t: 'tokens', id: agentId, inputTokens: input ?? 0, outputTokens: output ?? 0 });
+    }
   }
 
   const content = (rec as any).message?.content ?? (rec as any).content;

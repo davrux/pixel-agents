@@ -424,6 +424,23 @@ Security is a first-class requirement, not a later pass.
 - **Serve over TLS in production.** The session cookie and the desktop bearer
   token are capabilities; media needs a secure context anyway. Plain HTTP is for
   development only.
+- **A value from outside may not reach a typed synced field without being coerced, and the tick
+  survives it either way.** `@colyseus/schema` throws on a TYPE mismatch **at assignment** — a
+  string into a `uint32`, a number into a `string` — while an out-of-range number, a `NaN` or a
+  non-boolean boolean pass quietly. So type is what must be guaranteed and range is what must be
+  clamped. That assignment happens in `SimRoom.syncCharacters`, inside the simulation timer, and it
+  used to be unguarded: an agent transcript that quoted its token count (`"99999"`, which a tool
+  that stringifies numbers writes without malice) put a string into `CharacterSync.inputTokens`,
+  the throw escaped the timer, and **Node exited — every zone in the process, from one line of one
+  account's feed.** Reproduced end to end 2026-09-07.
+  Three layers now, and the reason there are three is that each catches what the others cannot: the
+  boundary coerces (`agentCount` in `protocol.ts`, the contract for what a count IS), the engine's
+  public setter clamps so no other caller can poison the state (`setAgentTokens`), and `tick()`
+  catches, logs once and keeps the world running — because a simulation that cannot express one
+  field must not stop a world, and the next such field is not yet written.
+  `feedTokenCounts.int.test.ts` pins all of it, including the schema's own behaviour, and it fails
+  four of five ways without the fix. When you add a synced field fed from anything a user or an
+  agent wrote, coerce it where it enters.
 - **This section is verified, not trusted.** `mmo-readiness`'s security check
   (`.claude/skills/mmo-readiness/security.mjs`) fails a route that neither
   authorizes itself nor stands on an allow-list with a written reason, a message

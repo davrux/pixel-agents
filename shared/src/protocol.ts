@@ -188,6 +188,30 @@ export type AgentEvent =
     }
   | { t: 'tokens'; id: number; inputTokens: number; outputTokens: number };
 
+/**
+ * A counter from an agent's transcript, made safe for the wire — or null when there is no number
+ * in it at all.
+ *
+ * This exists because of a crash, and the crash is worth the paragraph. `usage.input_tokens` was
+ * taken from the JSONL as-is and typed with a cast; a transcript that quotes the number (`"99999"`,
+ * which some tools write) put a STRING into `CharacterSync.inputTokens`, and `@colyseus/schema`
+ * throws on a type mismatch AT ASSIGNMENT — inside `SimRoom.syncCharacters`, inside the simulation
+ * timer, where nothing caught it. Node then exited: one malformed line from any account's feed took
+ * down the whole server, every zone with it. Reproduced end to end 2026-09-07.
+ *
+ * So the value is coerced rather than trusted, and the rules follow the field it ends up in
+ * (`uint32`): a finite number, floored, clamped to [0, 2^32-1]. A numeric string is accepted
+ * because that is a formatting choice, not a lie; anything else is not a count.
+ *
+ * Bounds only, no throwing: an agent's transcript is untrusted input, and refusing to render an
+ * agent because its own tooling wrote a silly number would be the wrong trade.
+ */
+export function agentCount(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return null;
+  return Math.min(0xffffffff, Math.max(0, Math.floor(n)));
+}
+
 /** Max length for user-entered names (furniture/monitor, characters, zones,
  *  layouts, …). Login/agent identity names keep their own 16-char convention. */
 export const MAX_NAME_LEN = 32;

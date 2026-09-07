@@ -19,7 +19,7 @@ import {
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
-import { isPlayerAvatarSkin } from '../../protocol.js';
+import { isPlayerAvatarSkin, agentCount } from '../../protocol.js';
 import {
   animationFrameAt,
   effectiveAction,
@@ -2091,11 +2091,20 @@ export class OfficeState {
     }
   }
 
+  /**
+   * Token counters for an agent, clamped on the way in.
+   *
+   * The feed validates at its own boundary (`agentCount`), and this clamps anyway: these two
+   * numbers are the only values in the engine that come from a transcript somebody else wrote, and
+   * they end up in a `uint32` on the wire where a wrong TYPE throws at assignment — inside the
+   * simulation tick, which is how one quoted number ended a whole server process. A public engine
+   * setter that cannot be poisoned is worth four lines.
+   */
   setAgentTokens(id: number, inputTokens: number, outputTokens: number): void {
     const ch = this.characters.get(id);
     if (!ch) return;
-    ch.inputTokens = inputTokens;
-    ch.outputTokens = outputTokens;
+    ch.inputTokens = agentCount(inputTokens) ?? ch.inputTokens;
+    ch.outputTokens = agentCount(outputTokens) ?? ch.outputTokens;
   }
 
   /**

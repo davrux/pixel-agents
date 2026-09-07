@@ -572,6 +572,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   }
 
   onDispose(): void {
+    if (this.tickErrors > 0) console.warn(`[room ${this.roomId}] disposing after ${this.tickErrors} failed tick(s)`);
     director.off('event', this.onEvent);
     director.off('reroute', this.onReroute);
     controlBus.off(KICK_EVENT, this.onKick);
@@ -1770,7 +1771,46 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   // ── Simulation → schema ──────────────────────────────────────────
 
+  /**
+   * How many ticks have thrown, and whether the first one has been reported.
+   *
+   * A per-tick log at 20 Hz is not a log, it is a fire hose — but a silent catch is how a broken
+   * world looks healthy. So: the first failure with its stack, then one line per hundred, and the
+   * count on dispose.
+   */
+  private tickErrors = 0;
+
+  /**
+   * One tick, and it may not take the process with it.
+   *
+   * The guard is here because of a measured crash, not a hunch: a transcript line that quoted a
+   * token count put a string into a `uint32` schema field, `@colyseus/schema` threw at the
+   * assignment inside `syncCharacters`, nothing caught it, and Node exited — every zone in the
+   * process gone because one agent's tooling wrote `"99999"` instead of `99999`. The value is
+   * validated at its boundary now (`agentCount`), and this exists for the NEXT one: a simulation
+   * that cannot express a single field must keep the world running and say so, not stop.
+   *
+   * Deliberately no re-throw and no room disposal. A tick that fails once (a half-written layout, a
+   * pet whose furniture vanished mid-frame) recovers on the next one; a tick that fails always is
+   * visible in the log and still leaves players standing in a world they can leave normally.
+   */
   private tick(dt: number): void {
+    try {
+      this.tickOnce(dt);
+    } catch (err) {
+      this.tickErrors++;
+      if (this.tickErrors === 1) {
+        console.error(`[room ${this.roomId}] tick failed — the world keeps running:`, err);
+      } else if (this.tickErrors % 100 === 0) {
+        console.error(
+          `[room ${this.roomId}] tick has failed ${this.tickErrors} times:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  }
+
+  private tickOnce(dt: number): void {
     // Don't simulate a zone no human is watching. The room disposes when empty
     // (autoDispose), so this normally won't fire with zero clients — but guard the
     // transient tick as the last client leaves so we never spawn/pathfind pets or
