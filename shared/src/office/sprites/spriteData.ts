@@ -158,20 +158,20 @@ interface LoadedPetData {
 
 let loadedDogs: LoadedPetData[] | null = null;
 let loadedCats: LoadedPetData[] | null = null;
-let loadedDucks: LoadedPetData[] | null = null;
+let loadedBirds: LoadedPetData[] | null = null;
 
-type PetKindName = 'dog' | 'cat' | 'duck';
+type PetKindName = 'dog' | 'cat' | 'bird';
 function petArr(kind: PetKindName): LoadedPetData[] | null {
-  return kind === 'dog' ? loadedDogs : kind === 'cat' ? loadedCats : loadedDucks;
+  return kind === 'dog' ? loadedDogs : kind === 'cat' ? loadedCats : loadedBirds;
 }
 
 /** Set pet sprites loaded from PNG assets. Call this when petSpritesLoaded arrives.
  *  Also populates the unified pet sprite store (same frames + PET_SPRITE_SPEC),
  *  so pets can be resolved through the character pipeline (getPetSprites). */
-export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], ducks: LoadedPetData[] = []): void {
+export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], birds: LoadedPetData[] = []): void {
   loadedDogs = dogs;
   loadedCats = cats;
-  loadedDucks = ducks;
+  loadedBirds = birds;
   const toPet = (raw: LoadedPetData): LoadedCharacterData => {
     const p = withLeftRow(raw);
     return {
@@ -186,7 +186,7 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
       petConfig: p.petConfig,
     };
   };
-  loadedPets = { dog: dogs.map(toPet), cat: cats.map(toPet), duck: ducks.map(toPet) };
+  loadedPets = { dog: dogs.map(toPet), cat: cats.map(toPet), bird: birds.map(toPet) };
   petSpriteCache.clear();
 }
 
@@ -438,9 +438,9 @@ export function getCharacterSprites(skin: string): CharacterSprites {
   return sprites;
 }
 
-// ── pet sprites (dogs/cats/ducks, via the unified character pipeline) ──
+// ── pet sprites (dogs/cats/birds, via the unified character pipeline) ──
 const petSpriteCache = new Map<string, CharacterSprites>();
-let loadedPets: Record<PetKindName, LoadedCharacterData[]> = { dog: [], cat: [], duck: [] };
+let loadedPets: Record<PetKindName, LoadedCharacterData[]> = { dog: [], cat: [], bird: [] };
 
 /** Resolve animated sprites for a pet kind/variant through the same track-based
  *  pipeline as agent characters. Fed from the loaded pet sheets (see
@@ -479,10 +479,10 @@ function petSheetColumns(kind: PetKindName, variant: number): number {
   return spec.tracks.reduce((n, t) => n + t.frames, 0);
 }
 
-/** Flat pet roster (dog/cat/duck × variants), in stable order, for the editor. */
+/** Flat pet roster (dog/cat/bird × variants), in stable order, for the editor. */
 export function getPetRoster(): Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> {
   const out: Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> = [];
-  for (const kind of ['dog', 'cat', 'duck'] as PetKindName[]) {
+  for (const kind of ['dog', 'cat', 'bird'] as PetKindName[]) {
     loadedPets[kind].forEach((data, variant) => out.push({ kind, variant, data }));
   }
   return out;

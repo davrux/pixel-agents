@@ -1037,7 +1037,7 @@ export class OfficeScene extends Phaser.Scene {
     rp.tx = ps.x as number;
     rp.ty = ps.y as number;
     const k = ps.kind as number;
-    rp.kind = (k === 1 ? 'cat' : k === 2 ? 'duck' : 'dog') as never;
+    rp.kind = (k === 1 ? 'cat' : k === 2 ? 'bird' : 'dog') as never;
     rp.variant = ps.variant as number;
     rp.dir = syncedDir<Pet['dir']>(ps.dir, 'pet');
     rp.state = ps.state as Pet['state'];

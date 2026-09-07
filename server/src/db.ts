@@ -12,6 +12,7 @@ import { USERS_DDL } from './schema/tables.js';
 import { dropRetiredTables } from './schema/dropRetiredTables.js';
 import { movePngToBlob } from './schema/movePngToBlob.js';
 import { renamePetConfigField } from './schema/renamePetConfigField.js';
+import { renameDuckToBird } from './schema/renameDuckToBird.js';
 import { ensureUserForeignKeys } from './schema/userForeignKeys.js';
 import { maybeResetWorld } from './worldReset.js';
 
@@ -60,6 +61,8 @@ dropRetiredTables(db);
 movePngToBlob(db);
 // And the spawn config that was stored under the name this code no longer uses.
 renamePetConfigField(db);
+// And the pet ids of the kind that is a CATEGORY now: duck_N became bird_N.
+renameDuckToBird(db);
 
 // Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
 // accounts, once per token (see worldReset.ts). The stores then find an empty

@@ -22,7 +22,7 @@ export interface AssetBundle {
     characters: unknown[];
     dogs: unknown[];
     cats: unknown[];
-    ducks: unknown[];
+    birds: unknown[];
     furnitureCatalog: unknown[];
     furnitureSprites: Record<string, unknown>;
     /** id → image + rect, what the client draws from (see LoadedAssets.refs). */
@@ -113,7 +113,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
 
   const messages: Record<string, unknown>[] = [];
   if (characters) messages.push({ type: 'characterSpritesLoaded', characters: characters.characters });
-  if (pets) messages.push({ type: 'petSpritesLoaded', dogs: pets.dogs, cats: pets.cats, ducks: pets.ducks });
+  if (pets) messages.push({ type: 'petSpritesLoaded', dogs: pets.dogs, cats: pets.cats, birds: pets.birds });
   if (furniture.loaded) {
     messages.push({
       type: 'furnitureAssetsLoaded',
@@ -134,7 +134,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       characters: characters?.characters ?? [],
       dogs: pets?.dogs ?? [],
       cats: pets?.cats ?? [],
-      ducks: pets?.ducks ?? [],
+      birds: pets?.birds ?? [],
       furnitureCatalog: furniture.catalog,
       furnitureSprites: furniture.sprites,
       furnitureRefs: furniture.refs,

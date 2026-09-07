@@ -144,10 +144,10 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     else characters.push({ id: name, data });
   }
 
-  // Pets (dogs + cats + ducks)
+  // Pets (dogs + cats + birds)
   const dogs = [...(raw.dogs as unknown[])];
   const cats = [...(raw.cats as unknown[])];
-  const ducks = [...((raw.ducks as unknown[]) ?? [])];
+  const birds = [...((raw.birds as unknown[]) ?? [])];
   for (const { name, data } of orderedAssets('pet').map((a) => ({ ...a, data: withPetConfig(a.data) }))) {
     const di = indexOf(name, 'dog');
     if (di !== null) {
@@ -159,8 +159,8 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
       place(cats, ci, data);
       continue;
     }
-    const ki = indexOf(name, 'duck');
-    if (ki !== null) place(ducks, ki, data);
+    const ki = indexOf(name, 'bird');
+    if (ki !== null) place(birds, ki, data);
   }
 
   // Bundled pets carry a display name for the same reason bundled skins get
@@ -170,21 +170,21 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // override that brings its own name keeps it (the pet editor derives one from
   // the slot only when the field is empty, so editing Emma's art keeps 'Emma').
   // Every bundled slot is named, for the reason the generic fallback exists at all: a list
-  // reading "Duck 2" next to Emma and Daisy tells a user nothing about which duck it is.
+  // reading "Bird 2" next to Emma and Daisy tells a user nothing about which bird it is.
   // Fixed, like CHAR_NAMES above — a pet's name is what a zone's pet is picked by.
   const PET_NAMES: Record<string, string> = {
     dog_0: 'Emma',
     dog_1: 'Balu',
     cat_0: 'Loui',
     cat_1: 'Daisy',
-    duck_0: 'Rudi',
-    duck_1: 'Frieda',
+    bird_0: 'Rudi',
+    bird_1: 'Frieda',
   };
-  const named = (kind: 'dog' | 'cat' | 'duck', arr: unknown[]): unknown[] =>
+  const named = (kind: 'dog' | 'cat' | 'bird', arr: unknown[]): unknown[] =>
     arr.map((data, i) => {
       // A name that merely repeats the slot id carries no information: the pet editor
       // fills the mandatory name field from the slot when it is empty, so an override
-      // saved that way says `duck_0`. Treat it as absent — otherwise one old Save
+      // saved that way says `bird_0`. Treat it as absent — otherwise one old Save
       // pins the technical id into every list forever.
       const own = (data as { name?: string })?.name;
       if (own && own !== `${kind}_${i}`) return data;
@@ -193,7 +193,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     });
   const namedDogs = named('dog', dogs);
   const namedCats = named('cat', cats);
-  const namedDucks = named('duck', ducks);
+  const namedBirds = named('bird', birds);
 
   // Furniture (sprite and/or catalog entry, keyed by assetId). Catalog items in
   // the bundle use `id` (the buildDynamicCatalog input shape), so match on that.
@@ -220,7 +220,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
           type: 'petSpritesLoaded',
           dogs: namedDogs.map((d, i) => withArtUrl('pet', `dog_${i}`, d, PET_FRAME)),
           cats: namedCats.map((d, i) => withArtUrl('pet', `cat_${i}`, d, PET_FRAME)),
-          ducks: namedDucks.map((d, i) => withArtUrl('pet', `duck_${i}`, d, PET_FRAME)),
+          birds: namedBirds.map((d, i) => withArtUrl('pet', `bird_${i}`, d, PET_FRAME)),
         };
       case 'furnitureAssetsLoaded':
         return {
@@ -240,7 +240,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   return {
     providerCapabilities: defaults.providerCapabilities,
     messages,
-    raw: { ...raw, characters, dogs: namedDogs, cats: namedCats, ducks: namedDucks, furnitureCatalog, furnitureSprites, furnitureRefs },
+    raw: { ...raw, characters, dogs: namedDogs, cats: namedCats, birds: namedBirds, furnitureCatalog, furnitureSprites, furnitureRefs },
   };
 }
 

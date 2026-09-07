@@ -516,7 +516,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // give it palette counts, seats, and furniture auto-on metadata).
     setProviderCapabilities({ readingTools: READING_TOOLS, subagentToolNames: SUBAGENT_TOOL_NAMES });
     setCharacterTemplates(this.bundle.raw.characters as never);
-    setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never, this.bundle.raw.ducks as never);
+    setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never, this.bundle.raw.birds as never);
     buildDynamicCatalog({
       catalog: this.bundle.raw.furnitureCatalog as never,
       sprites: this.bundle.raw.furnitureSprites as never,
@@ -1750,7 +1750,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         setPetTemplates(
           this.bundle.raw.dogs as never,
           this.bundle.raw.cats as never,
-          this.bundle.raw.ducks as never,
+          this.bundle.raw.birds as never,
         );
         break;
       case 'furniture':
@@ -1989,7 +1989,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // Every pawn says what drives it, pets included: a client can then ask one question of any
       // pawn instead of inferring the answer from which collection it came out of.
       ps.controller = ControllerKind.PET;
-      ps.kind = pet.kind === PetKind.CAT ? 1 : pet.kind === PetKind.DUCK ? 2 : 0;
+      ps.kind = pet.kind === PetKind.CAT ? 1 : pet.kind === PetKind.BIRD ? 2 : 0;
       ps.variant = pet.variant;
       ps.frame = pet.frame & 0xff;
       ps.effect = pet.effect ?? '';

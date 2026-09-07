@@ -119,7 +119,7 @@ export interface PetConfig {
  * A switch says whether a variant may act on something its species can do; what the species can do
  * is elsewhere and is not per-animal. So `chase` and `flee` name no quarry: which kinds this one
  * hunts, and which hunt it, comes from `CHASES`/`fleesFrom` (`office/types.ts`), and a flag with
- * nothing to apply to is simply inert — a duck's `chase` is on and hunts nothing. The editor shows
+ * nothing to apply to is simply inert — a bird's `chase` is on and hunts nothing. The editor shows
  * only the switches that can do something for the kind in hand, and labels them from that table.
  *
  * The two named for a species (`chaseCats`, `fleeDogs`) and the one named for coffee (`drink`) are

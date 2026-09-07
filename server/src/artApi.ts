@@ -81,7 +81,7 @@ type PetEntry = { name?: string; spec?: { frame?: { w?: number; h?: number } } }
 
 /** The pet id scheme is kind + index, matching the roster keys and the sheet files. */
 function petSource(id: string): ArtSource | null {
-  const m = /^(dog|cat|duck)_(\d+)$/.exec(id);
+  const m = /^(dog|cat|bird)_(\d+)$/.exec(id);
   if (!m) return null;
   const raw = getMergedBundle().raw as Record<string, unknown>;
   const arr = raw[`${m[1]}s`] as PetEntry[] | undefined;

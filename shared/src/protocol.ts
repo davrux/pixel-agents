@@ -74,8 +74,16 @@ export const WORLD_ROOM = 'world';
  *     from adjacency draws two clouds on top of each other the moment three animals line up. An
  *     older build reads the new field as undefined and the new state as unknown, so it would draw
  *     both animals standing idle on top of each other with no explanation.
+ * 14 — the pet kind `duck` is `bird`: it was a species and is a CATEGORY now, so an owl or a
+ *     magpie needs no fourth enum value and no second rename. The two animals are still ducks
+ *     (Rudi is a mallard drake) — what changed is their KIND and therefore their slot ids, which
+ *     are `${kind}_${index}` by construction: `bird_0`, `bird_1`. On the wire that is the
+ *     `petSpritesLoaded` field, `ducks` → `birds`, and a rename is the worst kind of wire change to
+ *     leave ungated: an older build would read `msg.ducks` as undefined and simply show no birds at
+ *     all, with nothing to point at. Stored ids move with a boot migration
+ *     (`schema/renameDuckToBird.ts`), which is user data and cannot be renamed by editing code.
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

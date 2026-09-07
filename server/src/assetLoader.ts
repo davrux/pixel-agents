@@ -12,7 +12,7 @@ import * as path from 'path';
 
 import { PNG } from 'pngjs';
 
-import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
+import { CAT_COUNT, DOG_COUNT, BIRD_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
 import { isDecalTileset, isFurnitureTileset } from './tiled/tiledRegistry.js';
@@ -238,8 +238,8 @@ export interface LoadedPetSprites {
   dogs: BundledPetSheet[];
   /** Cat variants. */
   cats: BundledPetSheet[];
-  /** Duck variants. */
-  ducks: BundledPetSheet[];
+  /** Bird variants. */
+  birds: BundledPetSheet[];
 }
 
 /**
@@ -290,15 +290,15 @@ export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprit
 
     const dogs = loadVariants('dog', DOG_COUNT);
     const cats = loadVariants('cat', CAT_COUNT);
-    const ducks = loadVariants('duck', DUCK_COUNT);
-    if (dogs.length === 0 && cats.length === 0 && ducks.length === 0) return null;
+    const birds = loadVariants('bird', BIRD_COUNT);
+    if (dogs.length === 0 && cats.length === 0 && birds.length === 0) return null;
 
-    const bytes = [...dogs, ...cats, ...ducks].reduce((n, p) => n + p.png.length, 0);
+    const bytes = [...dogs, ...cats, ...birds].reduce((n, p) => n + p.png.length, 0);
     console.log(
-      `[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat + ${ducks.length} duck sheets ` +
+      `[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat + ${birds.length} bird sheets ` +
         `(${(bytes / 1024).toFixed(1)} KB of PNG, not decoded)`,
     );
-    return { dogs, cats, ducks };
+    return { dogs, cats, birds };
   } catch (err) {
     console.error(
       `[AssetLoader] ❌ Error loading pet sprites: ${err instanceof Error ? err.message : err}`,

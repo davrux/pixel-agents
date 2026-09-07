@@ -3,8 +3,9 @@
  *
  * It used to be four words in two engine methods: `pet.kind === DOG` beside
  * `nearestLivingPetOfKind(pet, CAT)` for chasing, and the mirror image for fleeing, plus the same
- * two species named a third and fourth time in the editor's labels. Two things followed. A duck had
- * no relation at all — not as a decision, but because `DUCK` appears in none of those lines. And
+ * two species named a third and fourth time in the editor's labels. Two things followed. The third kind had
+ * no relation at all — not as a decision, but because it appeared in none of those lines (it was
+ * `duck` then; the kind is a CATEGORY called `bird` now, and cats hunt it). And
  * the two halves were independent data, so the world could be configured into a state that does not
  * exist: a dog that hunts a cat which has not noticed.
  *
@@ -14,7 +15,7 @@
  *  1. The table says what it says, and the derivation is the inverse MINUS what hunts back — so a
  *     mutual pairing leaves nobody fleeing. That is not a curiosity: it is how a confrontation
  *     becomes expressible at all, and where a scuffle would go.
- *  2. The engine reads only the table. Nothing in the affordances names a species, so a duck's
+ *  2. The engine reads only the table. Nothing in the affordances names a species, so a bird's
  *     empty relation and a dog's cat come out of the same code path.
  *  3. A pet saved before the rename keeps its settings. `chaseCats`/`fleeDogs`/`drink` are read as
  *     `chase`/`flee`/`feedDrink`, because the alternative is every configured animal silently
@@ -35,14 +36,14 @@ import { CHASES, chases, fleesFrom, PetKind, PetState, type Pet } from '@pixel/s
 
 test('the table states the relation and nothing states the reverse', () => {
   assert.deepEqual(CHASES[PetKind.DOG], ['cat'], 'a dog hunts cats');
-  assert.deepEqual(CHASES[PetKind.CAT], [], 'a cat hunts nothing yet — a bird is a species this world lacks');
-  assert.deepEqual(CHASES[PetKind.DUCK], [], 'nothing hunts as a duck');
+  assert.deepEqual(CHASES[PetKind.CAT], [], 'a cat hunts nothing yet — no bird pairing is stated');
+  assert.deepEqual(CHASES[PetKind.BIRD], [], 'nothing hunts as a bird');
 
   // Derived, not stored. These four are the whole of today's shoo-cat behaviour, and none of them
   // is written down anywhere.
   assert.deepEqual(fleesFrom(PetKind.CAT), ['dog'], 'a cat runs from dogs because dogs hunt cats');
   assert.deepEqual(fleesFrom(PetKind.DOG), [], 'nothing hunts a dog, so a dog runs from nothing');
-  assert.deepEqual(fleesFrom(PetKind.DUCK), [], 'a duck is hunted by nobody');
+  assert.deepEqual(fleesFrom(PetKind.BIRD), [], 'a bird is hunted by nobody');
 
   assert.equal(chases(PetKind.DOG, PetKind.CAT), true);
   assert.equal(chases(PetKind.CAT, PetKind.DOG), false, 'the relation is one-directional unless stated twice');
@@ -52,7 +53,7 @@ test('the table states the relation and nothing states the reverse', () => {
 test('a mutual pairing leaves nobody fleeing', () => {
   // The case the derivation exists for. Written against a hypothetical table rather than the live
   // one, because it is a property of the rule and must hold before anyone edits CHASES.
-  const mutual = { dog: ['cat'], cat: ['dog'], duck: [] } as unknown as typeof CHASES;
+  const mutual = { dog: ['cat'], cat: ['dog'], bird: [] } as unknown as typeof CHASES;
   assert.deepEqual(fleesFrom(PetKind.CAT, mutual), [], 'a cat that hunts back does not flee');
   assert.deepEqual(fleesFrom(PetKind.DOG, mutual), [], 'and neither does the dog');
   // Both still hunt, so the two walk toward each other instead of one shoving the other into a
@@ -60,8 +61,8 @@ test('a mutual pairing leaves nobody fleeing', () => {
   assert.equal(chases(PetKind.DOG, PetKind.CAT, mutual) && chases(PetKind.CAT, PetKind.DOG, mutual), true);
 
   // A one-sided addition still produces a fleeing side, so the subtraction is not just "always []".
-  const withBirds = { dog: ['cat'], cat: ['duck'], duck: [] } as unknown as typeof CHASES;
-  assert.deepEqual(fleesFrom(PetKind.DUCK, withBirds), ['cat'], 'a new pairing needs one word, on one side');
+  const withBirds = { dog: ['cat'], cat: ['bird'], bird: [] } as unknown as typeof CHASES;
+  assert.deepEqual(fleesFrom(PetKind.BIRD, withBirds), ['cat'], 'a new pairing needs one word, on one side');
 });
 
 test('the table is well formed: no kind hunts itself and every quarry exists', () => {
@@ -83,7 +84,7 @@ test('the table is well formed: no kind hunts itself and every quarry exists', (
 test('the engine resolves chase and flee from the table alone', () => {
   // Two pets, one tile apart, and the affordances each one's brain is handed. Nothing in
   // computePetAffordances names a species any more, so this is the same code path for all three
-  // kinds — which is what makes the duck's answer evidence rather than a coincidence.
+  // kinds — which is what makes the bird's answer evidence rather than a coincidence.
   const seen = (kinds: Array<[number, PetKind]>, apart = 1): Map<number, PetAffordances> => {
     const cols = 32;
     const os = new OfficeState({
@@ -124,15 +125,15 @@ test('the engine resolves chase and flee from the table alone', () => {
   assert.equal(dogCat.get(2)!.threatened, true, 'a cat beside a dog does not know it is prey');
   assert.equal(dogCat.get(2)!.canChase, false, 'a cat hunts nothing today');
 
-  // A duck is the case the hardcoded version could not express: it is neither, and it is neither
+  // A bird is the case the hardcoded version could not express: it is neither, and it is neither
   // for the same reason the dog IS — an empty row in the table.
-  const duckPair = seen([
-    [1, PetKind.DUCK],
+  const birdPair = seen([
+    [1, PetKind.BIRD],
     [2, PetKind.DOG],
   ]);
-  assert.equal(duckPair.get(1)!.canChase, false, 'a duck hunts nothing');
-  assert.equal(duckPair.get(1)!.threatened, false, 'and a dog does not hunt ducks, so it is not prey either');
-  assert.equal(duckPair.get(2)!.canChase, false, 'a dog beside a duck has nothing to chase');
+  assert.equal(birdPair.get(1)!.canChase, false, 'a bird hunts nothing');
+  assert.equal(birdPair.get(1)!.threatened, false, 'and a dog does not hunt birds, so it is not prey either');
+  assert.equal(birdPair.get(2)!.canChase, false, 'a dog beside a bird has nothing to chase');
 
   // And distance still matters — the relation says WHO, the radius says whether. 28 tiles apart,
   // against PET_SHOO_RADIUS_TILES = 5.
@@ -244,7 +245,7 @@ test('a pet saved before the rename keeps its switches', () => {
   assert.equal(both.behaviors.feedDrink, false, 'and the old one is still honoured where it is alone');
   assert.equal(both.behaviors.talk, true, 'an absent switch defaults on, as it always did');
 
-  // The switch is a permission, not the relation: it cannot make a duck hunt.
+  // The switch is a permission, not the relation: it cannot make a bird hunt.
   assert.equal(resolvePetConfig({}).behaviors.chase, true);
-  assert.deepEqual(CHASES[PetKind.DUCK], [], 'an all-on duck still hunts nothing');
+  assert.deepEqual(CHASES[PetKind.BIRD], [], 'an all-on bird still hunts nothing');
 });

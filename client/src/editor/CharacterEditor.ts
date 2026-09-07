@@ -880,7 +880,7 @@ export class CharacterEditor {
     if (this.view === 'edit') this.render();
   }
 
-  /** pet kind ('dog'/'cat'/'duck') parsed from the roster slot (`dog_0`), or
+  /** pet kind ('dog'/'cat'/'bird') parsed from the roster slot (`dog_0`), or
    *  null for non-pet categories. Used to show only kind-relevant behaviours. */
   private petKind(): string | null {
     if (!this.cat().spawnConfig) return null;

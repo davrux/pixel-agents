@@ -172,8 +172,8 @@ does not hunt back. Three rules, and each is a mistake the previous shape allowe
 
 - **Nothing outside that table names a species.** It used to be four words in two engine methods
   (`pet.kind === DOG` beside `nearestLivingPetOfKind(pet, CAT)`, and the mirror for fleeing) plus
-  the same two species a third and fourth time in the editor's labels. A duck therefore had no
-  relation at all — not as a decision, but because `DUCK` appears in none of those lines. A new
+  the same two species a third and fourth time in the editor's labels. The third kind therefore had
+  no relation at all — not as a decision, but because it appeared in none of those lines. A new
   pairing is now one word, a new species is one row, and the editor writes its own labels from it
   (`Chase cats` for a dog) instead of restating the relation where nobody would think to look.
 - **Flight is never stored.** "A cat flees a dog" is "a dog chases a cat" from the other end, and
@@ -183,8 +183,8 @@ does not hunt back. Three rules, and each is a mistake the previous shape allowe
   a corner forever — which is where a scuffle (a comic cloud between them) would go.
 - **A `PetBehaviors` switch is a permission, not the relation.** `chase` and `flee` say whether
   THIS animal may act on its species' relation, so they name no quarry and a flag with nothing to
-  apply to is simply inert (a duck's `chase` is on and hunts nothing). Emma may be a peaceful dog;
-  no dog hunts ducks.
+  apply to is simply inert (a bird's `chase` is on and hunts nothing). Emma may be a peaceful dog;
+  no dog hunts birds.
 
 The switches say what they mean, which cost a `PROTOCOL_VERSION` bump to 12: `chaseCats`/`fleeDogs`
 are `chase`/`flee`, and `drink` is **`feedDrink`** — a pet has never been able to use a coffee
@@ -239,6 +239,15 @@ eight seconds, so it lost by construction. Five rules, and each is a decision ra
   cadence still lives in `PET_POSE_FRAME_MS` because there is one table for that. `petPose` returns
   `idle` for a scuffling pet, so a client whose cloud art failed to load shows two animals standing
   rather than nothing at all.
+
+The pet kind `duck` is `bird` since 2026-09-07: it was a species, and as a CATEGORY it takes an owl
+or a magpie without a fourth enum value. The two animals are still ducks (Rudi is a mallard drake,
+`assets/pets/README.md`) — what moved are their slot ids, `bird_0`/`bird_1`, because an id is
+`${kind}_${index}` by construction. That is a wire rename (`petSpritesLoaded`'s `ducks` field) and
+therefore `PROTOCOL_VERSION` 14, plus a boot migration for the ids in stored art rows and in a
+zone's pet selection (`schema/renameDuckToBird.ts` — user data cannot be renamed by editing code).
+It resolves the zone COLUMN from the schema, because it runs before `ZoneStore` renames `npc` to
+`pets` and a boot task may never keep the server from starting.
 
 The sheet is drawn by `scripts/draw-scuffle-cloud.sh` (deterministic — a seeded LCG, so `--check`
 means something) and committed. It is ordinary art: redraw the PNG by hand and nothing downstream

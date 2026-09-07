@@ -40,6 +40,10 @@ db.exec(`
   )`);
 const put = db.prepare('INSERT INTO zones(id, label, created_at, npc) VALUES(?, ?, 0, ?)');
 put.run('uponu', 'UPONU', null); // null = every active variant
+// `duck_1` on purpose: an id from before the kind was renamed to `bird`, which is what an old
+// database holds. It survives here because `schema/renameDuckToBird.ts` runs when `db.ts` is
+// imported — above, before this table exists — so this test sees the value exactly as authored and
+// keeps testing the one thing it is about: the npc → pets COLUMN rename.
 put.run('garden', 'Garden', '["dog_0","duck_1"]'); // somebody chose these two
 put.run('empty', 'Empty', '[]'); // and somebody chose none
 

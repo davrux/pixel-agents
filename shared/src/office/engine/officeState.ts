@@ -2234,7 +2234,7 @@ export class OfficeState {
    *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
   private computePetAffordances(pet: Pet): PetAffordances {
     // Per-variant behaviour switches (editable; default all-on). A flag with nothing to apply to
-    // is inert on its own: a duck's `chase` is on, and `CHASES.duck` is empty.
+    // is inert on its own: a bird's `chase` is on, and `CHASES.bird` is empty.
     const b = getPetConfig(pet.kind, pet.variant).behaviors;
     return {
       canRest: b.rest && this.hasRestAffordance(pet),
@@ -2431,7 +2431,7 @@ export class OfficeState {
   /** Nearest non-despawning pet of any of `kinds` within `radius` tiles (Chebyshev
    *  distance) of `pet`, or null. Used for chase/flee detection and for the catch. */
   private nearestLivingPetOfKinds(pet: Pet, kinds: readonly PetKindEnum[], radius = PET_SHOO_RADIUS_TILES): Pet | null {
-    // An empty relation is the common case (a duck hunts nothing, a dog runs from nothing), and
+    // An empty relation is the common case (a bird hunts nothing, a dog runs from nothing), and
     // this is per pet per tick — so answer before walking the collection.
     if (kinds.length === 0) return null;
     let best: Pet | null = null;
@@ -2546,7 +2546,10 @@ export class OfficeState {
       const k = `${p.kind}_${p.variant}`;
       living.set(k, (living.get(k) ?? 0) + 1);
     }
-    for (const name of ['dog', 'cat', 'duck'] as Array<'dog' | 'cat' | 'duck'>) {
+    // Every kind there is, read from the enum rather than listed here: the third one was renamed
+    // from `duck` to `bird` (a category, so an owl needs no fourth value), and a hardcoded list is
+    // exactly the place that gets forgotten when a fourth one does arrive.
+    for (const name of Object.values(PetKindEnum)) {
       const count = getLoadedPetVariantCount(name);
       for (let v = 0; v < count; v++) {
         const key = `${name}_${v}`;

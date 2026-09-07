@@ -143,25 +143,25 @@ export const ControllerKind = {
 } as const;
 export type ControllerKind = (typeof ControllerKind)[keyof typeof ControllerKind];
 
-export const PetKind = { DOG: 'dog', CAT: 'cat', DUCK: 'duck' } as const;
+export const PetKind = { DOG: 'dog', CAT: 'cat', BIRD: 'bird' } as const;
 export type PetKind = (typeof PetKind)[keyof typeof PetKind];
 
 /**
  * Who hunts whom, by SPECIES. One table, and the only place the relation is stated.
  *
  * It used to be four words hardcoded in two engine methods — `pet.kind === DOG` beside
- * `nearestLivingPetOfKind(pet, CAT)`, and the mirror image for fleeing. A duck therefore had no
- * relation at all, not because that was decided but because `DUCK` appears in none of those lines.
+ * `nearestLivingPetOfKind(pet, CAT)`, and the mirror image for fleeing. A bird therefore had no
+ * relation at all, not because that was decided but because `BIRD` appears in none of those lines.
  * As a table, a new species is a row and a new pairing is one word.
  *
  * A per-VARIANT switch (`PetBehaviors.chase`) says whether a particular animal is allowed to act
  * on its species' relation; this says what the relation IS. Emma may be a peaceful dog, but no
- * dog hunts ducks.
+ * dog hunts birds.
  */
 export const CHASES: Readonly<Record<PetKind, readonly PetKind[]>> = {
   dog: ['cat'],
   cat: [], // later, perhaps: ['bird']
-  duck: [],
+  bird: [],
 };
 
 /** Does `hunter`'s species hunt `quarry`'s? */
@@ -211,7 +211,7 @@ export type PetState = (typeof PetState)[keyof typeof PetState];
 export interface Pet {
   id: number;
   kind: PetKind;
-  /** Which sprite-sheet variant (dog_N / cat_N / duck_N) */
+  /** Which sprite-sheet variant (dog_N / cat_N / bird_N) */
   variant: number;
   state: PetState;
   dir: Direction;

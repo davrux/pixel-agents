@@ -105,12 +105,12 @@ export function createAssetBridge(
           // Sheet ids are kind + index, the same key the roster and /art use.
           const kind = (name: string, list: unknown[] | undefined) =>
             Promise.all((list ?? []).map((e, i) => withSheet(`${name}_${i}`, e as Record<string, any>)));
-          const [dogs, cats, ducks] = await Promise.all([
+          const [dogs, cats, birds] = await Promise.all([
             kind('dog', msg.dogs),
             kind('cat', msg.cats),
-            kind('duck', msg.ducks),
+            kind('bird', msg.birds),
           ]);
-          setPetTemplates(dogs as never, cats as never, ducks as never);
+          setPetTemplates(dogs as never, cats as never, birds as never);
         })();
       case 'furnitureAssetsLoaded':
         // `spriteRefs` says which image and rect each id is drawn from; `sprites`

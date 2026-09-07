@@ -75,7 +75,7 @@ export class CharacterSync extends PawnSync {
 }
 
 export class PetSync extends PawnSync {
-  @type('uint8') kind = 0; // 0 dog, 1 cat, 2 duck
+  @type('uint8') kind = 0; // 0 dog, 1 cat, 2 bird
   @type('uint8') variant = 0;
   @type('uint8') frame = 0;
   /** '' | 'spawn' | 'despawn'. */

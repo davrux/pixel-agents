@@ -47,7 +47,7 @@ test('the loader hands over the bytes on disk, and no pixels at all', async () =
 
   const pets = await loadPetSprites(ASSETS_ROOT);
   assert.ok(pets, 'the bundled pets must load');
-  for (const [kind, arr] of [['dog', pets.dogs], ['cat', pets.cats], ['duck', pets.ducks]] as const) {
+  for (const [kind, arr] of [['dog', pets.dogs], ['cat', pets.cats], ['bird', pets.birds]] as const) {
     arr.forEach((sheet, i) => {
       const file = fs.readFileSync(path.join(ASSETS_ROOT, 'assets', 'pets', `${kind}_${i}.png`));
       assert.equal(Buffer.compare(sheet.png, file), 0, `${kind}_${i}: not the file on disk`);

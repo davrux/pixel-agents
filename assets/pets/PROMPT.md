@@ -1,7 +1,7 @@
 # Generating a pet sprite sheet from photos of a real animal
 
 A ready-to-paste prompt for an image-generating AI, plus what to expect from it.
-Covers all three pet kinds — **cat, dog and duck** — because they share one sheet
+Covers all three pet kinds — **cat, dog and bird** — because they share one sheet
 format exactly; only the animal differs. The format is described in
 [README.md](README.md), which is worth reading first if you want to know *why* a
 column means what it means. The agent avatars are a different format, with their own

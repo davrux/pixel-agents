@@ -51,7 +51,7 @@ const REPO = path.join(import.meta.dirname, '..', '..');
 const sheets =
   args.length > 0
     ? args
-    : ['dog_0', 'dog_1', 'cat_0', 'cat_1', 'duck_0', 'duck_1'].map((n) => path.join(REPO, 'assets', 'pets', `${n}.png`));
+    : ['dog_0', 'dog_1', 'cat_0', 'cat_1', 'bird_0', 'bird_1'].map((n) => path.join(REPO, 'assets', 'pets', `${n}.png`));
 
 /** Copy one 16×16 cell, optionally lifted by `lift` pixels. */
 function copyCell(src: PNG, dst: PNG, srcCol: number, dstCol: number, row: number, lift: number): void {
