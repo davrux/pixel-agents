@@ -526,8 +526,21 @@ export function registerAuth(app: Express, adminToken: string | null): void {
     // answered with the login page instead.
     return /\.(ico|webmanifest)$/i.test(p);
   };
-  /** client/dist's own top-level directories — see isPublicGet. */
-  const BUILD_DIRS = ['/assets/', '/fonts/', '/sounds/', '/charparts/', '/jsdos/', '/emulatorjs/'];
+  /**
+   * client/dist's own top-level directories that an ANONYMOUS caller demonstrably needs — see
+   * isPublicGet. Each one is here because the login page or the public guest meeting page loads it
+   * before anyone is signed in.
+   *
+   * `/jsdos/` and `/emulatorjs/` are deliberately NOT here, and they used to be. They are the
+   * arcade's self-hosted emulators, and they are 99 MB of the 114 MB build — 87 % of the public
+   * surface by volume, for a feature only a signed-in viewer can reach. Nothing anonymous loads
+   * them: the arcade opens from inside the world. Removing them costs no user anything, because
+   * both other consumers still get them — a signed-in browser is same-origin, so the cookie rides
+   * along, and the desktop app never asked this server at all (it loads `/jsdos/js-dos.js` as a
+   * root-relative script, which on its `app://` origin is its own packaged copy). What it removes
+   * is an unauthenticated caller's ability to pull a hundred megabytes on demand.
+   */
+  const BUILD_DIRS = ['/assets/', '/fonts/', '/sounds/', '/charparts/'];
 
   // Gate every GET except what an anonymous caller demonstrably needs. See PUBLIC_GETS
   // for what that is and why each entry is there.
