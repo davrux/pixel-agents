@@ -275,6 +275,60 @@ zone's pet selection (`schema/renameDuckToBird.ts` — user data cannot be renam
 It resolves the zone COLUMN from the schema, because it runs before `ZoneStore` renames `npc` to
 `pets` and a boot task may never keep the server from starting.
 
+**A fight is exclusive, and having fought makes an animal unavailable for 90 seconds.** Two holes
+made scuffles look endless, and the report that found them was "fights that go on forever, somebody
+keeps joining":
+
+- **The BEAT was not protected.** The catch check skipped a quarry in `SCUFFLE`, but during the
+  1.2-second aftermath the state is `WIN`/`LOSE` — so a second hunter could take the loser while its
+  badge was still up. Visible in the numbers as clouds every 1-2 seconds against a cloud-plus-beat
+  of 2.7. `catchable()` is now the one question (in a cloud, in the beat, or cooling down) and both
+  the affordance and the catch ask it.
+- **The cooldown gated the wrong role.** It stopped a pet from CHASING, and a cat hunts no dogs — so
+  the quarry had no protection at all, and with two hunters one was always free. Measured: **101
+  clouds in three minutes**, partners alternating. It is an immunity for both roles now, at
+  `PET_SCUFFLE_COOLDOWN_SEC` = 90 s, and the same measurement gives **2**.
+
+A protected quarry is invisible to the hunter's INTENT and not merely to the catch, because a dog
+running after a cat it cannot possibly catch is a chase with no ending. Fleeing is deliberately not
+gated: being unavailable for a brawl is not the same as feeling safe.
+
+**A fleeing animal remembers its heading and refuses to reverse.** Every re-aim used to recompute
+the best escape from scratch twice a second, and in a confined space the best answer alternates as
+the hunter moves — measured in an 8×8 room: **21 reversals out of 21 samples, every run**, which is
+the "both of them running up and down" that was reported. `pet.fleeHeading` is tried first while it
+still increases the distance, and its exact opposite is refused (in the dash AND as the flood
+fill's first step), which makes the ping-pong impossible rather than unlikely: the same measurement
+gives a median of 3. It has a second effect worth keeping — a genuinely cornered animal runs out of
+directions, stops fleeing and gets caught, so the chase RESOLVES instead of looping.
+
+**A flight answers itself; only a cornered animal asks the pathfinder.** `pathAwayFrom` (shared by
+the `flee` reaction and the loser's retreat) used to filter all 2634 walkable tiles of a real map,
+sort them by distance from the hunter and ask A* whether the best eight were reachable — 172 µs per
+call, 428 µs when cornered, and a theoretical worst case of eight unbounded searches. It now has two
+answers: a **dash** straight away while `canStep` allows it (1.4 µs), and, when that first step is
+blocked, one **flood fill bounded by the flee range in STEPS**, which gives reachability and the
+route together (21.7 µs). Measured over uponu: 172 → 4.5 µs on the mixed case, and the unbounded
+worst case is gone by construction.
+
+Three things about it are load-bearing rather than incidental:
+
+- **`canStep` is the arbiter, not `isWalkable`.** A wall is an EDGE between tiles, not a blocked
+  tile, so a dash checked only for walkability would walk through one. `canStep` is the predicate
+  `bfsPath` itself uses, which is what makes hand-rolled movement as legal as the pathfinder's —
+  and `DIRS_4` is exported from `tileMap.ts` for the same reason, so a second direction table
+  cannot quietly grow a diagonal.
+- **Only a step along an axis that DETERMINES the Chebyshev distance increases it.** A pet directly
+  east of its hunter gets no farther by walking north, so the dash considers the axes whose delta
+  equals the current distance — one normally, both when the two stand diagonally or share a tile.
+- **A short hop beats an optimal route.** Where the straight line is blocked after two steps, the
+  dash takes those two steps instead of routing seven tiles around; the reaction re-aims half a
+  second later from wherever it got to, which is what that cadence is for.
+  `petFleePath.int.test.ts` sweeps every position on a map with a wall and pillars and pins the
+  contract the pathfinder used to give for free — 4-connected, `canStep`-legal, strictly farther,
+  within range — and it asserts that BOTH branches answered, decided the way the code decides it
+  rather than guessed from the shape of a path.
+
 The sheet is drawn by `scripts/draw-scuffle-cloud.sh` (deterministic — a seeded LCG, so `--check`
 means something) and committed. It is ordinary art: redraw the PNG by hand and nothing downstream
 knows or cares. What the script learned the hard way, in case the next effect needs it: seven

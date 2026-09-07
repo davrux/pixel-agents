@@ -241,6 +241,11 @@ export interface Pet {
   reaction: 'chase' | 'flee' | null;
   /** Seconds until the reaction re-aims (see PET_REACTION_REPATH_SEC). */
   reactionTimer: number;
+  /**
+   * The heading this animal is fleeing along, kept between re-aims so it does not reconsider twice
+   * a second — see `pathAwayFrom`. Null when it is not running from anything.
+   */
+  fleeHeading: { dc: number; dr: number } | null;
   /** The pet this one is scuffling with, or null. Synced, so the client can draw ONE cloud. */
   scufflePartnerId: number | null;
   /** Seconds left of the current scuffle PHASE — the cloud first, then the WIN/LOSE beat. One

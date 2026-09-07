@@ -29,12 +29,12 @@ import {
   PET_WALK_SPEED_PX_PER_SEC,
   PET_WANDER_PAUSE_MAX_SEC,
   PET_WANDER_PAUSE_MIN_SEC,
-} from '../constants.js';
-import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
-import { findPath } from '../layout/tileMap.js';
-import type { ApplianceKind, WallEdges, GroundMap } from '../types.js';
-import type { Pet, PetKind } from '../types.js';
-import { Direction, PetState } from '../types.js';
+} from "../constants.js";
+import { snapToTile, stepAlongPath, tileCenter } from "./entity.js";
+import { findPath } from "../layout/tileMap.js";
+import type { ApplianceKind, WallEdges, GroundMap } from "../types.js";
+import type { Pet, PetKind } from "../types.js";
+import { Direction, PetState } from "../types.js";
 
 /**
  * The high-level activity a pet brain can choose and the actuator can execute.
@@ -43,11 +43,11 @@ import { Direction, PetState } from '../types.js';
  * defining its own. Extensible — N3.3 adds `drink` (coffee), `talk` (agent),
  * and `chase`/`flee` (shoo-cat) as new affordance-driven actions.
  */
-export type PetAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk';
+export type PetAction = "wander" | "sit" | "chase" | "flee" | "drink" | "talk";
 
 /** Kinds of interactable the world affords a pet: claimable seats, adjacent-to
  *  furniture (cat on a desk), appliance stations (coffee), and agents (talk). */
-type AffordanceKind = 'seat' | 'furniture' | 'station' | 'agent';
+type AffordanceKind = "seat" | "furniture" | "station" | "agent";
 
 /**
  * What's available in the world for a pet to interact with right now — a cheap
@@ -109,7 +109,10 @@ interface PetUpdateContext {
   /** Resolve a directed move path for a reactive action — toward the nearest cat
    *  ('chase') or away from the nearest dog ('flee'). OfficeState supplies it
    *  (it knows every pet's position); null when no path applies. */
-  navigateReaction?: (pet: Pet, action: PetAction) => Array<{ col: number; row: number }> | null;
+  navigateReaction?: (
+    pet: Pet,
+    action: PetAction,
+  ) => Array<{ col: number; row: number }> | null;
   /**
    * Is there something worth reacting to RIGHT NOW — a quarry to hunt, or a hunter to run from?
    * Asked while the pet is WALKING, so it notices what it passes instead of only looking at its
@@ -117,10 +120,18 @@ interface PetUpdateContext {
    * needs every pet's position, the per-variant switches and the chase cooldown; it returns the
    * action AND the path, so nothing has to be resolved twice.
    */
-  noticeReaction?: (pet: Pet) => { action: NonNullable<Pet['reaction']>; path: Array<{ col: number; row: number }> } | null;
+  noticeReaction?: (
+    pet: Pet,
+  ) => {
+    action: NonNullable<Pet["reaction"]>;
+    path: Array<{ col: number; row: number }>;
+  } | null;
   /** A retreat away from ONE named pet (the one that just won), rather than away from whatever this
    *  species flees — see the WIN/LOSE beat. Null when there is nowhere to go. */
-  fleeFrom?: (pet: Pet, otherId: number | null) => Array<{ col: number; row: number }> | null;
+  fleeFrom?: (
+    pet: Pet,
+    otherId: number | null,
+  ) => Array<{ col: number; row: number }> | null;
   /** Playback length (frame count) of the pet's *current* pose track, used to
    *  advance `frame` spec-driven instead of with hardcoded per-state moduli.
    *  Server resolves it from the pet's sheet; absent → a static single frame. */
@@ -137,7 +148,12 @@ function randomRange(min: number, max: number): number {
  * `ctx.posePlaybackLength`, so server and client agree). `fallbackLen` is used
  * only when no resolver is supplied (standalone/tests).
  */
-function advancePetFrame(pet: Pet, ctx: PetUpdateContext, cadence: number, fallbackLen: number): void {
+function advancePetFrame(
+  pet: Pet,
+  ctx: PetUpdateContext,
+  cadence: number,
+  fallbackLen: number,
+): void {
   if (pet.frameTimer < cadence) return;
   pet.frameTimer -= cadence;
   const len = ctx.posePlaybackLength?.(pet) ?? fallbackLen;
@@ -165,13 +181,17 @@ export function createPet(
     moveProgress: 0,
     reaction: null,
     reactionTimer: 0,
+    fleeHeading: null,
     scufflePartnerId: null,
     scuffleTimer: 0,
     scuffleWon: false,
     chaseCooldown: 0,
     frame: 0,
     frameTimer: 0,
-    wanderTimer: randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC),
+    wanderTimer: randomRange(
+      PET_WANDER_PAUSE_MIN_SEC,
+      PET_WANDER_PAUSE_MAX_SEC,
+    ),
     targetKind: null,
     targetAction: null,
     targetSeatId: null,
@@ -185,7 +205,7 @@ export function createPet(
     sitTimer: 0,
     restLift: 0,
     lifespanTimer: 0,
-    effect: 'spawn',
+    effect: "spawn",
     effectTimer: 0,
   };
 }
@@ -212,6 +232,7 @@ export function beginScuffle(hunter: Pet, quarry: Pet): void {
     pet.path = [];
     snapToTile(pet);
     pet.reaction = null;
+    pet.fleeHeading = null;
     pet.state = PetState.SCUFFLE;
     pet.scufflePartnerId = other.id;
     pet.scuffleTimer = PET_SCUFFLE_DURATION_SEC;
@@ -248,7 +269,10 @@ export function endScuffleAlone(pet: Pet): void {
 }
 
 /** Begin a pet's despawn: release any claim and start the fade-out. */
-export function beginPetDespawn(pet: Pet, ctx: Pick<PetUpdateContext, 'releaseClaim'>): void {
+export function beginPetDespawn(
+  pet: Pet,
+  ctx: Pick<PetUpdateContext, "releaseClaim">,
+): void {
   if (pet.state === PetState.DESPAWN) return;
   ctx.releaseClaim(pet);
   // Leave no dangling pair behind: the partner notices on the next tick (resolveScuffles) and gets
@@ -256,8 +280,9 @@ export function beginPetDespawn(pet: Pet, ctx: Pick<PetUpdateContext, 'releaseCl
   pet.scufflePartnerId = null;
   pet.scuffleTimer = 0;
   pet.reaction = null;
+  pet.fleeHeading = null;
   pet.state = PetState.DESPAWN;
-  pet.effect = 'despawn';
+  pet.effect = "despawn";
   pet.effectTimer = 0;
 }
 
@@ -289,7 +314,8 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
     return; // OfficeState deletes the pet when the fade completes
   }
 
-  if (pet.chaseCooldown > 0) pet.chaseCooldown = Math.max(0, pet.chaseCooldown - dt);
+  if (pet.chaseCooldown > 0)
+    pet.chaseCooldown = Math.max(0, pet.chaseCooldown - dt);
 
   // Age the pet; trigger natural despawn at end of life
   pet.lifespanTimer += dt;
@@ -309,8 +335,12 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       // Decide: go sit at furniture, or wander to a random tile. The server's
       // pet brain decides when injected; otherwise fall back to the sit-chance
       // roll (keeps the engine self-contained for tests/standalone).
-      const action = ctx.decideAction ? ctx.decideAction(pet) : Math.random() < PET_SIT_CHANCE ? 'sit' : 'wander';
-      if (action === 'sit' || action === 'drink' || action === 'talk') {
+      const action = ctx.decideAction
+        ? ctx.decideAction(pet)
+        : Math.random() < PET_SIT_CHANCE
+          ? "sit"
+          : "wander";
+      if (action === "sit" || action === "drink" || action === "talk") {
         // Claim-based interactions: walk to a free seat/desk ('sit'), appliance
         // station ('drink') or up to an agent ('talk'), then act on arrival.
         const target = ctx.findTarget(pet, action);
@@ -338,7 +368,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           }
           break;
         }
-      } else if (action === 'chase' || action === 'flee') {
+      } else if (action === "chase" || action === "flee") {
         // Reactive directed movement: toward what this one hunts, away from what hunts it (CHASES /
         // fleesFrom decide which). No claim — but the reaction is REMEMBERED, so WANDER re-aims it
         // every PET_REACTION_REPATH_SEC. It used to be a single path to wherever the quarry stood
@@ -360,8 +390,18 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       // Random wander
       const { walkableTiles, tileMap, blockedTiles, walls } = ctx;
       if (walkableTiles.length > 0) {
-        const target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
-        const path = findPath(pet.tileCol, pet.tileRow, target.col, target.row, tileMap, blockedTiles, undefined, walls);
+        const target =
+          walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+        const path = findPath(
+          pet.tileCol,
+          pet.tileRow,
+          target.col,
+          target.row,
+          tileMap,
+          blockedTiles,
+          undefined,
+          walls,
+        );
         if (path.length > 0) {
           pet.path = path;
           pet.moveProgress = 0;
@@ -370,7 +410,10 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           pet.frameTimer = 0;
         }
       }
-      pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+      pet.wanderTimer = randomRange(
+        PET_WANDER_PAUSE_MIN_SEC,
+        PET_WANDER_PAUSE_MAX_SEC,
+      );
       break;
     }
 
@@ -413,6 +456,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
             // The other animal is gone, out of range, or unreachable: stop reacting and let the
             // next idle decision start something else.
             pet.reaction = null;
+            pet.fleeHeading = null;
             pet.path = [];
           }
         }
@@ -424,6 +468,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         // eight seconds, which is the pause a wander earns and a chase does not.
         if (pet.reaction) {
           pet.reaction = null;
+          pet.fleeHeading = null;
           pet.state = PetState.IDLE;
           pet.wanderTimer = 0;
           pet.frame = 0;
@@ -444,7 +489,10 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
             clearTarget(pet);
           }
           pet.state = PetState.IDLE;
-          pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+          pet.wanderTimer = randomRange(
+            PET_WANDER_PAUSE_MIN_SEC,
+            PET_WANDER_PAUSE_MAX_SEC,
+          );
           pet.frame = 0;
           pet.frameTimer = 0;
         }
@@ -468,6 +516,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         pet.state = pet.scuffleWon ? PetState.WIN : PetState.LOSE;
         pet.scuffleTimer = PET_AFTERMATH_DURATION_SEC;
         pet.reaction = null;
+        pet.fleeHeading = null;
         pet.frame = 0;
         pet.frameTimer = 0;
       }
@@ -480,7 +529,12 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       // the loser the sit frames (it reads as cowering). The badge over their heads is the
       // client's business — the state is what carries the answer.
       const won = pet.state === PetState.WIN;
-      advancePetFrame(pet, ctx, won ? PET_TALK_FRAME_DURATION_SEC : PET_TAIL_WAG_DURATION_SEC, 2);
+      advancePetFrame(
+        pet,
+        ctx,
+        won ? PET_TALK_FRAME_DURATION_SEC : PET_TAIL_WAG_DURATION_SEC,
+        2,
+      );
       pet.scuffleTimer -= dt;
       if (pet.scuffleTimer > 0) break;
 
@@ -490,7 +544,9 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       pet.scuffleTimer = 0;
       pet.frame = 0;
       pet.frameTimer = 0;
-      const away = won ? null : ctx.fleeFrom?.(pet, pet.scufflePartnerId) ?? null;
+      const away = won
+        ? null
+        : (ctx.fleeFrom?.(pet, pet.scufflePartnerId) ?? null);
       pet.scufflePartnerId = null;
       if (away && away.length > 0) {
         // A one-shot retreat, deliberately without setting `reaction`: a reaction re-aims every
@@ -513,7 +569,10 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         ctx.releaseClaim(pet);
         clearTarget(pet);
         pet.state = PetState.IDLE;
-        pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+        pet.wanderTimer = randomRange(
+          PET_WANDER_PAUSE_MIN_SEC,
+          PET_WANDER_PAUSE_MAX_SEC,
+        );
         pet.frame = 0;
         pet.frameTimer = 0;
       }
@@ -531,7 +590,10 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         ctx.releaseClaim(pet);
         clearTarget(pet);
         pet.state = PetState.IDLE;
-        pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+        pet.wanderTimer = randomRange(
+          PET_WANDER_PAUSE_MIN_SEC,
+          PET_WANDER_PAUSE_MAX_SEC,
+        );
         pet.frame = 0;
         pet.frameTimer = 0;
       }
@@ -547,7 +609,10 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         ctx.releaseClaim(pet);
         clearTarget(pet);
         pet.state = PetState.IDLE;
-        pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+        pet.wanderTimer = randomRange(
+          PET_WANDER_PAUSE_MIN_SEC,
+          PET_WANDER_PAUSE_MAX_SEC,
+        );
         pet.frame = 0;
         pet.frameTimer = 0;
       }
@@ -559,13 +624,13 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
 /** Dispatch the action a pet performs on reaching its claimed target. */
 function beginTargetAction(pet: Pet): void {
   switch (pet.targetAction) {
-    case 'drink':
+    case "drink":
       startDrinking(pet);
       break;
-    case 'talk':
+    case "talk":
       startTalking(pet);
       break;
-    case 'sit':
+    case "sit":
     default:
       startSitting(pet);
       break;
@@ -583,7 +648,8 @@ function startDrinking(pet: Pet): void {
   pet.x = center.x;
   pet.y = center.y;
   pet.dir = pet.sitFacingDir;
-  pet.state = pet.targetAppliance === 'pet_feed' ? PetState.FEED : PetState.DRINK;
+  pet.state =
+    pet.targetAppliance === "pet_feed" ? PetState.FEED : PetState.DRINK;
   pet.sitTimer = randomRange(PET_DRINK_MIN_SEC, PET_DRINK_MAX_SEC);
   pet.frame = 0;
   pet.frameTimer = 0;
@@ -623,29 +689,29 @@ function startSitting(pet: Pet): void {
 export function petPose(pet: Pet): string {
   switch (pet.state) {
     case PetState.WANDER:
-      return 'walk';
+      return "walk";
     case PetState.SIT:
-      return 'sit';
+      return "sit";
     case PetState.DRINK:
-      return 'drink';
+      return "drink";
     case PetState.FEED:
-      return 'feed';
+      return "feed";
 
     case PetState.TALK:
-      return 'talk';
+      return "talk";
     case PetState.SCUFFLE:
       // The cloud hides both animals, so this is only what shows if its sheet failed to load —
       // standing still is the right fallback, and better than an invisible pet.
-      return 'idle';
+      return "idle";
     // The beat after the cloud, drawn from art that already exists: the winner bobs on the talk
     // frames (it reads as barking), the loser sits (it reads as cowering). These MUST agree with
     // what the WIN/LOSE state advances the frame counter with — a pose resolving to a one-frame
     // track while the counter walks two is an animation playing the wrong pictures.
     case PetState.WIN:
-      return 'talk';
+      return "talk";
     case PetState.LOSE:
-      return 'sit';
+      return "sit";
     default:
-      return 'idle';
+      return "idle";
   }
 }

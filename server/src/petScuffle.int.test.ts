@@ -62,6 +62,15 @@ function place(os: OfficeState, id: number, kind: PetKind, col: number, row: num
   return pet;
 }
 
+/**
+ * The pet's state, read WITHOUT narrowing.
+ *
+ * `assert.equal` in node:assert/strict carries an assertion signature, so asserting a state once
+ * narrows the field to that literal for the rest of the function — and every later comparison then
+ * looks impossible to the compiler even though the value changes on the next tick.
+ */
+const stateOf = (pet: Pet): string => pet.state;
+
 const tick = (os: OfficeState, seconds: number, step = 1 / 20): void => {
   for (let i = 0; i < Math.round(seconds / step); i++) os.update(step);
 };
@@ -231,8 +240,14 @@ test('the cloud has a winner, once for the pair, and the loser walks away', () =
   // is not the same question as "what does my species flee".
   assert.equal(loser.scufflePartnerId, winner.id);
 
+  // Measured against WHERE THE FIGHT WAS, not against the winner: the winner is loose again the
+  // moment the beat ends, its own chase is on cooldown so it wanders, pets do not block each other
+  // — and it can wander straight onto the loser's tile. Asserting the gap between two moving
+  // animals made this test fail about one run in three with "1 → 0", which said nothing about the
+  // retreat and everything about the winner's random walk.
+  const scene = { col: winner.tileCol, row: winner.tileRow };
   const distance = (): number =>
-    Math.max(Math.abs(loser.tileCol - winner.tileCol), Math.abs(loser.tileRow - winner.tileRow));
+    Math.max(Math.abs(loser.tileCol - scene.col), Math.abs(loser.tileRow - scene.row));
   const before = distance();
   tick(os, PET_AFTERMATH_DURATION_SEC + 0.2);
   assert.equal(winner.state === PetState.WIN, false, 'the beat never ended');
@@ -267,7 +282,9 @@ test('a loser retreats even when its species flees nothing of the sort', () => {
   cat.scuffleWon = false;
   bird.scuffleWon = true;
 
-  const distance = (): number => Math.max(Math.abs(cat.tileCol - bird.tileCol), Math.abs(cat.tileRow - bird.tileRow));
+  // Again against the SPOT, not the victor — see the note in the test above.
+  const scene = { col: bird.tileCol, row: bird.tileRow };
+  const distance = (): number => Math.max(Math.abs(cat.tileCol - scene.col), Math.abs(cat.tileRow - scene.row));
   const before = distance();
   tick(os, PET_SCUFFLE_DURATION_SEC + PET_AFTERMATH_DURATION_SEC + 2.2);
   assert.ok(distance() > before, `the beaten cat did not back off from the bird (${before} → ${distance()})`);
@@ -299,6 +316,112 @@ test('the hunter usually wins, and sometimes does not', () => {
   );
   assert.ok(hunterWins < ROUNDS, 'the hunter won every single one — the quarry can never win');
   assert.ok(hunterWins > 0, 'the hunter never won one');
+});
+
+test('an animal that just fought is off limits, to everybody, for the cooldown', () => {
+  // The bug this closes, measured on a world with two dogs and one cat: 101 clouds in three
+  // minutes, the partners alternating. The 12-second cooldown gated CHASING, and a cat hunts no
+  // dogs — so the cat had no protection at all, and whenever one dog was cooling down the other was
+  // free. The cooldown is an immunity for both roles now.
+  const os = world();
+  const dogA = place(os, 1, PetKind.DOG, 4, 4);
+  const cat = place(os, 2, PetKind.CAT, 5, 4);
+  const dogB = place(os, 3, PetKind.DOG, 6, 4);
+  os.setPetDecider((pet) => (pet.kind === PetKind.DOG ? 'chase' : 'wander'));
+
+  tick(os, 1);
+  const first = [dogA, dogB].find((d) => d.state === PetState.SCUFFLE);
+  assert.ok(first, 'neither dog caught the cat');
+  const other = first === dogA ? dogB : dogA;
+  assert.notEqual(other.state, PetState.SCUFFLE, 'both dogs got into the same cloud');
+
+  // Through the cloud, the beat, and well past both — but not past the cooldown.
+  tick(os, PET_SCUFFLE_DURATION_SEC + PET_AFTERMATH_DURATION_SEC + 3);
+  assert.ok(cat.chaseCooldown > 0, 'the cat came out of the fight unprotected');
+  assert.equal(cat.state === PetState.SCUFFLE, false, 'the other dog grabbed the cat straight away');
+
+  // And it stays that way: the second dog is standing right there and keeps trying.
+  tick(os, 20);
+  assert.equal(cat.state === PetState.SCUFFLE, false, `the cat was caught again after ${20}s of immunity`);
+  assert.ok(cat.chaseCooldown > 0, 'the immunity ran out far too early');
+
+  // The protection is not just a refused catch: a protected quarry is invisible to the hunter's
+  // INTENT, so no dog runs after a cat it cannot possibly catch.
+  let offered: boolean | null = null;
+  os.setPetDecider((pet, aff) => {
+    if (pet.id === other.id) offered ??= aff.canChase;
+    return 'wander';
+  });
+  // The dog is held ready to decide: left to itself it walks a wander path for seconds at a time
+  // and is simply never asked, which leaves `offered` at null and says nothing either way.
+  for (let i = 0; i < 60; i++) {
+    os.update(1 / 20);
+    other.state = PetState.IDLE;
+    other.wanderTimer = 0;
+    other.path = [];
+    other.tileCol = cat.tileCol + 1;
+    other.tileRow = cat.tileRow;
+  }
+  assert.equal(offered, false, 'a dog was offered a chase against a cat under immunity');
+});
+
+test('nobody grabs an animal during the beat', () => {
+  // The other half of "fights that go on forever": the catch check skipped a quarry in `SCUFFLE`,
+  // but during the 1.2-second beat the state is WIN or LOSE — so a second hunter could take the
+  // loser while its badge was still up, and on the screen that looks exactly like somebody joining
+  // the fight. It showed up in the numbers as clouds every 1-2 seconds against a cloud-plus-beat of
+  // 2.7.
+  const os = world();
+  const dogA = place(os, 1, PetKind.DOG, 4, 4);
+  const cat = place(os, 2, PetKind.CAT, 5, 4);
+  const dogB = place(os, 3, PetKind.DOG, 5, 5);
+  os.setPetDecider((pet) => (pet.kind === PetKind.DOG ? 'chase' : 'wander'));
+
+  tick(os, 1);
+  assert.equal(cat.state, PetState.SCUFFLE, 'no cloud to protect');
+  const partner = cat.scufflePartnerId;
+
+  // Into the beat, and watch it for its whole length: nobody's partner may change, and no third
+  // animal may enter a cloud.
+  tick(os, PET_SCUFFLE_DURATION_SEC + 0.2);
+  assert.ok(stateOf(cat) === PetState.WIN || stateOf(cat) === PetState.LOSE, 'the beat never started');
+  for (let i = 0; i < 20; i++) {
+    tick(os, 0.05);
+    if (stateOf(cat) !== PetState.WIN && stateOf(cat) !== PetState.LOSE) break;
+    assert.equal(cat.scufflePartnerId, partner, 'the pair changed partners mid-beat');
+    assert.notEqual(stateOf(dogB), PetState.SCUFFLE, 'a third animal started a cloud during the beat');
+    assert.notEqual(stateOf(dogB), PetState.WIN);
+    assert.notEqual(stateOf(dogB), PetState.LOSE);
+  }
+  assert.ok(dogA.chaseCooldown >= 0);
+});
+
+test('a fleeing animal does not double back', () => {
+  // The "both of them running up and down" report. Every re-aim used to recompute the best escape
+  // from scratch twice a second, and in a confined space the best answer alternates as the hunter
+  // moves: measured in an 8x8 room, 21 reversals out of 21 samples, every single run. The heading
+  // is remembered AND its exact opposite is refused, which makes the ping-pong impossible rather
+  // than unlikely.
+  const os = world();
+  const cat = place(os, 1, PetKind.CAT, 8, 6);
+  place(os, 2, PetKind.DOG, 9, 6); // east of the cat, so "away" is west …
+  cat.fleeHeading = { dc: 1, dr: 0 }; // … but the cat is already running EAST
+  os.setPetDecider((pet) => (pet.kind === PetKind.CAT ? 'flee' : 'sit'));
+
+  tick(os, 0.1);
+  assert.ok(cat.path.length > 0, 'the cat did not move at all');
+  const firstStep = cat.path[0];
+  assert.notEqual(
+    `${firstStep.col},${firstStep.row}`,
+    `${cat.tileCol - 1},${cat.tileRow}`,
+    'the cat turned round on the spot, straight back through the direction it came from',
+  );
+  // It went somewhere, and somewhere is not backwards: north, south, or on east past the dog is
+  // all fine — what is forbidden is the reversal.
+  assert.ok(
+    firstStep.row !== cat.tileRow || firstStep.col > cat.tileCol,
+    `expected a sideways or forward step, got ${firstStep.col},${firstStep.row} from ${cat.tileCol},${cat.tileRow}`,
+  );
 });
 
 test('the synced partner id can hold a pet id', () => {

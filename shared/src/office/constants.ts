@@ -75,13 +75,23 @@ export const PET_CATCH_RADIUS_TILES = 1;
 /** How long the cloud lasts. Long enough to read as a scrap, short enough not to become the scene. */
 export const PET_SCUFFLE_DURATION_SEC = 1.5;
 /**
- * How long a pet that has just scuffled may not start a chase.
+ * How long a pet that has just scuffled is out of the game — as a hunter AND as prey.
  *
- * Without it the two separate, the hunter's affordance is true again on the next decision, and the
- * pair falls into an endless loop of clouds on one spot. The quarry is NOT held back by it: it may
- * flee immediately, which together with the hunter's pause is what lets it actually get away.
+ * It was 12 seconds and it gated only CHASING, which protected the wrong animal: a cat hunts no
+ * dogs, so the cat had no protection at all. Measured on a world with two dogs and one cat:
+ * **101 clouds in three minutes**, the partners alternating, because whenever one dog was cooling
+ * down the other was free. That is the "fights that go on forever, somebody keeps joining" this
+ * number now answers.
+ *
+ * 90 seconds against a ten-minute lifespan means an animal scraps a handful of times per life
+ * instead of a hundred times per afternoon. And the protection is not only a refusal to be caught:
+ * a protected quarry disappears from the hunter's affordance entirely (`chaseQuarryFor`), because a
+ * dog running after a cat it cannot possibly catch looks broken, and rightly so.
+ *
+ * Fleeing is deliberately NOT gated. Being unavailable for a brawl is not the same as feeling safe,
+ * and a cat that ignores a dog three tiles away would read as a bug.
  */
-export const PET_SCUFFLE_COOLDOWN_SEC = 12;
+export const PET_SCUFFLE_COOLDOWN_SEC = 90;
 /**
  * Who walks away from the cloud — the hunter, most of the time.
  *

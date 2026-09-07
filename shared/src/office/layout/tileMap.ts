@@ -95,7 +95,12 @@ export function nearestWalkableTile(
   return null;
 }
 
-const DIRS_4 = [
+/**
+ * The four steps a pawn may take. Exported because it is the AUTHORITY on the grid being
+ * 4-connected — `wallEdges.ts` already refers to it by name for that reason, and a second copy in
+ * a caller is a second place where a diagonal could quietly appear.
+ */
+export const DIRS_4 = [
   { dc: 0, dr: -1 }, // up
   { dc: 0, dr: 1 }, // down
   { dc: -1, dr: 0 }, // left
