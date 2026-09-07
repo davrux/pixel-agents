@@ -350,6 +350,9 @@ export class ZoneStore {
     this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zone_acl WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM arcade_cabinet_games WHERE zone_id = ?').run(id);
+    // The pet scuffle tally belongs to the zone it was fought in — see petScoreStore, which has no
+    // foreign key for the same reason the two tables above have none.
+    this.db.prepare('DELETE FROM pet_scores WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zones WHERE id = ?').run(id);
     return true;
   }

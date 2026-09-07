@@ -748,6 +748,7 @@ export class OfficeScene extends Phaser.Scene {
         this.wake();
         if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneMembers') this.onZoneMembers(m);
+        else if (m.type === 'petScores') this.openPetScores(m);
         else if (m.type === 'userList') this.onUserList(m);
         else if (m.type === 'onlineUsers') this.onOnlineUsers(m);
         else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
@@ -3181,6 +3182,46 @@ export class OfficeScene extends Phaser.Scene {
    *  so this both opens a dialog the first time and refreshes it in place
    *  afterwards. (Zone-admins grant/revoke no longer goes through here — see
    *  openZoneAdminsDialog.) */
+  /**
+   * The scuffle board, as the whiteboard shows it.
+   *
+   * Read-only and per zone: the server answers the walk-up with the tally it keeps for THIS zone
+   * (see petScoreStore), already resolved from pet slots to the names people use — so nothing here
+   * has to know that Emma is `dog_0`. Sent to the one client that walked up, which is why this
+   * opens a dialog rather than updating something shared.
+   */
+  private openPetScores(m: Record<string, unknown>): void {
+    const rows = Array.isArray(m.rows)
+      ? (m.rows as Array<{ name?: unknown; wins?: unknown; losses?: unknown }>)
+      : [];
+    const body = document.createElement('div');
+    if (rows.length === 0) {
+      const empty = document.createElement('p');
+      // The dim token from AGENTS.md § UI, named rather than invented: there is no `.pa-dim` class,
+      // and adding a global one for two spans would be worse than mirroring the colour.
+      empty.style.color = '#818586';
+      empty.textContent = 'No scuffles here yet.';
+      body.appendChild(empty);
+    }
+    rows.forEach((r, i) => {
+      const row = document.createElement('div');
+      row.className = 'pa-list-row';
+      const rank = document.createElement('span');
+      rank.style.color = '#818586';
+      rank.style.minWidth = '1.6rem';
+      rank.textContent = `${i + 1}.`;
+      const name = document.createElement('span');
+      name.style.flex = '1';
+      name.textContent = String(r.name ?? '');
+      const score = document.createElement('span');
+      // Wins AND losses: "Emma 12 : 3" tells a story where a list of winners only keeps a score.
+      score.textContent = `${Number(r.wins ?? 0)} : ${Number(r.losses ?? 0)}`;
+      row.append(rank, name, score);
+      body.appendChild(row);
+    });
+    openPaDialog({ title: 'Scuffle board', body, buttons: [] });
+  }
+
   private onZoneMembers(m: Record<string, unknown>): void {
     const id = typeof m.id === 'string' ? m.id : '';
     const zone = (this.pendingZoneSettings?.id === id ? this.pendingZoneSettings : this.zoneList.find((z) => z.id === id)) ?? null;

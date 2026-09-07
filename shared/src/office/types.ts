@@ -468,6 +468,16 @@ export type Action =
    *  any clock in any zone works and two people at one clock each punch their
    *  own card. */
   | { kind: 'timeClock' }
+  /**
+   * Shows who has won the most pet scuffles in THIS zone — today's whiteboard, when a mapper marks
+   * one as the board.
+   *
+   * Read-only and per zone: the tally is kept per pet SLOT (`dog_0`, `cat_1`), because a pet
+   * instance lives ten minutes and a name lives forever, and it is scored where the fight happened
+   * because a zone is what a board hangs in. Deliberately no default on any tile — a whiteboard is
+   * a whiteboard until somebody sets this on the one placement they want to be the board.
+   */
+  | { kind: 'petScores' }
   /** Zone travel — walking onto this furniture's own footprint (or a tile
    *  carrying this action directly) offers a destination picker, same as
    *  today's door/beam-pad. Triggers on arrival/rest, like every other

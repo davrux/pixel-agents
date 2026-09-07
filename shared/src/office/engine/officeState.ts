@@ -1363,6 +1363,23 @@ export class OfficeState {
    *  the room adds 'meetingRoom' arrivals to that room's membership, and
    *  tells the client to open its own local UI for everything else (see
    *  SimRoom.handleActionArrivals). */
+  /**
+   * Finished fights, waiting to be counted — drained by the room once per tick.
+   *
+   * The engine does not write to a database (nothing in `shared` does), and the room does not know
+   * when a cloud clears. So the outcome is reported the way action arrivals are: pushed here as it
+   * happens, taken by whoever owns the storage. One entry per fight, by pet SLOT (`dog_0`), because
+   * an instance lives ten minutes and a slot is what a leaderboard names.
+   */
+  private pendingScuffleResults: Array<{ winner: string; loser: string }> = [];
+
+  takeScuffleResults(): Array<{ winner: string; loser: string }> {
+    if (this.pendingScuffleResults.length === 0) return [];
+    const out = this.pendingScuffleResults;
+    this.pendingScuffleResults = [];
+    return out;
+  }
+
   takePendingActionArrivals(): Array<{ id: number; action: Action; col: number; row: number }> {
     if (this.pendingActionArrivals.length === 0) return [];
     const out = this.pendingActionArrivals;
@@ -2693,7 +2710,21 @@ export class OfficeState {
 
     const toDelete: number[] = [];
     for (const pet of this.pets.values()) {
+      // The transition SCUFFLE → WIN happens exactly once per fight and only for the winner, which
+      // makes it the one place a result can be recorded without counting it twice. Read here rather
+      // than inside the FSM because the loser's SLOT has to be looked up, and only OfficeState can
+      // see the other animal.
+      const wasFighting = pet.state === PetState.SCUFFLE;
       updatePet(pet, dt, ctx);
+      if (wasFighting && pet.state === PetState.WIN) {
+        const loser = pet.scufflePartnerId === null ? undefined : this.pets.get(pet.scufflePartnerId);
+        if (loser) {
+          this.pendingScuffleResults.push({
+            winner: `${pet.kind}_${pet.variant}`,
+            loser: `${loser.kind}_${loser.variant}`,
+          });
+        }
+      }
       if (pet.state === PetState.DESPAWN && pet.effectTimer >= PET_EFFECT_DURATION_SEC) {
         toDelete.push(pet.id);
       }

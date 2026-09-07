@@ -244,6 +244,21 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   };
 }
 
+/**
+ * The display name of a pet SLOT (`dog_0`, `cat_1`), or the slot itself when nothing named it.
+ *
+ * The leaderboard stores slots and shows names, and this is the one place that knows the difference
+ * — including an override, so a pet somebody renamed in the editor appears under the name they
+ * chose. Reads the merged bundle, which is cached process-wide, so this costs a property lookup.
+ */
+export function petDisplayName(slot: string): string {
+  const m = /^(dog|cat|bird)_(\d+)$/.exec(slot);
+  if (!m) return slot;
+  const raw = getMergedBundle().raw as unknown as Record<string, Array<{ name?: string }> | undefined>;
+  const list = raw[`${m[1]}s`];
+  return list?.[Number(m[2])]?.name || slot;
+}
+
 /** The broadcast message a given kind of asset maps to (for re-sync after an edit, or after a
  *  tileset changed on disk). */
 export function messageTypeForAsset(type: ResyncTarget): string {

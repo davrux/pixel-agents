@@ -1,5 +1,6 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
+import { petScoreStore } from '../petScoreStore.js';
 import { withArtUrl } from '../art/artUrl.js';
 import { validCharacterData } from '../art/characterDataGuard.js';
 import { avatarSeedFrom } from '../art/avatarSeed.js';
@@ -46,6 +47,7 @@ import {
   getMergedBundle,
   invalidateMergedBundle,
   messageTypeForAsset,
+  petDisplayName,
   type AssetType,
   type ResyncTarget,
 } from '../assetOverrides.js';
@@ -847,6 +849,33 @@ export class SimRoom extends Room<{ state: RoomState }> {
     } else {
       this.lastMeetingRoomArea.delete(playerId);
     }
+  }
+
+  /**
+   * Count the fights that finished this tick.
+   *
+   * The engine reports them (it cannot write to a database — nothing in `shared` does) and this
+   * drains them into the zone's tally. Cheap by construction: with the 90-second immunity a zone
+   * sees a handful of fights a minute at most, and each is two upserts by primary key.
+   */
+  private recordScuffleResults(): void {
+    for (const { winner, loser } of this.os.takeScuffleResults()) {
+      petScoreStore.record(this.zone.id, winner, loser);
+    }
+  }
+
+  /** The leaderboard as the whiteboard shows it: slots resolved to the names people know. */
+  private petScoresMessage(): Record<string, unknown> {
+    return {
+      type: 'petScores',
+      zone: this.zone.id,
+      rows: petScoreStore.table(this.zone.id).map((r) => ({
+        pet: r.pet,
+        name: petDisplayName(r.pet),
+        wins: r.wins,
+        losses: r.losses,
+      })),
+    };
   }
 
   /** Namespaced + sanitised LiveKit room name (prevents cross-deployment clashes). */
@@ -1825,6 +1854,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
+    this.recordScuffleResults();
     this.checkpointSpots(dt);
   }
 
@@ -1879,6 +1909,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
         if (!set) this.meetingRooms.set(key, (set = new Set<number>()));
         set.add(id);
         this.broadcast('m', this.meetingRoomMembersMsg(key));
+        continue;
+      }
+      if (action.kind === 'petScores') {
+        // Only the client that walked up, like every other kiosk: a board is read by whoever stands
+        // in front of it, and a broadcast would open a panel on every screen in the zone.
+        const client = this.clients.find((c) => this.players.get(c.sessionId) === id);
+        client?.send('m', this.petScoresMessage());
         continue;
       }
       if (action.kind === 'toggle') {

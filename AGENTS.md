@@ -302,6 +302,25 @@ fill's first step), which makes the ping-pong impossible rather than unlikely: t
 gives a median of 3. It has a second effect worth keeping — a genuinely cornered animal runs out of
 directions, stops fleeing and gets caught, so the chase RESOLVES instead of looping.
 
+**The scuffle board is an Action, and a whiteboard is only a board where a mapper says so.**
+`{ kind: 'petScores' }` on a PLACEMENT (`effectiveAction` prefers the instance over the tile), so
+one whiteboard in a zone becomes the leaderboard and every other whiteboard stays a whiteboard —
+there is deliberately no default on the tile. Walking up fires it like any other kiosk
+(`isClickAction` excludes only `appliance` and `talkingObject`, so a new kind needs nothing there),
+and the answer goes to that ONE client, because a board is read by whoever stands in front of it.
+Three decisions inside it:
+
+- **The tally is per pet SLOT** (`dog_0`), not per instance: an instance lives ten minutes, a slot
+  has a name. Slots are resolved to names for DISPLAY only (`petDisplayName`, which reads the merged
+  bundle so a renamed pet keeps its name) — a name is presentation, an id is identity.
+- **Per zone**, because a board hangs in a room and a zone chooses which animals live in it. Kept in
+  its own table (`pet_scores`, one row per zone × pet) rather than a blob in `settings`, which is
+  the shape that cost 5.3 ms per write at ten thousand entries. No foreign key to `zones`, following
+  `zone_admins`/`zone_acl`: `ZoneStore.delete` clears it, and the cascade rule is about ACCOUNT data.
+- **The result is reported once**, on the winner's `SCUFFLE → WIN` transition, and drained by the
+  room (`takeScuffleResults`) — the engine writes to no database, and reading it per pet would count
+  every fight twice.
+
 **A flight answers itself; only a cornered animal asks the pathfinder.** `pathAwayFrom` (shared by
 the `flee` reaction and the loser's retreat) used to filter all 2634 walkable tiles of a real map,
 sort them by distance from the hunter and ask A* whether the best eight were reachable — 172 µs per

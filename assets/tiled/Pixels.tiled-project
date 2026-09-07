@@ -244,6 +244,7 @@
         "appliance",
         "arcade",
         "timeClock",
+        "petScores",
         "portal",
         "toggle",
         "spawnPoint",
