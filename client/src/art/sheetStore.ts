@@ -55,6 +55,15 @@ export function forgetSheet(id: string): void {
   sheets.delete(id);
 }
 
+/**
+ * The sheet as it arrived, for the one caller that needs a texture of its OWN rather than a cell
+ * out of the shared atlas: a tiling texture is sampled with GL_REPEAT, which is a property of a
+ * whole texture and cannot be asked of one frame inside a packed page.
+ */
+export function sheetBitmap(id: string): ImageBitmap | null {
+  return sheets.get(id)?.bitmap ?? null;
+}
+
 /** Frame size of a registered sheet — what the renderer needs besides the texture. */
 export function sheetFrameSize(id: string): { w: number; h: number } | null {
   const s = sheets.get(id);

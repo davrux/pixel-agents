@@ -342,8 +342,9 @@ if (urlBad.length) {
 
 // ── 5. Per-entity textures are removed ─────────────────────────────────────
 //
-// A texture is GPU memory the garbage collector cannot help with. The Matrix effect makes
-// one per character; a canvas texture per uploaded image is another.
+// A texture is GPU memory the garbage collector cannot help with. A canvas texture per
+// uploaded image is the usual shape; the Matrix effect's FALLBACK still makes one per
+// character (and removes it), while its normal path shares one tile for the whole world.
 
 /** Files whose textures live as long as the session, and why. */
 const TEXTURES_KEPT = new Map([
@@ -352,6 +353,11 @@ const TEXTURES_KEPT = new Map([
     'atlas pages and sheet textures ARE the session\'s art store; they are reused, not per-entity',
   ],
   ['client/src/render/markerIcons.ts', 'one icon set, rasterised per zoom step and reused'],
+  [
+    'client/src/render/matrixRain.ts',
+    'ONE 32x128 rain tile for the whole world, created on first use and shared by every ' +
+      'character (the per-character sprites that scroll it are destroyed in PhaserRenderer)',
+  ],
 ]);
 const texBad = [];
 for (const [file, src] of code) {

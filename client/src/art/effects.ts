@@ -1,14 +1,17 @@
 /**
  * The effect sheets — art that belongs to the world but to no pawn.
  *
- * There is one today, the scuffle cloud. It needs no message on the wire: the ids are constants of
- * the build (`shared/office/effects.ts`), so the client simply fetches each one during its loading
- * phase and registers it in the same sheet store the character and pet art goes through — one
- * atlas, one code path, no texture of its own (AGENTS.md § Conventions).
+ * Two today: the scuffle cloud and the Matrix rain. They need no message on the wire — the ids are
+ * constants of the build (`shared/office/effects.ts`) — so the client fetches each one during its
+ * loading phase and registers it in the same sheet store the character and pet art goes through.
+ * The cloud is then drawn out of the shared atlas like every other sprite; the rain is the one
+ * exception, because a tiling texture needs GL_REPEAT over a whole texture and therefore gets one
+ * of its own (`render/matrixRain.ts` — one for the world, not one per character).
  *
- * A failure here is deliberately not fatal. Without the cloud the renderer draws the two animals
- * standing still, which is what the world looked like before this existed — worse than the effect,
- * far better than a hole where two pets should be.
+ * A failure here is deliberately not fatal, and what happens instead is worth knowing per sheet:
+ * without the cloud the renderer draws the two animals standing still (what the world looked like
+ * before it existed), and without the rain the Matrix effect falls back to painting itself pixel by
+ * pixel, which is correct and slow.
  */
 import { EFFECT_SHEETS } from '@pixel/shared/office/effects.js';
 

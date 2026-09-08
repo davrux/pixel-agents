@@ -674,8 +674,31 @@ check asks: is the release present in the code that acquires?
   arrives as a PNG sheet. A texture per sprite (or per skin) is what breaks batching — a
   painted decal field is hundreds of distinct 16×16 pieces, i.e. hundreds of binds per
   frame — so anything that draws a sprite goes through one of those two functions, never
-  `createCanvas` of its own. Two exceptions, both deliberate: the Matrix effect
-  (fresh pixels every frame) and uploaded background images (real PNGs).
+  `createCanvas` of its own. Two exceptions, both deliberate: uploaded background images
+  (real PNGs) and the Matrix rain — a TILING texture needs `GL_REPEAT` over a whole
+  texture, which cannot be asked of one frame inside a packed page, so it gets one 32×128
+  texture for the WORLD (`render/matrixRain.ts`), not one per character.
+- **An effect that covers a figure is a tiled sheet, not a pixel loop.** The Matrix
+  materialise/dissolve used to paint itself: every cell of the character's frame rectangle
+  got a `fillRect` for the body and another for the rain, into a canvas texture per
+  character that was re-uploaded every frame — 581 fills per frame for a 16×32 character,
+  **4 376 for a 64×64 one**, measured at **7.10 ms per frame** with five 64×64 figures
+  materialising at once (headless Chromium, software raster; two `drawImage` measured
+  0.0083 ms for the same scene). It is now the ordinary atlas sprite at
+  `matrixBodyAlpha()` with `MATRIX_RAIN_SHEET` tiled over it, which is two draws whatever
+  the figure's size. Four rules keep that honest, and each is why a detail is where it is:
+  the rain was never masked to the silhouette, which is what makes ONE generic sheet
+  correct for every skin, pose, direction and frame size; the sheet **tiles rather than
+  stretches**, because a frame authored for one height gives a 64×64 figure fat drops and
+  a 16×32 one fine ones; the sweep is one BAND of drops in an otherwise empty tile scrolled
+  by `matrixRainScrollY()`, and the empty gap (100 px) is longer than the tallest legal
+  figure so a second band can never enter while the first is leaving
+  (`matrixRain.int.test.ts` pins both, with the geometry read off the committed PNG); and
+  the shared formulas — progress, body alpha, flicker — live in `engine/matrixEffect.ts`
+  because the pixel path still exists as the FALLBACK for a sheet that did not load, and a
+  second copy of `progress * 1.35` in the client is the drift the cadence tables already
+  taught us about. Per-figure variety comes from a horizontal offset derived from the
+  character id, which is what replaced the 64 stagger seeds.
 - **Characters and pets are drawn from their sheet, not from pixels.** `poseFrames.ts`
   (shared) turns a pose into a COLUMN — same rule as `spriteForPose`, arithmetic instead
   of arrays — and `client/src/art/sheetStore.ts` hands the renderer that cell out of the

@@ -22,7 +22,12 @@ import {
 } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
 import { getCharacterPose } from '@pixel/shared/office/engine/index.js';
-import { renderMatrixEffect } from '@pixel/shared/office/engine/matrixEffect.js';
+import {
+  matrixBodyAlpha,
+  matrixProgress,
+  matrixRainDim,
+  renderMatrixEffect,
+} from '@pixel/shared/office/engine/matrixEffect.js';
 import type {
   FurnitureInstance,
   OfficeLayout,
@@ -48,7 +53,7 @@ import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
 } from '@pixel/shared/office/sprites/spriteData.js';
-import { SCUFFLE_SHEET } from '@pixel/shared/office/effects.js';
+import { matrixRainScrollX, matrixRainScrollY, SCUFFLE_SHEET } from '@pixel/shared/office/effects.js';
 import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
 import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
@@ -65,6 +70,7 @@ import {
   type SpriteTex,
 } from './sprites.js';
 import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
+import { matrixRainTexture } from './matrixRain.js';
 
 const FLOOR_DEPTH = -100000;
 /** Placed background images (OfficeLayout.images) — a fixed layer just above
@@ -73,6 +79,9 @@ const FLOOR_DEPTH = -100000;
  *  PlacedImage's doc comment in shared/office/types.ts. */
 const IMAGE_DEPTH = FLOOR_DEPTH + 1;
 const BUBBLE_DEPTH = 1_000_000;
+/** The Matrix rain sits immediately in front of the body it belongs to. Small enough that the
+ *  ordering BETWEEN characters (one depth unit per world pixel of y) is untouched. */
+const MATRIX_RAIN_DEPTH_OFFSET = 0.01;
 
 // Head markers (☕ / 💤 afk — see markerIcons.ts). Sizes are WORLD
 // pixels; being world-space, they keep that size relative to the avatar. They
@@ -157,8 +166,10 @@ export class PhaserRenderer {
   private lastFurnitureRef: unknown = null;
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
-  /** Per-character canvas texture key for the Matrix spawn/despawn effect. */
+  /** Per-character canvas texture key for the Matrix FALLBACK effect (see matrixRain.ts). */
   private readonly matrixKeys = new Map<number, string>();
+  /** The tiled rain over a materialising character, one per character while the effect lasts. */
+  private readonly matrixRain = new Map<number, Phaser.GameObjects.TileSprite>();
 
   /** Keep the fetched floor/wall sheets as textures — one per sheet, drawn from
    *  by frame (see sprites.ts). Call once the sheets have loaded, before
@@ -376,6 +387,19 @@ export class PhaserRenderer {
     }
   }
 
+  /**
+   * Advance the animated pieces — the goldfish, the fountain, the flag.
+   *
+   * This is where furniture animation lives now, and it is the same rule the characters follow:
+   * the frame PHASE is presentation timing and belongs to whoever draws (invariant 2). The server
+   * used to decide it by rewriting each placement's art id, which made 163 records travel to
+   * every viewer five times a second so that four of them could show their next picture.
+   *
+   * Cheap by construction: `animatedFurniture` holds only the pieces that animate, the clock is
+   * the scene's own, and a texture is set only when the frame id actually changes — so a 120 ms
+   * frame costs one `setTexture` every 120 ms, not one per frame. The phase differs between
+   * viewers, deliberately: so does every walk cycle.
+   */
   private solid(x: number, y: number, hex: string, depth: number): Phaser.GameObjects.Image {
     // 1×1 white texture tinted + scaled to a tile — cheap solid fill.
     const img = this.scene.add
@@ -415,7 +439,7 @@ export class PhaserRenderer {
         g.bubble.destroy();
         for (const m of g.markers) m.destroy();
         this.chars.delete(id);
-        this.removeMatrixTexture(id);
+        this.removeMatrixArt(id);
       }
     }
   }
@@ -437,21 +461,28 @@ export class PhaserRenderer {
     const frameH = size.h;
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
 
-    // Matrix digital-rain spawn/despawn (per-pixel, 1:1 with the v1 renderer): the one
-    // caller that genuinely needs pixels, and it generates its own every frame — so it
-    // asks the sheet store for the cell it is dissolving.
-    const tex = ch.matrixEffect
-      ? this.matrixTexture(ch, sheetCellPixels(ch.skin, ch.dir, cell.col) ?? [])
-      : sheetCellFrame(this.scene, ch.skin, ch.dir, cell.col, cell.synthSit);
+    // Matrix digital rain (spawn/despawn): the body is the ordinary atlas sprite, faded, with the
+    // rain tiled over it — two draws instead of one filled rect per pixel per frame. The pixel path
+    // answers only when the rain sheet did not load; it is the one caller in the client that still
+    // needs hex pixels for art, and it needs them per frame.
+    const rainKey = ch.matrixEffect ? matrixRainTexture(this.scene) : null;
+    const tex =
+      ch.matrixEffect && !rainKey
+        ? this.matrixTexture(ch, sheetCellPixels(ch.skin, ch.dir, cell.col) ?? [])
+        : sheetCellFrame(this.scene, ch.skin, ch.dir, cell.col, cell.synthSit);
     if (!tex) {
       g.body.setVisible(false);
+      this.removeMatrixArt(ch.id);
       return;
     }
+    const depth = ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
     g.body.setTexture(tex.key, tex.frame);
     g.body.setPosition(ch.x, ch.y + sit);
-    g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
-    g.body.setAlpha(1);
+    g.body.setDepth(depth);
+    // The fallback texture already carries the fade in its pixels; the atlas sprite does not.
+    g.body.setAlpha(rainKey ? matrixBodyAlpha(ch) : 1);
     g.body.setVisible(true);
+    this.drawMatrixRain(ch, rainKey, size.w, frameH, sit, depth);
 
     // Status markers over the head (☕ / 💤 afk / muted mic).
     this.drawMarkers(ch, g, frameH, sit);
@@ -560,6 +591,62 @@ export class PhaserRenderer {
     renderMatrixEffect(ctx, ch, sd, 0, 0, 1);
     canvasTex.refresh();
     return { key };
+  }
+
+  /**
+   * The rain over one materialising character.
+   *
+   * A `TileSprite` rather than an image, for the reason that decides everything else here: figures
+   * are 16×32 up to 64×64, and a sheet stretched to fit would give a tall character fat drops and a
+   * small one fine ones. Tiling keeps the drops at their authored pixel size on every figure, and
+   * scrolling the sheet's one band of drops across the frame IS the sweep (see matrixRain.ts).
+   *
+   * Called with `key === null` whenever the effect is not running, which makes it the release site
+   * too: the sprite — and the fill-pattern texture Phaser builds for it — lives exactly as long as
+   * the effect, not as long as the character.
+   */
+  private drawMatrixRain(
+    ch: Character,
+    key: string | null,
+    w: number,
+    h: number,
+    sit: number,
+    depth: number,
+  ): void {
+    if (!key) {
+      this.removeMatrixRain(ch.id);
+      return;
+    }
+    let rain = this.matrixRain.get(ch.id);
+    if (!rain) {
+      rain = this.scene.add.tileSprite(0, 0, w, h, key).setOrigin(0.5, 1);
+      this.matrixRain.set(ch.id, rain);
+    }
+    // The body's own rectangle: origin (0.5, 1) at the feet, so the sweep covers the figure and
+    // nothing else. The size only changes if a viewer changes skin mid-effect.
+    if (rain.width !== w || rain.height !== h) rain.setSize(w, h);
+    rain.setPosition(ch.x, ch.y + sit);
+    // Just in front of its own body, which leaves the ordering between characters alone.
+    rain.setDepth(depth + MATRIX_RAIN_DEPTH_OFFSET);
+    rain.tilePositionX = matrixRainScrollX(ch.id);
+    rain.tilePositionY = matrixRainScrollY(matrixProgress(ch), h);
+    rain.setAlpha(matrixRainDim(ch));
+    rain.setVisible(true);
+  }
+
+  private removeMatrixRain(id: number): void {
+    const rain = this.matrixRain.get(id);
+    if (!rain) return;
+    rain.destroy();
+    this.matrixRain.delete(id);
+  }
+
+  /** Everything the effect allocated for one character — the rain sprite and, if the sheet was
+   *  missing, its fallback canvas. One release site, called when a character goes and when its
+   *  art does. */
+  private removeMatrixArt(id: number): void {
+    this.removeMatrixRain(id);
+    this.removeMatrixTexture(id);
   }
 
   /** One cloud per scuffling pair, keyed `<lowId>:<highId>`; destroyed when the pair ends. */

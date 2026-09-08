@@ -136,6 +136,9 @@ export const MATRIX_TRAIL_LENGTH = 12;
  *  at the knees for the whole animation. This is just an upper bound, matching
  *  the largest frame the character editor allows; surplus seeds cost nothing. */
 export const MATRIX_SEED_COUNT = 64;
+
+/** How far the tiled rain dims on an off beat of the flicker clock (see matrixRainDim). */
+export const MATRIX_RAIN_FLICKER_DIM = 0.72;
 export const MATRIX_FLICKER_FPS = 30;
 export const MATRIX_FLICKER_VISIBILITY_THRESHOLD = 205;
 export const MATRIX_COLUMN_STAGGER_RANGE = 0.3;
