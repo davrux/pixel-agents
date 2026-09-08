@@ -20,7 +20,7 @@ import {
 import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
 import { isWorkStatus } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
-import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
+import { CharacterSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
@@ -243,7 +243,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  connection status indicator. */
   private version = '';
   private readonly activity = new Map<number, string>();
-  private lastFurnitureRef: unknown = null;
+  /** The on-set as last synced, joined — see syncFurnitureOn. */
+  private lastFurnitureOnSig: string | null = null;
   /** Server-only pet behaviour tree (decides pet activity; not in client bundle). */
   private readonly petBrain = new PetBrain();
 
@@ -1020,12 +1021,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const client of this.clients) client.send('m', this.zoneListMessage());
   }
 
-  /** Rebuild the simulation from the zone's (re-pushed) map and push it to all
-   *  viewers (floor/walls via layoutLoaded; furniture re-syncs through schema). */
+  /** Rebuild the simulation from the zone's (re-pushed) map and push it to all viewers. One
+   *  message does it: `layoutLoaded` carries the placements, and a client draws furniture from
+   *  the map it was given (see RoomState.furnitureOn for what still goes through the schema). */
   private applyZoneMap(): void {
     const layout = this.zoneLayout();
     if (layout) this.os.rebuildFromLayout(layout);
-    this.lastFurnitureRef = null; // force furniture re-sync
     this.broadcast('m', this.zoneMapMessage());
   }
 
@@ -1790,7 +1791,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
         });
         // Footprints/seats may have changed → rebuild the office from the layout.
         this.os.rebuildFromLayout(this.zoneLayout() ?? this.os.layout);
-        this.lastFurnitureRef = null; // force furniture re-sync
         break;
     }
     const msgType = messageTypeForAsset(type);
@@ -1853,7 +1853,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.handleSpokenLines();
     this.syncCharacters();
     this.syncPets();
-    this.syncFurniture();
+    this.syncFurnitureOn();
     this.recordScuffleResults();
     this.checkpointSpots(dt);
   }
@@ -2080,37 +2080,28 @@ export class SimRoom extends Room<{ state: RoomState }> {
     }
   }
 
-  private syncFurniture(): void {
-    if (this.os.furniture === this.lastFurnitureRef) return;
-    this.lastFurnitureRef = this.os.furniture;
-    const placements = this.os.furniturePlacements;
-    this.state.furniture.splice(0, this.state.furniture.length);
-    for (const p of placements) {
-      const fs = new FurnitureSync();
-      fs.id = p.id;
-      fs.col = p.col;
-      fs.row = p.row;
-      fs.name = p.name ?? '';
-      const action = effectiveAction(p, entryFor(p));
-      fs.action = action ? JSON.stringify(action) : '';
-      fs.flippedHorizontally = !!p.flippedHorizontally;
-      fs.flippedVertically = !!p.flippedVertically;
-      // -1 = "not overridden" throughout (see FurnitureSync) — never coerce an
-      // absent override to false, or every inherited seat arrives unsittable.
-      fs.canSitOn = p.canSitOn === undefined ? -1 : p.canSitOn ? 1 : 0;
-      fs.petCanSitOn = p.petCanSitOn === undefined ? -1 : p.petCanSitOn ? 1 : 0;
-      fs.canWalkOver = p.canWalkOver === undefined ? -1 : p.canWalkOver ? 1 : 0;
-      fs.opacity = p.opacity === undefined ? 255 : Math.max(0, Math.min(255, Math.round(p.opacity * 255)));
-      fs.sitFacing = p.sitFacing ?? -1;
-      fs.backgroundTiles = p.backgroundTiles ?? -1;
-      fs.onState = p.onState ?? '';
-      fs.zOffset = p.zOffset ?? 0;
-      // 0 = the art's own size (see FurnitureSync.width).
-      fs.width = p.width ?? 0;
-      fs.height = p.height ?? 0;
-      // 0 = upright. Only ever a quarter turn: the import refuses anything else.
-      fs.angle = p.angle ?? 0;
-      this.state.furniture.push(fs);
-    }
+  /**
+   * Push which pieces are switched on — the whole of what furniture costs on the wire now.
+   *
+   * This used to rebuild an entire `FurnitureSync` array (163 records × 19 fields on uponu) every
+   * time the engine swapped its placement list, which the ambient animation did five times a
+   * second: 11 442 bytes per patch, per viewer, in a world where nothing moved, to say that a
+   * goldfish and a flag had reached their next frame. The placements themselves travel once with
+   * the map, and the frame is the client's business (invariant 2) — so what is left is the on-set,
+   * and it changes only when somebody sits down, stands up or clicks a switch.
+   *
+   * Compared as a joined string rather than as a set diff: the engine keeps the uids sorted for
+   * exactly this, and on a still map both sides are the empty string, so the common case is one
+   * comparison and no writes at all.
+   */
+  private syncFurnitureOn(): void {
+    const sig = this.os.furnitureOnUids.join('|');
+    if (sig === this.lastFurnitureOnSig) return;
+    this.lastFurnitureOnSig = sig;
+    const on = this.os.furnitureOnUids;
+    // Written in place, so switching one monitor on re-encodes one entry and not the list. The
+    // length is trimmed first: an entry left behind would keep a piece lit that nobody sits at.
+    while (this.state.furnitureOn.length > on.length) this.state.furnitureOn.pop();
+    for (let i = 0; i < on.length; i++) this.state.furnitureOn[i] = on[i];
   }
 }

@@ -168,6 +168,17 @@ export function getCatalogEntry(id: string): FurnitureCatalogEntry | undefined {
 }
 
 /**
+ * How many entries the catalog holds — zero until the assets have arrived.
+ *
+ * The client needs this because the catalog and the map come over two independent channels with
+ * no ordering between them: resolving a placement against an empty catalog draws nothing and
+ * looks exactly like a map with no furniture in it (see OfficeScene.rebuildFurniture).
+ */
+export function catalogSize(): number {
+  return byId?.size ?? 0;
+}
+
+/**
  * The catalog entry as it applies to THIS placement.
  *
  * A placement may carry its own drawn size (Tiled's object resize — see

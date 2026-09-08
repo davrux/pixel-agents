@@ -30,6 +30,7 @@ import {
   type FurnitureInstance,
   type OfficeLayout,
   type Pet,
+  type PlacedFurniture,
   type SpriteData,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
@@ -39,6 +40,8 @@ import {
   isClickAction,
   resolveBackgroundTiles,
   resolveCanSitOn,
+  resolveOnState,
+  catalogSize,
   entryFor,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
@@ -215,7 +218,9 @@ export class OfficeScene extends Phaser.Scene {
   private readonly pets = new Map<number, RenderPet>();
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
-  private furniturePlacements: Array<{ uid: string; id: string; col: number; row: number; name?: string; action?: Action }> = [];
+  /** This zone's placements with the on-state applied — the map's own objects, not a decoded
+   *  copy of them (see rebuildFurniture). Used for click hit-testing and seat resolution. */
+  private furniturePlacements: PlacedFurniture[] = [];
   private furnitureDirty = false;
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
@@ -651,7 +656,15 @@ export class OfficeScene extends Phaser.Scene {
         // zone uses a handful of a catalog with thousands of entries.
         const layout = this.os.getLayout();
         const ids = new Set<string>();
-        for (const f of layout.furniture ?? []) ids.add(f.id);
+        for (const f of layout.furniture ?? []) {
+          ids.add(f.id);
+          // …and what it turns into when switched on. That art used to arrive with the placement
+          // itself (the server sent the ON id in the furniture patch); now the map names only the
+          // off state, and a monitor lighting up must not have to wait for a fetch. The frames of
+          // an animated ON variant come from the same atlas entry, so this is one id per piece.
+          const on = resolveOnState(f, entryFor(f));
+          if (on !== f.id) ids.add(on);
+        }
         for (const d of layout.decals ?? []) ids.add(d.id);
         loading.expect();
         loading.say('fetching the art this map uses');
@@ -948,7 +961,7 @@ export class OfficeScene extends Phaser.Scene {
     const state = room.state as unknown as {
       characters: MapSchema<Record<string, unknown>>;
       pets: MapSchema<Record<string, unknown>>;
-      furniture: ArraySchema<unknown>;
+      furnitureOn: ArraySchema<string>;
     };
 
     $(state).characters.onAdd((cs: Record<string, unknown>, key: string) => {
@@ -982,10 +995,12 @@ export class OfficeScene extends Phaser.Scene {
     });
     $(state).pets.onRemove((_ps: unknown, key: string) => this.pets.delete(Number(key)));
 
+    // Which pieces are switched on is the only furniture fact that arrives per patch (see
+    // RoomState.furnitureOn); the placements came with the map and the frames are local.
     const markFurniture = () => (this.furnitureDirty = true);
-    $(state).furniture.onAdd(markFurniture);
-    $(state).furniture.onChange(markFurniture);
-    $(state).furniture.onRemove(markFurniture);
+    $(state).furnitureOn.onAdd(markFurniture);
+    $(state).furnitureOn.onChange(markFurniture);
+    $(state).furnitureOn.onRemove(markFurniture);
   }
 
   private applyChar(rc: RenderChar, cs: Record<string, unknown>): void {
@@ -1049,79 +1064,31 @@ export class OfficeScene extends Phaser.Scene {
     rp.scufflePartnerId = ((ps.scufflePartnerId as number) || null) as never;
   }
 
-  /** Rebuild the local furniture list from synced state. Returns false when
-   *  there is no synced state yet, so the caller keeps its dirty flag and tries
-   *  again next frame.
+  /**
+   * Rebuild the local furniture list — from the MAP, with the on-state laid over it.
    *
-   *  Not defensive padding: the furniture CATALOG can arrive before the first
-   *  state patch — it does in Firefox, where that order is the other way round
-   *  than in Chrome — and the catalog is one of the things that marks furniture
-   *  dirty. This read then threw on `undefined.map`, and since the throw came
-   *  before the flag was cleared, every following frame threw again. */
+   * The placements come from `layoutLoaded` (the layout carries every one of them, uids and
+   * overrides included), so nothing about a chair travels per patch any more. What the room still
+   * tells us is which pieces are switched on (`furnitureOn` — a seated agent's monitor, a clicked
+   * light), because that is a decision this client cannot make. And the animation FRAME is
+   * resolved in the renderer, per frame, out of the same catalog and the same `animationFrameAt`
+   * the server used to run — presentation timing, invariant 2.
+   *
+   * Returns false while the catalog has not arrived yet, so the caller keeps its dirty flag and
+   * tries again: the catalog and the layout come over two independent channels with no ordering
+   * between them (in Firefox they land the other way round than in Chrome), and resolving a
+   * placement against an empty catalog silently renders nothing forever.
+   */
   private rebuildFurniture(): boolean {
-    const state = this.room?.state as {
-      furniture?: Array<{
-        id: string;
-        col: number;
-        row: number;
-        name?: string;
-        action?: string;
-        flippedHorizontally?: boolean;
-        flippedVertically?: boolean;
-        // Behaviour overrides, -1 = not overridden — see FurnitureSync.
-        canSitOn: number;
-        petCanSitOn: number;
-        canWalkOver: number;
-        opacity: number;
-        sitFacing: number;
-        backgroundTiles: number;
-        onState?: string;
-        zOffset: number;
-        width: number;
-        height: number;
-        angle: number;
-      }>;
-    } | undefined;
-    const arr = state?.furniture;
-    if (!arr) return false;
-    this.furniturePlacements = arr.map((f, i) => {
-      let action: Action | undefined;
-      if (f.action) {
-        try {
-          action = JSON.parse(f.action) as Action;
-        } catch {
-          /* malformed — treat as no override */
-        }
-      }
-      return {
-        uid: `f${i}`,
-        id: f.id,
-        col: f.col,
-        row: f.row,
-        name: f.name,
-        action,
-        ...(f.flippedHorizontally ? { flippedHorizontally: true } : {}),
-        ...(f.flippedVertically ? { flippedVertically: true } : {}),
-        // -1 = not overridden (see FurnitureSync); anything else is a real
-        // answer that has to survive the wire, or isSeatTile below and the
-        // seat z-sort both fall back to the catalog and disagree with the
-        // server about what you may sit on.
-        ...(f.canSitOn >= 0 ? { canSitOn: f.canSitOn === 1 } : {}),
-        ...(f.petCanSitOn >= 0 ? { petCanSitOn: f.petCanSitOn === 1 } : {}),
-        ...(f.canWalkOver >= 0 ? { canWalkOver: f.canWalkOver === 1 } : {}),
-        ...(f.opacity < 255 ? { opacity: f.opacity / 255 } : {}),
-        ...(f.sitFacing >= 0 ? { sitFacing: f.sitFacing as Direction } : {}),
-        ...(f.backgroundTiles >= 0 ? { backgroundTiles: f.backgroundTiles } : {}),
-        ...(f.onState ? { onState: f.onState } : {}),
-        // Stacking among overlapping items — see FurnitureSync.zOffset.
-        ...(f.zOffset ? { zOffset: f.zOffset } : {}),
-        // 0 = the art's own size, so only a resized placement carries one.
-        ...(f.width && f.height ? { width: f.width, height: f.height } : {}),
-        // 0 = upright — see FurnitureSync.angle. Carried because entryFor swaps the
-        // piece's sides for a quarter turn, and the client asks entryFor the same
-        // questions the server does (which cells, which seats, what depth).
-        ...(f.angle ? { angle: f.angle } : {}),
-      };
+    if (catalogSize() === 0) return false;
+    const placements = this.os.getLayout().furniture;
+    const on = new Set<string>((this.room?.state as { furnitureOn?: Iterable<string> } | undefined)?.furnitureOn ?? []);
+    this.furniturePlacements = placements.map((f) => {
+      const entry = entryFor(f);
+      // Switched on: draw (and click) the ON variant, exactly as the server's own placement list
+      // reads it — `resolveOnState` is the shared answer, so the two cannot drift apart.
+      const id = entry && on.has(f.uid) ? resolveOnState(f, entry) : f.id;
+      return id === f.id ? f : { ...f, id };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
     return true;
@@ -1639,6 +1606,10 @@ export class OfficeScene extends Phaser.Scene {
     // The loading phase waits for the first one of these; it then draws once itself,
     // so the buildStatic below is for the LATER ones — a pushed map arriving live.
     this.resolveLayout();
+    // The placements live in the MAP now, so this message IS the furniture update (see
+    // rebuildFurniture). Nothing else would mark it dirty: the schema only carries which
+    // pieces are switched on, and a new map usually leaves that answer alone.
+    this.furnitureDirty = true;
     if (this.loading === null) {
       // A pushed map may name a tileset nobody fetched yet (we only fetch what a map
       // uses). Register the missing ones, then draw again with them.
@@ -2139,6 +2110,9 @@ export class OfficeScene extends Phaser.Scene {
     // NOT furnitureDirty: update() clears it before calling this, so checking it
     // here can never fire. update() ORs the rebuild in directly instead.
     if (this.portalPickerTile) return true;
+    // An animated piece of furniture is motion on screen, and its clock is now local (see
+    // PhaserRenderer.syncFurnitureAnimation) — nothing else would keep the loop awake for it.
+    if (this.view.hasAnimatedFurniture()) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
     for (const ch of this.characters.values()) {

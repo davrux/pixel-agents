@@ -82,8 +82,17 @@ export const WORLD_ROOM = 'world';
  *     leave ungated: an older build would read `msg.ducks` as undefined and simply show no birds at
  *     all, with nothing to point at. Stored ids move with a boot migration
  *     (`schema/renameDuckToBird.ts`), which is user data and cannot be renamed by editing code.
+ * 15 — furniture stops travelling per patch. The `FurnitureSync` array is gone and
+ *     `RoomState.furnitureOn` (which uids are switched on) replaces it: the placements already
+ *     arrive once with the map in `layoutLoaded`, and the animation FRAME is presentation timing
+ *     the client resolves itself (invariant 2). Measured before: 11 442 bytes per patch on uponu
+ *     with one character and nothing moving — 163 records of nineteen fields, rebuilt five times a
+ *     second because the ambient animation swapped the engine's placement list, i.e. 57 KB/s per
+ *     viewer to say that a goldfish and a flag had reached their next frame. A collection removed
+ *     and another added is the sharpest kind of wire change there is: an older build decodes the
+ *     new state into nonsense, so it must be sent to the version gate instead.
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

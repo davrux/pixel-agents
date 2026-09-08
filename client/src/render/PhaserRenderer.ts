@@ -54,6 +54,7 @@ import {
   BUBBLE_WAITING_SPRITE,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { matrixRainScrollX, matrixRainScrollY, SCUFFLE_SHEET } from '@pixel/shared/office/effects.js';
+import { animationFrameAt } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
 import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
@@ -160,6 +161,9 @@ export class PhaserRenderer {
    *  plain decoration, no per-frame animation/instance churn. */
   private readonly images: Phaser.GameObjects.Image[] = [];
   private readonly furniturePool: Phaser.GameObjects.Image[] = [];
+  /** The pooled sprites that animate, with the art id they are showing — see
+   *  syncFurnitureAnimation. Rebuilt with the furniture list, so it is bounded by the map. */
+  private readonly animatedFurniture: Array<{ index: number; base: string; shown: string }> = [];
   /** The furniture array reference last rendered — the engine swaps it on each
    *  rebuild (ambient animation every ~0.2s and PC auto-on/off), so an identity
    *  check tells us cheaply when to re-sync. */
@@ -342,11 +346,18 @@ export class PhaserRenderer {
     }
   }
 
-  /** Re-render furniture only when the engine swapped the instance array
-   *  (ambient animation, PC auto-on/off). Pooled to avoid create/destroy churn. */
+  /**
+   * Re-render furniture when the list itself changed — a pushed map, or a piece switched on.
+   *
+   * That is now a rare event: the ambient animation used to be in here too, because the server
+   * expressed a frame as a different art id and swapped the whole list five times a second. The
+   * frame is resolved per FRAME instead, in syncFurnitureAnimation below, over the handful of
+   * pieces that animate (four of 163 on uponu). Pooled either way, to avoid create/destroy churn.
+   */
   private syncFurniture(): void {
     if (this.state.furniture === this.lastFurnitureRef) return;
     this.lastFurnitureRef = this.state.furniture;
+    this.animatedFurniture.length = 0;
 
     const items = this.state.furniture;
     for (let i = 0; i < items.length; i++) {
@@ -358,6 +369,11 @@ export class PhaserRenderer {
       }
       const ftex = spriteTextureFor(this.scene, f.spriteId, f.sprite);
       img.setTexture(ftex.key, ftex.frame);
+      // Does this piece animate? Asked once per list rebuild, not per frame: the answer can only
+      // change when the list does, and `animationFrameAt` walks every group to find out.
+      if (f.spriteId && animationFrameAt(f.spriteId, 0) !== null) {
+        this.animatedFurniture.push({ index: i, base: f.spriteId, shown: f.spriteId });
+      }
       // f.width/f.height is the box this piece OCCUPIES — for a turned piece the rectangle
       // around the turned art (entryFor resolved that, so the cells it blocks agree with the
       // picture). The art keeps its own size and is turned inside that box; drawing it at the
@@ -400,6 +416,28 @@ export class PhaserRenderer {
    * frame costs one `setTexture` every 120 ms, not one per frame. The phase differs between
    * viewers, deliberately: so does every walk cycle.
    */
+  /** Does this map animate any furniture? The scene asks before it lets the render loop go idle:
+   *  an animated piece is on-screen motion, exactly like a character's walk cycle (see
+   *  OfficeScene.sceneBusy). While the frame came from the server, its patches kept the loop
+   *  awake as a side effect — now nothing would, and a fountain would freeze. */
+  hasAnimatedFurniture(): boolean {
+    return this.animatedFurniture.length > 0;
+  }
+
+  private syncFurnitureAnimation(): void {
+    if (this.animatedFurniture.length === 0) return;
+    const nowMs = this.scene.time.now;
+    for (const anim of this.animatedFurniture) {
+      const id = animationFrameAt(anim.base, nowMs);
+      if (!id || id === anim.shown) continue;
+      anim.shown = id;
+      const img = this.furniturePool[anim.index];
+      if (!img) continue;
+      const tex = spriteTextureFor(this.scene, id, undefined);
+      img.setTexture(tex.key, tex.frame);
+    }
+  }
+
   private solid(x: number, y: number, hex: string, depth: number): Phaser.GameObjects.Image {
     // 1×1 white texture tinted + scaled to a tile — cheap solid fill.
     const img = this.scene.add
@@ -414,6 +452,7 @@ export class PhaserRenderer {
   /** Per-frame sync of furniture (when changed), characters, pets and bubbles. */
   update(): void {
     this.syncFurniture();
+    this.syncFurnitureAnimation();
     this.syncCharacters();
     this.syncPets();
   }

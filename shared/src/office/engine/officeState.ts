@@ -21,7 +21,6 @@ import {
 } from '../constants.js';
 import { isPlayerAvatarSkin, agentCount } from '../../protocol.js';
 import {
-  animationFrameAt,
   effectiveAction,
   isClickAction,
   resolveOnState,
@@ -34,7 +33,6 @@ import {
   getBlockedFloorTiles,
   getBlockedTiles,
   getReachThroughTiles,
-  layoutToFurnitureInstances,
   layoutToSitPoints,
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
@@ -61,7 +59,6 @@ import type {
   ApplianceKind,
   Character,
   FurnitureCatalogEntry,
-  FurnitureInstance,
   InteractionPoint,
   OfficeLayout,
   Pet,
@@ -147,15 +144,26 @@ export class OfficeState {
   /** slug+video -> canonical anchor, rebuilt with actionAreas. Cached because the
    *  membership check below runs per character per tick. */
   private meetingCanonical: Map<string, { col: number; row: number }>;
-  furniture: FurnitureInstance[];
-  /** Current furniture placements after auto-on/animation (server syncs these). */
+  /**
+   * Current furniture placements with the on-state applied — the engine's own view of what
+   * stands where, and what the seats and blocked cells are derived from.
+   *
+   * It no longer carries an animation FRAME. A frame is presentation timing (invariant 2), and
+   * expressing it as a different art id made it synced state: the ambient animation swapped this
+   * array five times a second, the room rebuilt all 163 `FurnitureSync` records from it, and every
+   * viewer received the whole map — 11 442 bytes per patch in a world where nothing moved, while
+   * the actual difference was four short art ids. The client resolves the frame itself now, from
+   * the same `animationFrameAt` and the same catalog it already builds.
+   */
   furniturePlacements: PlacedFurniture[] = [];
   walkableTiles: Array<{ col: number; row: number }>;
   characters: Map<number, Character> = new Map();
-  /** Accumulated elapsed time (ms) for furniture animation playback — each
-   *  animation group loops against its own total duration (see
-   *  animationFrameAt), so this is one shared clock, not a shared frame index. */
-  furnitureAnimElapsedMs = 0;
+  /**
+   * The uids whose piece is currently switched ON — the one thing about furniture that IS a world
+   * decision, because it comes from who sits where (see autoOnSitters) and from the click-toggle.
+   * Sorted, so a comparison of two of these answers "did anything change" without a set diff.
+   */
+  furnitureOnUids: string[] = [];
   /** Auto-on fingerprint as of the last rebuild (see autoOnSignature). */
   private lastAutoOnSig = '';
   /** Furniture uids currently switched on via the click-to-toggle Action (see
@@ -239,23 +247,12 @@ export class OfficeState {
     this.meetingCanonical = meetingCanonicalAnchors(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
     this.talkers = talkingObjects(this.layout.furniture);
-    // No characters/manual toggles exist yet at construction, so the
-    // auto-on/toggle modifications rebuildFurnitureInstances() would apply
-    // are all no-ops right now — the raw layout furniture IS the correct
-    // initial placements. Without this, furniturePlacements stays stuck at
-    // its [] field default until something explicitly calls
-    // rebuildFromLayout() again (e.g. a loadLayout message) — SimRoom's
-    // syncFurniture() reads furniturePlacements, not furniture, so a freshly
-    // created room would sync ZERO furniture to clients despite this.furniture
-    // (used internally) being correct from the very next line.
+    // No characters/manual toggles exist yet at construction, so the auto-on/toggle modifications
+    // rebuildFurnitureInstances() would apply are all no-ops right now — the raw layout furniture
+    // IS the correct initial placement list. Without this it stays stuck at its [] field default
+    // until something explicitly calls rebuildFromLayout(), which is how a freshly created room
+    // once managed to have no furniture at all.
     this.furniturePlacements = this.layout.furniture;
-    this.furniture = layoutToFurnitureInstances(this.layout.furniture);
-    // …and the animated-type list with them, for the same reason: the cache is normally
-    // refreshed by rebuildFurnitureInstances, which the lines above deliberately skip. Without
-    // this the list stays empty for the life of the state, animationFrameChanged never finds a
-    // change, and nothing animates ever — measured on uponu, which places three animated pieces
-    // (a fountain, a goldfish bowl, a flag) and showed 0 rebuilds in 10 s of ticks.
-    this.animatedTypes = this.collectAnimatedTypes();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildPoints();
     this.computePortalTiles();
@@ -1859,51 +1856,6 @@ export class OfficeState {
     }
   }
 
-  /** Cheap fingerprint of "what would every animated item look like right
-   *  now" — distinct types only (cost scales with catalog diversity, not
-   *  placement count). Used solely to detect whether elapsed time crossing
-   *  forward actually changed anything; doesn't need to know which types are
-   *  currently visually "on" (a harmless extra rebuild when an unused
-   *  on-animation ticks over is fine, and far simpler than duplicating the
-   *  auto-on facing check here too). */
-  /**
-   * Did any placed animation show a different frame at `prevMs` than it does at `nowMs`?
-   *
-   * This was a pair of SIGNATURE STRINGS, built twice per tick: a pass over every placement,
-   * `entryFor` and `resolveOnState` per item, a Set to dedupe, and a concatenated string of
-   * `type:frame` pairs — then the two strings were compared. Measured on uponu (160 placements):
-   * 14.1 µs per call, twice a tick, which was HALF the entire engine tick of 56 µs. All of it to
-   * answer one boolean.
-   *
-   * What made that avoidable is that the QUESTION and the DATA change at different rates. Which
-   * types are placed and animating can only change when something is added, removed, switched or
-   * re-seated — and every one of those paths already ends in `rebuildFurnitureInstances`, which
-   * is where the list is refreshed. Between two rebuilds only the CLOCK moves, and a clock cannot
-   * introduce a new type. So the per-tick work is a handful of integer-ish frame lookups over the
-   * cached list (uponu has six animation groups), compared directly and exited on the first
-   * difference — no allocation at all.
-   */
-  private animationFrameChanged(prevMs: number, nowMs: number): boolean {
-    for (const type of this.animatedTypes) {
-      if (animationFrameAt(type, prevMs) !== animationFrameAt(type, nowMs)) return true;
-    }
-    return false;
-  }
-
-  /** The distinct animated types currently placed. Refreshed by rebuildFurnitureInstances,
-   *  which is the only thing that can change the answer (see animationFrameChanged). */
-  private collectAnimatedTypes(): string[] {
-    const seen = new Set<string>();
-    for (const item of this.layout.furniture) {
-      const onType = resolveOnState(item, entryFor(item));
-      const animType = onType !== item.id ? onType : item.id;
-      if (seen.has(animType)) continue;
-      seen.add(animType);
-    }
-    // Only the ones that actually animate: a type with no frame data can never change.
-    return [...seen].filter((t) => animationFrameAt(t, 0) !== null);
-  }
-
   /** Every character that currently switches nearby electronics ON by sitting at
    *  them, as `(col, row, facingDir)` of where they sit. Two kinds qualify, and a
    *  human player is deliberately one of them: sitting down at a desk lights its
@@ -1928,26 +1880,25 @@ export class OfficeState {
     return out;
   }
 
-  /** Fingerprint of who sits where, facing where — the auto-on input. Compared
-   *  per tick (see update) so sitting down or standing up switches electronics
-   *  right away: the rebuild used to be reached only when the animation clock
-   *  ticked over or setAgentActive fired, so on a map with no animated furniture
-   *  a monitor could stay dark until something unrelated happened. */
-  /** See animationFrameChanged. Empty until the first rebuild, which the constructor does. */
-  private animatedTypes: string[] = [];
-
+  /** Fingerprint of who sits where, facing where — the auto-on input, compared every tick (see
+   *  update) so sitting down or standing up switches electronics right away. It is now the ONLY
+   *  reason a rebuild happens, which is what makes a still world cost nothing on the wire. */
   private autoOnSignature(): string {
     let sig = '';
     for (const s of this.autoOnSitters()) sig += `${s.col},${s.row},${s.dir}|`;
     return sig;
   }
 
-  /** Rebuild furniture instances with auto-state applied (sitting characters turn
-   *  electronics ON — see autoOnSitters) */
+  /**
+   * Rebuild the placement list with the on-state applied: a character seated facing a desk
+   * switches its electronics on (see autoOnSitters), and a click-toggle piece stays on until it
+   * is clicked again.
+   *
+   * Reached only by the things that can change that answer — a new layout, a toggle, somebody
+   * sitting down or standing up. It used to run five times a second as well, because the ambient
+   * animation frame was expressed here as a different art id; that half now lives in the client.
+   */
   private rebuildFurnitureInstances(): void {
-    // Refreshed here because this is the one place reached by everything that can change WHICH
-    // types are placed and animating: a layout rebuild, a toggle, an auto-on change.
-    this.animatedTypes = this.collectAnimatedTypes();
     this.lastAutoOnSig = this.autoOnSignature();
     // Collect the tiles those sitters face
     const autoOnTiles = new Set<string>();
@@ -1975,33 +1926,27 @@ export class OfficeState {
       }
     }
 
-    // Build modified furniture list with auto-state and animation applied
-    const elapsedMs = this.furnitureAnimElapsedMs;
+    // Which pieces are on, and the placements with that applied, built in one pass on purpose:
+    // the list is what this engine walks, the uids are what a client is told, and a client that
+    // reached a different answer would draw a dark monitor at a working desk.
+    const on: string[] = [];
     // Return type annotated on the callback, not just on the constant: without
     // it TypeScript infers the callback's own type and a stray property rides
     // along unnoticed. That is exactly how `type: frame` survived here — the
-    // field was renamed to `id` in the Tiled migration and these three swaps
-    // kept writing the old name, so animations and on/off never changed sprite.
+    // field was renamed to `id` in the Tiled migration and these swaps kept
+    // writing the old name, so on/off never changed sprite.
     const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item): PlacedFurniture => {
       const entry = entryFor(item);
       if (!entry) return item;
-
-      // Ambient (always-on) animation: a stateless animation member, e.g. the
-      // goldfish bowl. Excludes state-paired members (PC), whose placed type is
-      // the "off" variant and therefore has no animation frames of its own.
-      if (resolveOnState(item, entry) === item.id) {
-        const frame = animationFrameAt(item.id, elapsedMs);
-        if (frame) return { ...item, id: frame };
-      }
+      const onType = resolveOnState(item, entry);
+      // Not a state pair at all (a goldfish bowl animates but has no on/off): nothing to switch.
+      if (onType === item.id) return item;
 
       // Manually toggled (click-to-toggle) on/off — independent of seating;
       // only ever set for items carrying the 'toggle' Action (see toggleFurniture).
       if (this.manuallyToggledOn.has(item.uid)) {
-        let onType = resolveOnState(item, entry);
-        if (onType !== item.id) {
-          onType = animationFrameAt(onType, elapsedMs) ?? onType;
-          return { ...item, id: onType };
-        }
+        on.push(item.uid);
+        return { ...item, id: onType };
       }
 
       // Auto-on: an active agent seated facing this furniture turns it "on" —
@@ -2011,12 +1956,8 @@ export class OfficeState {
         for (let dr = 0; dr < entry.footprintH; dr++) {
           for (let dc = 0; dc < entry.footprintW; dc++) {
             if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
-              let onType = resolveOnState(item, entry);
-              if (onType !== item.id) {
-                onType = animationFrameAt(onType, elapsedMs) ?? onType;
-                return { ...item, id: onType };
-              }
-              return item;
+              on.push(item.uid);
+              return { ...item, id: onType };
             }
           }
         }
@@ -2025,7 +1966,7 @@ export class OfficeState {
     });
 
     this.furniturePlacements = modifiedFurniture;
-    this.furniture = layoutToFurnitureInstances(modifiedFurniture);
+    this.furnitureOnUids = on.sort();
   }
 
   /** Flip a click-to-toggle item's on/off state (the 'toggle' Action) — a
@@ -2136,16 +2077,11 @@ export class OfficeState {
    */
   update(dt: number, nowMs: number = Date.now()): void {
     this.tickTalkingObjects(nowMs);
-    // Furniture animation cycling — each animation group loops on its own
-    // total duration now (Tiled-style per-frame timing), so there's no single
-    // shared frame index to compare anymore. Snapshot which frame every
-    // distinct animated type would show before vs. after advancing the clock;
-    // only pay for a full rebuild when something actually changed.
-    const prevElapsedMs = this.furnitureAnimElapsedMs;
-    this.furnitureAnimElapsedMs += dt * 1000;
-    // One rebuild covers both reasons it could be due this tick — a new animation
-    // frame, or somebody sitting down / standing up / turning in their seat.
-    if (this.animationFrameChanged(prevElapsedMs, this.furnitureAnimElapsedMs) || this.autoOnSignature() !== this.lastAutoOnSig) {
+    // Furniture: the only reason a rebuild can be due is that somebody sat down, stood up or
+    // turned in their seat, which switches nearby electronics. The animation clock used to be the
+    // other reason and is gone — a frame belongs to the client (invariant 2), and while it lived
+    // here it swapped this list five times a second and put the whole map on the wire with it.
+    if (this.autoOnSignature() !== this.lastAutoOnSig) {
       this.rebuildFurnitureInstances();
     }
 

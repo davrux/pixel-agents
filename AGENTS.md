@@ -986,6 +986,41 @@ background only.)
   footprint, so a machine placed at 16×16 from 32×32 art sat a cell too high.
   `entryFor` returns the shared entry unchanged when there is no override, so the normal
   case allocates nothing in per-tick loops.
+- **Furniture does not travel per patch: the map carries it, the client animates it, and only
+  ON/OFF is synced.** The placements arrive once in `layoutLoaded` (uids and overrides included),
+  the animation FRAME is resolved client-side per frame from `animationFrameAt` and the scene's own
+  clock, and `RoomState.furnitureOn` — the uids that are switched on — is the only furniture fact
+  on the wire. A still map therefore costs **nothing**: measured on uponu with one viewer,
+  **0 messages in 20 s**.
+  It was the other way round until protocol 15, and the numbers are why this is written down. The
+  engine expressed an animation frame as a different art ID (`{...item, id: frame}`), so the
+  ambient animation swapped its placement list ~5×/s; `SimRoom.syncFurniture` spliced the whole
+  `FurnitureSync` array and rebuilt all 163 records of nineteen fields, so every field was dirty
+  and each patch carried the entire map: **11 442 bytes per patch, 57 KB/s per viewer, in a world
+  where nothing moved** — 46 Mbit/s at 100 viewers, to say that a goldfish and a flag had reached
+  their next picture. Measured per swap, four of 163 entries differed, and all four differed
+  *only* in that art id.
+  Five things make the split hold, and each is a decision rather than a detail:
+  - **A frame is presentation timing** (invariant 2), so it belongs to whoever draws — the same
+    rule the walk cycle already followed. The phase now differs between viewers, deliberately.
+  - **ON/OFF is not animation, it is state**: it comes from who sits where (`autoOnSitters`) and
+    from another viewer's click, neither of which a client can derive. It stays server-side, and
+    `rebuildFurnitureInstances` runs only when that answer can change — a new map, a toggle,
+    somebody sitting down or standing up.
+  - **Both halves read the SAME shared resolver.** The engine applies `resolveOnState` to its own
+    placement list and the client applies it to the map's; a client that reached its own answer
+    would draw a dark monitor at a working desk. Geometry is safe either way — measured, all six
+    animation groups agree in footprint, size, `canSitOn`, `sitFacing`, `backgroundTiles` and
+    `action` across every frame, so nothing about collision or seats depends on the frame.
+  - **An animated piece keeps the render loop awake** (`hasAnimatedFurniture` in `sceneBusy`).
+    While the frame came from the server, its patches did that as a side effect; without the rule a
+    fountain freezes the moment the scene goes idle.
+  - **The ON variant's art is prefetched with the map's** (the loading phase adds
+    `resolveOnState` per placement), because the map now names only the off state and a monitor
+    lighting up must not wait for a fetch.
+  `furnitureAnimation.int.test.ts` pins the inversion — an animated piece placed, 400 ticks, and
+  the placement list must NOT be replaced — plus that the frames a client animates from exist, and
+  that sitting down still switches the monitor on and standing up switches it off.
 - **Decoration is a decal, not an object.** A `DecalTile` painted on a
   `DecalLayer` is a picture and nothing else — it lives in the *layout* (one
   `layoutLoaded`, like the floor), never in `OfficeState.furniture`, so it has no
