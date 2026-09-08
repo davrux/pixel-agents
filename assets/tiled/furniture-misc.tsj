@@ -1,7 +1,7 @@
 {
   "columns": 0,
   "name": "furniture-misc",
-  "tilecount": 18,
+  "tilecount": 19,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -1433,6 +1433,83 @@
           "name": "actionPose",
           "type": "string",
           "value": "drink",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "FurnitureTile",
+      "image": "png/src/furniture/misc/LEADERBOARD.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "LEADERBOARD"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Leaderboard"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "petScores",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
           "propertytype": "ApplianceKind"
         },
         {

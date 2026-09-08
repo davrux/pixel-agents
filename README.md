@@ -325,7 +325,7 @@ the set of properties changes.
 | `actionKind` | enum | What it does when approached — see below. |
 | `actionVideo` | bool | `meetingRoom` only: camera offered, or audio/chat only. |
 | `actionUrl` | string | `iframe` only, must be `https://`. |
-| `actionPose` | enum | `appliance` only, e.g. `coffee`. |
+| `actionPose` | enum | `appliance` only: `coffee`, `drink` or `pet_feed` — which decides the pose adopted there and who may use it at all. |
 | `meetingRoomName` | string | `meetingRoom` only: what the room is called. |
 
 Placements additionally take `name`, `approachSides` (a flags enum — **empty
@@ -442,6 +442,7 @@ a restart, not a push.
 | `appliance` | walk up, use it, adopt a pose — `coffee` is the coffee machine | `actionPose` |
 | `arcade` | opens the arcade cabinet | — |
 | `timeClock` | punch in/out at the time clock — desktop app only | — |
+| `petScores` | opens this zone's pet leaderboard: wins and losses per animal, read by whoever walked up. The **Leaderboard** board in `furniture-misc` carries it by default; any other piece can be given it per placement | — |
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
@@ -494,8 +495,8 @@ nothing custom about it.
 |---|---|
 | `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
-| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `portal`, `toggle`, `spawnPoint`, `talkingObject` |
-| `ApplianceKind` | *(empty)*, `coffee` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `petScores`, `portal`, `toggle`, `spawnPoint`, `talkingObject` |
+| `ApplianceKind` | *(empty)*, `coffee`, `drink`, `pet_feed` |
 
 ## Two things that will bite you
 
