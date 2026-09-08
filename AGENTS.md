@@ -665,6 +665,20 @@ check asks: is the release present in the code that acquires?
   is called from per-tick loops, at **24.2 µs per call**. It is a Map now (61 ns), which took
   that tick from 2.056 ms to 0.062 — **33× faster than before any of the turning work**. The
   lesson generalises: before believing a new feature is slow, measure what was already there.
+  **A client's message RATE is not the patch rate, and reading it as one costs an afternoon.**
+  `broadcastPatch` runs on `patchRate` (20 Hz) and `applyPatches` sends nothing when a window held
+  no change, so what arrives at a viewer is the world's CHANGE rate. Measured with V8 precise
+  coverage (`Profiler.startPreciseCoverage({callCount: true})` over the inspector, which needs no
+  edit to the tree): `broadcastPatch`, `applyPatches`, `SimRoom.tick` and `tickOnce` ran 398-399
+  times in 20 s — **19.9/s, in every configuration, old and new, at 2.7-8.4 % of one core**. The
+  loop has never missed its beat. Beware the same tool's small numbers: an inlined hot function
+  (`OfficeState.update`) is undercounted, reporting 7.6/s where it demonstrably runs at 20.
+  What made a falling message rate look like a slowdown was the furniture payload: before protocol
+  15, 101 agents gave 13.4 msgs/s at 4 611 B and 301 agents 8.5 msgs/s at 7 216 B — **60.33 versus
+  60.25 KB/s**, the same bytes regrouped into fewer, fatter messages (five viewers: 5.4/s at
+  10 889 B, 57.95 KB/s). Judge the wire by **KB/s**, never by messages per second. After the change
+  the rate rises with activity, which is the direction that means something: 2.5/s at 101 agents
+  (0.04 KB/s) and 10.5/s at 301 (0.11 KB/s).
   `entryFor` also memoizes per placement (a WeakMap), because every non-default placement built
   a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
