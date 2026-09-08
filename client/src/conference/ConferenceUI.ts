@@ -9,14 +9,29 @@
  * leave). The "Fullscreen" button still calls the browser's Fullscreen API on top
  * of that, to additionally hide the tab/address bar.
  *
- * Two stage layouts, both owned here:
+ * Three stage layouts, all owned here, and they nest: grid → focus → theatre.
+ * Going a level deeper is always a deliberate press, and **Esc or a double-click
+ * pops exactly one level**, so the same gesture repeated walks back out.
  *  - **Grid** (default): every tile — cameras *and* shared screens — is laid out
  *    in a page-filling grid. The row/column split is picked in JS (`layoutGrid`)
  *    because CSS auto-fit can only fill rows left-to-right, which strands a
  *    handful of participants in one thin line across a wide window.
  *  - **Focus**: one tile fills the stage with the rest as a filmstrip below it.
  *    Any tile can be focused by clicking it (a new screen share focuses itself);
- *    the ▦ button, Esc, or a double-click goes back.
+ *    the ▦ button pops straight out to the grid.
+ *  - **Theatre** (⛶ on the focused picture): the shared screen or camera and
+ *    nothing else — head, filmstrip and the tile's own frame gone, the picture
+ *    edge to edge, and browser fullscreen with it, which is what keeps the pixel
+ *    world, the zone chat and the perf overlay from painting over the top. It is
+ *    still drawn `contain`, never cropped: seeing ALL of a shared screen is the
+ *    whole point. The control bar is the one thing that does not go — it becomes
+ *    an overlay that fades once the pointer sits still (the video-player rule),
+ *    because muting yourself must not cost you the fullscreen; any pointer
+ *    movement brings it and the way out back. Leaving fullscreen by any route
+ *    (Esc, F11, the browser's own control) leaves theatre with it — a
+ *    chrome-less page inside a tab has no way back — and the fullscreen is
+ *    handed back only if entering theatre is what took it, so a viewer who
+ *    pressed ⛶ Full first keeps the fullscreen window they already had.
  *
  * Media + the in-meeting chat transport live in LiveKitConference; this class is
  * pure UI, driven by handlers + update calls from OfficeScene. Tiles are created
@@ -96,7 +111,8 @@ const CSS = `
     color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
     /* Draw every emoji with a real emoji font: the pixel UI font has none, and the
        fallback each browser picks on its own is a different size per glyph. */
-    --emoji:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Twemoji Mozilla',sans-serif;}
+    --emoji:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Twemoji Mozilla',sans-serif;
+    --side-w:17rem;}
   #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#1c1a19;
     border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;}
   #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#f5f3f0;font-weight:600;letter-spacing:.3px;}
@@ -142,6 +158,8 @@ const CSS = `
     display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   .pa-conf-spot-ctl button:hover{background:#2e2b28;}
+  .pa-conf-spot-ctl button.on{background:#c51a1b;color:#fff;
+    box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
   #pa-conf .pa-conf-media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
   #pa-conf .pa-conf-video{width:100%;height:100%;object-fit:cover;background:#000;}
   #pa-conf .pa-conf-video.mirror{transform:scaleX(-1);}
@@ -153,7 +171,7 @@ const CSS = `
     text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;}
   #pa-conf .pa-conf-micoff{position:absolute;top:0.35rem;right:0.35rem;font-size:1.1rem;z-index:2;
     filter:drop-shadow(0 0 2px #000) drop-shadow(0 0 3px #000);}
-  #pa-conf .pa-conf-side{width:17rem;flex:0 0 auto;display:none;flex-direction:column;background:#1c1a19;
+  #pa-conf .pa-conf-side{width:var(--side-w);flex:0 0 auto;display:none;flex-direction:column;background:#1c1a19;
     border-left:2px solid #0a0908;min-height:0;}
   #pa-conf.side-open .pa-conf-side{display:flex;}
   #pa-conf .pa-conf-tabs{display:flex;gap:0.35rem;padding:0.35rem;background:#141312;border-bottom:2px solid #0a0908;}
@@ -265,6 +283,49 @@ const CSS = `
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-pop .wide:hover{background:#2e2b28;}
   #pa-conf .pa-conf-pop .note{font-size:0.78rem;color:#f2a1a1;max-width:20rem;line-height:1.35;}
+  /* ── Theatre: the picture and nothing else ──────────────────
+     One level above focus. Head, filmstrip and the tile's frame go; the focused
+     video fills the viewport. side-open is deliberately NOT overridden — the
+     chat/People panel is something a viewer asked for and can close again, and
+     hiding it here would leave two dead buttons on the bar. These rules must stay
+     BELOW the .side-open / .focus-mode ones: same specificity, so source order is
+     what decides. (No backticks in here: the whole block is a template literal.) */
+  #pa-conf.theater .pa-conf-head,
+  #pa-conf.theater #pa-conf-stage{display:none;}
+  #pa-conf.theater #pa-conf-focus{padding:0;}
+  #pa-conf.theater .pa-conf-tile.focused{border:0;border-radius:0;box-shadow:none;background:#000;}
+  /* The only control left on the picture is the one that leaves theatre; the bar's
+     ⛶ Full goes too, because in here the window question is already answered. */
+  #pa-conf.theater .pa-conf-spot-ctl [data-ungrid],
+  #pa-conf.theater .pa-conf-spot-ctl [data-collapse],
+  #pa-conf.theater .pa-conf-bar [data-full]{display:none;}
+  /* The bar floats over the video instead of sitting under it, so every control
+     stays reachable. Popovers keep anchoring to it (they position against the bar,
+     which is still their containing block). Centred with auto margins rather than
+     left:50% + a translate: an absolutely positioned flex box is shrink-to-fit, and
+     left:50% offers it only half the window to fit in — enough to wrap a bar that
+     fits on one row everywhere else. */
+  #pa-conf.theater .pa-conf-bar{position:absolute;left:0;right:0;bottom:1rem;margin:0 auto;
+    width:fit-content;max-width:calc(100% - 2rem);z-index:5;border:2px solid #0a0908;border-radius:0.6rem;
+    box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
+  /* With the side panel open the bar centres over what is left of the window, or
+     it would lie across the chat box. */
+  #pa-conf.theater.side-open .pa-conf-bar{right:var(--side-w);}
+  /* Clear the floating bar rather than sinking a few px into it: over the stage
+     that overlap is invisible, over a bordered panel on a picture it is not. */
+  #pa-conf.theater .pa-conf-pop{bottom:calc(100% + 0.5rem);}
+  #pa-conf.theater .pa-conf-toast{top:0.8rem;}
+  /* The picture reaches the edges now, so the name comes in off them, and it is
+     the only label left — worth reading from across a room. */
+  #pa-conf.theater .pa-conf-tile.focused .pa-conf-name{left:0.8rem;bottom:0.7rem;font-size:1rem;}
+  #pa-conf.theater .pa-conf-bar,
+  #pa-conf.theater .pa-conf-spot-ctl,
+  #pa-conf.theater .pa-conf-tile.focused .pa-conf-name{transition:opacity .25s;}
+  /* Idle = the pointer has sat still for IDLE_HIDE_MS (see nudgeIdle). */
+  #pa-conf.theater.idle{cursor:none;}
+  #pa-conf.theater.idle .pa-conf-bar,
+  #pa-conf.theater.idle .pa-conf-spot-ctl,
+  #pa-conf.theater.idle .pa-conf-tile.focused .pa-conf-name{opacity:0;pointer-events:none;}
 ${REACTION_CSS}`;
 
 /** Stage gap / padding, in px — must match #pa-conf-stage's CSS. */
@@ -274,6 +335,8 @@ const GRID_PAD = 8;
 const MIN_TILE_W = 120;
 /** Ignore a "double-click to unfocus" this soon after the click that focused. */
 const DBLCLICK_MS = 700;
+/** Theatre hides its overlays after this long without pointer movement. */
+const IDLE_HIDE_MS = 2600;
 
 export class ConferenceUI {
   private readonly root: HTMLDivElement;
@@ -313,6 +376,13 @@ export class ConferenceUI {
   private readonly knownScreens = new Set<string>();
   /** Last tile width written, so a re-layout that changes nothing is a no-op. */
   private gridTileW = 0;
+  /** Theatre mode: the focused picture alone (see the CSS block). */
+  private theater = false;
+  /** Pending fade of theatre's overlays; 0 = none in flight. */
+  private idleTimer = 0;
+  /** True when entering theatre is what took the page fullscreen — so leaving
+   *  theatre gives it back only if we were the ones who asked for it. */
+  private ownsFullscreen = false;
 
   constructor() {
     if (!document.getElementById('pa-conf-style')) {
@@ -335,7 +405,7 @@ export class ConferenceUI {
             <div class="pa-conf-spot-ctl">
               <button data-ungrid title="Back to the grid (Esc)"><span class="pa-conf-ico glyph">▦</span></button>
               <button data-collapse title="Show / hide participants"><span class="pa-conf-ico">👥</span></button>
-              <button data-spotfull title="Fullscreen"><span class="pa-conf-ico glyph">⛶</span></button>
+              <button data-theater title="Fullscreen — just the picture (Esc to come back)"><span class="pa-conf-ico glyph">⛶</span></button>
             </div>
           </div>
           <div id="pa-conf-stage"></div>
@@ -465,7 +535,10 @@ export class ConferenceUI {
       this.focusEl.appendChild(el);
     }
     this.root.classList.toggle('focus-mode', !!el);
-    if (!el) this.root.classList.remove('strip-collapsed');
+    if (!el) {
+      this.root.classList.remove('strip-collapsed');
+      this.setTheater(false); // theatre is a level above focus; there's no picture left
+    }
     // Moving a <video> keeps it playing, but nudge it in case a browser paused it.
     for (const host of [prev, el]) {
       host?.querySelectorAll('video').forEach((v) => void v.play().catch(() => undefined));
@@ -524,7 +597,7 @@ export class ConferenceUI {
     const f = <T extends HTMLElement>(sel: string): T => this.focusEl.querySelector<T>(sel)!;
     f<HTMLButtonElement>('[data-ungrid]').onclick = () => this.setFocus(null);
     f<HTMLButtonElement>('[data-collapse]').onclick = () => this.root.classList.toggle('strip-collapsed');
-    f<HTMLButtonElement>('[data-spotfull]').onclick = () => this.toggleFullscreen();
+    f<HTMLButtonElement>('[data-theater]').onclick = () => this.setTheater(!this.theater);
     // Click any tile to focus it; double-click the focused one to go back — but
     // not when the double-click is what focused it a moment ago.
     this.mainEl.addEventListener('click', (e) => {
@@ -536,15 +609,34 @@ export class ConferenceUI {
     });
     this.mainEl.addEventListener('dblclick', (e) => {
       if (!this.focused || e.timeStamp - this.focusedAt < DBLCLICK_MS) return;
-      if ((e.target as HTMLElement | null)?.closest('.pa-conf-tile') === this.focused) this.setFocus(null);
+      if ((e.target as HTMLElement | null)?.closest('.pa-conf-tile') !== this.focused) return;
+      // One level per gesture, same as Esc: out of theatre first, then the grid.
+      if (this.theater) this.setTheater(false);
+      else this.setFocus(null);
     });
-    // Esc closes an open popover, else leaves focus mode — but only once it's no
-    // longer closing fullscreen.
+    // Theatre's overlays come back on any pointer movement (and go again
+    // IDLE_HIDE_MS later). Outside theatre this costs one boolean per event.
+    for (const ev of ['pointermove', 'pointerdown'] as const) {
+      this.root.addEventListener(ev, () => {
+        if (this.theater) this.nudgeIdle();
+      }, { passive: true });
+    }
+    // Esc pops one level: an open popover, then theatre, then focus — but only
+    // once it's no longer closing fullscreen (the browser's own Esc wins there,
+    // and fullscreenchange pops theatre in its place).
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' || this.root.style.display === 'none' || document.fullscreenElement) return;
       if (this.bar.querySelector('.pa-conf-pop.open')) {
         e.stopPropagation();
         this.closePops();
+        return;
+      }
+      // Theatre sits between a popover and focus. This only fires when theatre
+      // never got the fullscreen it asked for: with it, the browser eats Esc
+      // itself and fullscreenchange is what pops the level.
+      if (this.theater) {
+        e.stopPropagation();
+        this.setTheater(false);
         return;
       }
       if (!this.focused) return;
@@ -563,7 +655,12 @@ export class ConferenceUI {
         this.chatInput.value = '';
       }
     };
-    document.addEventListener('fullscreenchange', () => this.syncFullscreenBtn());
+    document.addEventListener('fullscreenchange', () => {
+      this.syncFullscreenBtn();
+      // Esc, F11 or the browser's own control took the fullscreen away — theatre
+      // goes with it, because a chrome-less page inside a tab has no way back.
+      if (this.theater && !document.fullscreenElement) this.setTheater(false);
+    });
   }
 
   // ── Popovers (devices / reactions / filters — one open at a time) ──
@@ -576,6 +673,7 @@ export class ConferenceUI {
     if (!open && pop === this.filterPop && !this.filterGrid.childElementCount) this.buildFilters();
     if (!open && pop === this.reactPop) primeReactionAudio();
     pop.classList.toggle('open', !open);
+    this.nudgeIdle(); // in theatre: show the bar this popover hangs off, and hold it
     for (const [sel, el] of [
       ['[data-dev]', this.devPop],
       ['[data-react]', this.reactPop],
@@ -731,6 +829,59 @@ export class ConferenceUI {
     this.bar.querySelector<HTMLButtonElement>('[data-full]')!.classList.toggle('on', on);
   }
 
+  // ── Theatre: the focused picture, alone ────────────────────────────
+
+  /** Enter or leave theatre. There is nothing to show it in without a focused
+   *  tile, so entering without one is a no-op rather than an empty stage.
+   *  Browser fullscreen is part of the mode, not a separate button: hiding this
+   *  window's own chrome still leaves the page's (and the pixel world's) on
+   *  screen, and "the picture and nothing else" has to mean nothing else. */
+  private setTheater(on: boolean): void {
+    if (on && !this.focused) return;
+    if (this.theater === on) return;
+    this.theater = on;
+    this.root.classList.toggle('theater', on);
+    this.focusEl.querySelector<HTMLButtonElement>('[data-theater]')!.classList.toggle('on', on);
+    if (on) {
+      // A viewer already in fullscreen (⛶ Full) keeps it when theatre ends —
+      // only a fullscreen theatre asked for is a fullscreen theatre gives back.
+      if (!document.fullscreenElement) {
+        this.ownsFullscreen = true;
+        void this.root.requestFullscreen?.().catch(() => {
+          this.ownsFullscreen = false; // refused — theatre still works, in-page
+        });
+      }
+      this.nudgeIdle();
+    } else {
+      this.clearIdle();
+      this.root.classList.remove('idle');
+      if (this.ownsFullscreen && document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+      }
+      this.ownsFullscreen = false;
+    }
+  }
+
+  /** Show theatre's overlays and start the clock on hiding them again. An open
+   *  popover holds them: fading the bar out from under a device list would
+   *  strand the click that was about to pick a camera. */
+  private nudgeIdle(): void {
+    this.clearIdle();
+    this.root.classList.remove('idle');
+    if (!this.theater) return;
+    this.idleTimer = window.setTimeout(() => {
+      this.idleTimer = 0;
+      if (!this.theater) return;
+      if (this.bar.querySelector('.pa-conf-pop.open')) this.nudgeIdle();
+      else this.root.classList.add('idle');
+    }, IDLE_HIDE_MS);
+  }
+
+  private clearIdle(): void {
+    if (this.idleTimer) window.clearTimeout(this.idleTimer);
+    this.idleTimer = 0;
+  }
+
   open(title: string, handlers: ConferenceUIHandlers): void {
     this.handlers = handlers;
     this.titleEl.textContent = `📹 ${title}`;
@@ -760,6 +911,7 @@ export class ConferenceUI {
     this.toast?.remove();
     this.toast = null;
     this.fxEl.innerHTML = ''; // drop any reaction still in flight
+    this.setTheater(false); // also clears the idle timer and any fullscreen we took
     this.focused = null;
     this.focusHome = null;
     this.knownScreens.clear();
