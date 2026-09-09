@@ -308,6 +308,17 @@ A protected quarry is invisible to the hunter's INTENT and not merely to the cat
 running after a cat it cannot possibly catch is a chase with no ending. Fleeing is deliberately not
 gated: being unavailable for a brawl is not the same as feeling safe.
 
+**That applies to a chase already running, too, and until 2026-09-09 it did not.** There are two
+ways to reach a quarry — `chaseQuarryFor`, which filters through `catchable` and feeds the
+affordance and the walking interrupt, and `navigatePetReaction`, which is what the re-aim calls
+every `PET_REACTION_REPATH_SEC` — and the second asked `nearestLivingPetOfKinds` directly. So the
+rule above held for STARTING a chase and not for continuing one: a hunter kept being handed a route
+to an animal that had just fought, twice a second, for as long as it stayed in range. Both halves
+ask the intent's own questions now (`chaseQuarryFor` / `hunterNear`), which is one scan fewer each,
+and a chase ENDS the moment its quarry becomes protected rather than trailing it out of the radius.
+Measured over 20 simulated minutes with two of each kind, that costs no fights: 28-41 chases and
+17-20 clouds, against 32-43 and 14-18 before, i.e. inside the run-to-run spread.
+
 **A fleeing animal remembers its heading and refuses to reverse.** Every re-aim used to recompute
 the best escape from scratch twice a second, and in a confined space the best answer alternates as
 the hunter moves — measured in an 8×8 room: **21 reversals out of 21 samples, every run**, which is
@@ -770,8 +781,11 @@ check asks: is the release present in the code that acquires?
   from 10 to 30 walkers (each walker is also a viewer), and the encode is **shared**: one pass for
   all viewers, then a send per socket.
 - **Interest management is a known lever and deliberately NOT built yet.** The trigger to revisit:
-  a zone that regularly holds **more than ~150 moving entities**, or **more than ~30 viewers**, or
-  a map bigger than a screen. Today none of that is true, and two facts decide it: `uponu` is
+  a zone that regularly holds **more than ~150 moving entities**, or **more than ~30 viewers**.
+  Map size is deliberately NOT on that list any more, and dropping it was a measurement, not a
+  simplification: **the patch wire scales with MOVING ENTITIES, not with area** — a large empty map
+  costs nothing on the wire (measured: 0 messages in 20 s on a still `uponu`), so a big map is not
+  what makes per-viewer filtering necessary. Two facts decide the rest: `uponu` is
   56×57 tiles while the camera's minimum zoom (1) shows more than the whole map — so an
   interest RADIUS would have to be larger than the map, saving nothing — and the shared encode
   above means per-viewer filtering trades bandwidth for CPU (a `StateView` per viewer re-walks the
@@ -786,6 +800,33 @@ check asks: is the release present in the code that acquires?
   distance, and a viewer's own avatar must never leave its own view.
   `entryFor` also memoizes per placement (a WeakMap), because every non-default placement built
   a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
+- **A zone map stays at most about twice a screen, decided 2026-09-09** — and the existing
+  `MAX_COLS`/`MAX_ROWS` = 100 already says so: 10 000 cells against the ~4350 tiles (87×50) a
+  1400×813 canvas shows at minimum zoom. `uponu` at 56×57 is roughly one screen. One hole to know
+  about rather than trip over: that cap is applied to zone CREATION only (`ZoneStore.clampSize`) —
+  a pushed `.tmj` takes its size straight from the file (`mapBridge.ts`), and the only limit there
+  is 32 MB of JSON. So the decision is a decision, not something the code enforces. So the question
+  "do maps grow?" is answered for now, and what a doubling costs is written down here rather than
+  re-derived, because **neither of the two things it costs is interest management**:
+  - **The client has no viewport culling anywhere.** `PhaserRenderer.buildStatic()` creates one
+    GameObject per non-VOID ground cell — ~3700 live objects for `uponu`, all submitted and
+    depth-sorted every frame, all destroyed and rebuilt on every `buildStatic`. At twice a screen
+    that is ~8-10 000. Nothing in that pipeline scales sublinearly with area, so this is the first
+    thing to measure (F8 / `?perf=1`, and judge by frame time — see above) and the first thing to
+    fix if a big map feels slow.
+  - **The `layoutLoaded` payload is per JOIN and scales with area.** Measured on `uponu`: **245 KB
+    of JSON, ~78 B/cell**, of which `walls` is 46 % and `tileActions` the next largest because it
+    serializes a full object per painted meeting-room cell. Twice a screen is ~700 KB. Deflate
+    handles the wire (`perMessageDeflate` is on, and these arrays are runs of `null,`/`false,`);
+    what it does not handle is one `JSON.stringify` of that object on the room's thread, per join
+    and per live re-push. The optional-array habit is the lever that already exists —
+    `tileFlip` and `decals` are omitted entirely when a map uses none.
+
+  Two consequences of a bigger map that are behaviour rather than cost, and that no optimisation
+  addresses: population is **config-driven, not area-derived** (`maxConcurrent` per pet variant,
+  hard cap 8), so a bigger map holds the same animals and reads as emptier; and a wander target is
+  drawn **uniformly over the whole map** (`characters.ts`, `pets.ts`), so "wander somewhere" turns
+  into a long hike. Both are decisions to take deliberately if maps do grow, not bugs.
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
   `spriteTexture()` packs each SpriteData into shared canvas pages and returns
   `{key, frame}`, and `atlasFromImage()` packs a rectangle of an IMAGE into the same
