@@ -475,11 +475,7 @@ export class OfficeState {
 
   /** Temporarily unblock a character's own seat, run fn, then re-block */
   private withOwnSeatUnblocked<T>(ch: Character, fn: () => T): T {
-    const key = this.ownSeatKey(ch);
-    if (key) this.blockedTiles.delete(key);
-    const result = fn();
-    if (key) this.blockedTiles.add(key);
-    return result;
+    return this.withTileUnblocked(this.ownSeatKey(ch), fn);
   }
 
   // ── Interaction stations (coffee machine, …) ──────────────
