@@ -363,6 +363,64 @@ Three things about it are load-bearing rather than incidental:
   within range — and it asserts that BOTH branches answered, decided the way the code decides it
   rather than guessed from the shape of a path.
 
+**A chase is bounded too, and until 2026-09-09 only the flight was.** `findPath` took no step
+limit, so what bounded a search was the reachable walkable component — the whole map. The chase
+half asked that unbounded question every `PET_REACTION_REPATH_SEC` per hunter, and a quarry five
+tiles away BEHIND A WALL is the case it cost the most: **1202 µs on uponu, now 68 µs**, because a
+search that cannot reach its target exhausts everything it can reach before saying no. The open
+floor case, where the bound never bites, is 7.2 → 7.1 µs. Four things make it a decision rather
+than a cap:
+
+- **`PET_CHASE_RANGE_TILES` is 15 = 3 × the shoo radius, and 10 would be a regression.** The
+  quarry is within Chebyshev 5, and on a 4-connected grid a diagonal Chebyshev 5 is **ten steps** —
+  so ten is the open-floor worst case, not slack, and "twice the radius" would silently refuse
+  every diagonal chase that has to round a desk. It is written as a multiple so a changed radius
+  carries the bound with it, and `petChase.int.test.ts` fails if it ever drops to twice.
+- **It is a behaviour improvement, not only a saving.** 15 steps is about six seconds of walking,
+  i.e. twelve re-aims, and the quarry is elsewhere long before — AGENTS.md already says a dog that
+  cannot possibly catch a cat should not be chasing it, and this applies that to geometry instead
+  of to the scuffle cooldown. What is refused is a WALL between them; a doorway or a sofa is still
+  walked round. And it costs the world nothing measurable: 20 simulated minutes on uponu with two
+  of each kind gave **32-43 chases and 14-18 clouds over four bounded runs, against 41 and 17
+  unbounded** — inside the run-to-run spread, so what the bound removes is the hopeless walks and
+  not the fights.
+- **Both branches of `findPath` honour it, and the Dijkstra one counts STEPS, not cost.**
+  `AVOID_TILE_COST` is 8, so an 11-step route across one avoided tile costs 18 — a cap read off
+  the cost would refuse a path well inside the step bound while claiming to be a step bound. A
+  parameter only one branch respects is a parameter that lies. What the bounded Dijkstra gives up
+  is completeness (a node settled by a cheap long route can hide an expensive short one), which is
+  written down where it lives rather than papered over; today's only bounded caller passes no
+  `avoidTiles`.
+- **The affordance stays pathfinding-free.** `canChase` says a quarry EXISTS, not that it can be
+  reached; a search in there would become one per tick.
+
+**A pet's target search picks first and paths once.** `findFreePetTarget` ran a full BFS per
+CANDIDATE and only then picked at random — one per free seat, per perchable table, per bowl, per
+unclaimed agent. That is O(candidates × area), the only term quadratic in map area, and it is the
+one place where the cost was already absurd rather than theoretical: measured on uponu, a `'sit'`
+decision offers **101 candidates and cost 38.3 ms of pathing, now 0.29 ms**; `'talk'` with 300
+agents cost **149.8 ms, now 0.38 ms**. Against a 20 Hz tick budget of 50 ms and a whole tick that
+measures 0.066 ms, one animal looking for a chair spent most of a tick doing it, and in a crowd it
+spent three ticks' worth in a single call. Four rules hold the new shape:
+
+- **`pickReachable` probes at most `PET_TARGET_PATH_TRIES` = 3, uniformly.** A partial
+  Fisher-Yates, so nothing is probed twice and nothing is preferred. Sorting by distance and taking
+  the nearest is cheaper still and piles every animal onto the same chair, then serializes them
+  through one claim — `petTargetSearch.int.test.ts` pins the distribution for that reason.
+- **`null` is "cannot get there", `[]` is "already standing on it".** `findPath` answers `[]` to
+  both, and the old code disambiguated at four separate sites. Collapse the two and a pet
+  intermittently refuses the desk it is lying on.
+- **One claim, after the pick, and none on failure.** The claim used to be made once the candidate
+  list was complete; making it after the pick is a new chance to leave a seat marked as taken by an
+  animal that never went, so that is a test of its own.
+- **Three tries is a fact about maps, not a hunch.** A map's walkable floor is one component in
+  practice — uponu measures 2651 walkable tiles in two components, of 2648 and 3 — so the first
+  probe answers. What it trades away is stated: the pick is uniform over candidates with retry
+  rather than over REACHABLE candidates, so a genuinely islanded map can give up, which the FSM
+  has always handled with a random wander and a 1.5-8 s re-decide. If islands ever make it
+  visible, the fix is one component flood fill per decision — one search whatever the candidate
+  count, the same insight `pathAwayFrom` is built on — and not a search per candidate again.
+
 The sheet is drawn by `scripts/draw-scuffle-cloud.sh` (deterministic — a seeded LCG, so `--check`
 means something) and committed. It is ordinary art: redraw the PNG by hand and nothing downstream
 knows or cares. What the script learned the hard way, in case the next effect needs it: seven

@@ -12,10 +12,12 @@ import {
   DISMISS_BUBBLE_FAST_FADE_SEC,
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
+  PET_CHASE_RANGE_TILES,
   PET_EFFECT_DURATION_SEC,
   PET_FLEE_RANGE_TILES,
   PET_CATCH_RADIUS_TILES,
   PET_SHOO_RADIUS_TILES,
+  PET_TARGET_PATH_TRIES,
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
@@ -84,8 +86,16 @@ import { claimPoint, createCharacter, releasePoint, updateCharacter } from './ch
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import { announceDue, hourChimes, QuoteSchedule, talkingObjects, type SpokenLine } from './talkingObjects.js';
-import type { PetAction, PetAffordances, PetTarget } from './pets.js';
-import { beginPetDespawn, beginScuffle, createPet, endScuffleAlone, petPose, updatePet } from './pets.js';
+import type { PetAction, PetAffordances, PetTarget, PetTargetSpec } from './pets.js';
+import {
+  beginPetDespawn,
+  beginScuffle,
+  createPet,
+  endScuffleAlone,
+  petPose,
+  pickReachable,
+  updatePet,
+} from './pets.js';
 
 /** Union of every source of non-walkable tiles: furniture footprints and
  *  tiles the layout itself marks blocked (layout.tileBlocked, independent of
@@ -442,6 +452,25 @@ export class OfficeState {
     if (!ch.homePointId) return null;
     const point = this.points.get(ch.homePointId);
     return point ? `${point.col},${point.row}` : null;
+  }
+
+  /**
+   * Temporarily unblock one tile, run fn, then put `blockedTiles` back exactly as it was.
+   *
+   * Two properties are the reason this is one helper rather than the delete/restore pair written
+   * out per call site. It restores what was THERE — a tile that was not blocked does not become
+   * blocked, which is not hypothetical: `blockedTiles` is rebuilt only when a layout is set, so a
+   * key added by mistake stays for the life of the zone. And it restores through `finally`, so a
+   * throw inside fn cannot leave a tile blocked either.
+   */
+  private withTileUnblocked<T>(key: string | null, fn: () => T): T {
+    const had = key !== null && this.blockedTiles.has(key);
+    if (had && key !== null) this.blockedTiles.delete(key);
+    try {
+      return fn();
+    } finally {
+      if (had && key !== null) this.blockedTiles.add(key);
+    }
   }
 
   /** Temporarily unblock a character's own seat, run fn, then re-block */
@@ -2459,7 +2488,20 @@ export class OfficeState {
     if (action === 'chase') {
       const quarry = this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]);
       if (!quarry) return null;
-      const path = findPath(pet.tileCol, pet.tileRow, quarry.tileCol, quarry.tileRow, this.tileMap, this.blockedTiles, undefined, this.walls);
+      // Bounded in STEPS, like the flee half — see PET_CHASE_RANGE_TILES for why 15 and not 10.
+      // A quarry five tiles away behind a wall used to cost a search of the whole walkable
+      // component, twice a second, and then the hunter walked a route it could never finish.
+      const path = findPath(
+        pet.tileCol,
+        pet.tileRow,
+        quarry.tileCol,
+        quarry.tileRow,
+        this.tileMap,
+        this.blockedTiles,
+        undefined,
+        this.walls,
+        PET_CHASE_RANGE_TILES,
+      );
       return path.length > 0 ? path : null;
     }
     if (action === 'flee') {
@@ -2802,9 +2844,39 @@ export class OfficeState {
    *             or coffee mug on it) the pet rests on top of — any kind
    *  - 'drink' → a free WATER bowl (never a coffee machine), any kind
    * Returns the claimed target (with a path), or null.
+   *
+   * **It picks first and paths once.** It used to path EVERY candidate and pick at random from
+   * the reachable ones — one full BFS per free seat, per perch, per station, per unclaimed agent,
+   * i.e. O(candidates × area) and the only term quadratic in map area. `pickReachable` (pets.ts)
+   * probes at most `PET_TARGET_PATH_TRIES` of them, uniformly. Measured on uponu: a 'sit' decision
+   * offers 101 candidates and cost **38.3 ms of pathing, now 0.29 ms** — against a 50 ms tick
+   * budget and a whole tick of 0.066 ms. The numbers per branch are in `PET_TARGET_PATH_TRIES`.
+   *
+   * What that trades away, deliberately: the choice used to be uniform over REACHABLE candidates
+   * and is now uniform over candidates with retry — the same distribution whenever probes
+   * succeed, and a give-up on a map whose walkable floor is genuinely split into islands. The FSM
+   * already has that outcome: `hasRestAffordance` advertises seats WITHOUT checking reachability,
+   * and a null from here has always fallen through to a random wander with a 1.5-8 s re-decide.
+   * If islands ever make it visible, the fix is one component flood fill per decision — one
+   * search whatever the candidate count, the same insight `pathAwayFrom` is built on — not a
+   * search per candidate again.
    */
   private findFreePetTarget(pet: Pet, action: PetAction): PetTarget | null {
-    const candidates: PetTarget[] = [];
+    const specs = this.petTargetSpecs(pet, action);
+    if (specs.length === 0) return null;
+    const picked = pickReachable(specs, PET_TARGET_PATH_TRIES, (spec) => this.pathToPetTargetTile(pet, spec));
+    if (!picked) return null;
+    // Claimed once, for the chosen candidate only — so a decision that finds nothing reachable
+    // leaves no seat, station, agent or desk marked as taken by a pet that never went.
+    this.claimPetTarget(picked.candidate);
+    return { ...picked.candidate, path: picked.path };
+  }
+
+  /** Every target of `action` this pet could take, by the cheap tests alone — free, unclaimed,
+   *  of the right kind. Reachability is deliberately NOT among them: that is what costs a search,
+   *  and `findFreePetTarget` asks it for the few candidates it actually considers. */
+  private petTargetSpecs(pet: Pet, action: PetAction): PetTargetSpec[] {
+    const specs: PetTargetSpec[] = [];
 
     // Water bowls — stand on the bowl's tile. A pet never uses a coffee machine, and the
     // `appliance === 'water'` test is also what keeps it off seats: this loop used to walk every
@@ -2813,10 +2885,7 @@ export class OfficeState {
       for (const [uid, s] of this.points) {
         if (!s.appliance || !APPLIANCES_FOR.pet.includes(s.appliance)) continue;
         if (s.occupantId !== null || this.petStationClaims.has(uid)) continue;
-        const path = findPath(pet.tileCol, pet.tileRow, s.col, s.row, this.tileMap, this.blockedTiles, undefined, this.walls);
-        const reachable = path.length > 0 || (pet.tileCol === s.col && pet.tileRow === s.row);
-        if (!reachable) continue;
-        candidates.push({
+        specs.push({
           kind: 'station',
           action: 'drink',
           seatId: null,
@@ -2828,7 +2897,6 @@ export class OfficeState {
           sitRow: s.row,
           facing: s.facingDir,
           restLift: 0,
-          path,
         });
       }
     }
@@ -2840,10 +2908,7 @@ export class OfficeState {
         if (this.petTalkClaims.has(ch.id)) continue;
         const approach = this.adjacentApproach(ch.tileCol, ch.tileRow);
         if (!approach) continue;
-        const path = findPath(pet.tileCol, pet.tileRow, approach.col, approach.row, this.tileMap, this.blockedTiles, undefined, this.walls);
-        const reachable = path.length > 0 || (pet.tileCol === approach.col && pet.tileRow === approach.row);
-        if (!reachable) continue;
-        candidates.push({
+        specs.push({
           kind: 'agent',
           action: 'talk',
           seatId: null,
@@ -2854,52 +2919,33 @@ export class OfficeState {
           sitRow: approach.row,
           facing: approach.facing,
           restLift: 0,
-          path,
         });
       }
     }
 
-    // Chairs (the same sit points characters use) — temporarily unblock the tile
-    // to path onto it
-    for (const [uid, point] of this.points) {
-      if (action !== 'sit') break;
-      if (point.posture !== 'sit') continue;
-      if (point.occupantId !== null || this.petSeatClaims.has(uid)) continue;
-      const key = `${point.col},${point.row}`;
-      const had = this.blockedTiles.has(key);
-      if (had) this.blockedTiles.delete(key);
-      const path = findPath(
-        pet.tileCol,
-        pet.tileRow,
-        point.col,
-        point.row,
-        this.tileMap,
-        this.blockedTiles,
-        undefined,
-        this.walls,
-      );
-      if (had) this.blockedTiles.add(key);
-      const reachable = path.length > 0 || (pet.tileCol === point.col && pet.tileRow === point.row);
-      if (!reachable) continue;
-      candidates.push({
-        kind: 'seat',
-        action: 'sit',
-        seatId: uid,
-        furnitureUid: null,
-        stationId: null,
-        agentId: null,
-        sitCol: point.col,
-        sitRow: point.row,
-        facing: point.facingDir,
-        restLift: 0,
-        path,
-      });
+    // Chairs (the same sit points characters use).
+    if (action === 'sit') {
+      for (const [uid, point] of this.points) {
+        if (point.posture !== 'sit') continue;
+        if (point.occupantId !== null || this.petSeatClaims.has(uid)) continue;
+        specs.push({
+          kind: 'seat',
+          action: 'sit',
+          seatId: uid,
+          furnitureUid: null,
+          stationId: null,
+          agentId: null,
+          sitCol: point.col,
+          sitRow: point.row,
+          facing: point.facingDir,
+          restLift: 0,
+        });
+      }
     }
 
     // Desks/tables — rest ON the surface, but only on a column with no computer
     // or coffee mug. Anchor on the desk's bottom row (so the pet depth-sorts in
-    // front of the desk) and carry the lift that raises it onto the surface; the
-    // bottom tile is normally blocked, so unblock it just long enough to path on.
+    // front of the desk) and carry the lift that raises it onto the surface.
     if (action === 'sit') {
       const occupied = this.occupiedSurfaceTiles();
       for (const item of this.layout.furniture) {
@@ -2908,14 +2954,7 @@ export class OfficeState {
         if (!this.isFurnitureFreeForPet(item.uid)) continue;
         const spot = this.freeDeskRestColumn(item, entry, occupied);
         if (!spot) continue;
-        const key = `${spot.col},${spot.row}`;
-        const had = this.blockedTiles.has(key);
-        if (had) this.blockedTiles.delete(key);
-        const path = findPath(pet.tileCol, pet.tileRow, spot.col, spot.row, this.tileMap, this.blockedTiles, undefined, this.walls);
-        if (had) this.blockedTiles.add(key);
-        const reachable = path.length > 0 || (pet.tileCol === spot.col && pet.tileRow === spot.row);
-        if (!reachable) continue;
-        candidates.push({
+        specs.push({
           kind: 'furniture',
           action: 'sit',
           seatId: null,
@@ -2927,24 +2966,42 @@ export class OfficeState {
           // Face the viewer while lounging on the desk top.
           facing: Direction.DOWN,
           restLift: spot.lift,
-          path,
         });
       }
     }
 
-    if (candidates.length === 0) return null;
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-    // Claim it so agents/other pets won't take it
-    if (chosen.kind === 'seat' && chosen.seatId) {
-      this.petSeatClaims.add(chosen.seatId);
-    } else if (chosen.kind === 'station' && chosen.stationId) {
-      this.petStationClaims.add(chosen.stationId);
-    } else if (chosen.kind === 'agent' && chosen.agentId !== null) {
-      this.petTalkClaims.add(chosen.agentId);
-    } else if (chosen.furnitureUid) {
-      this.petFurnitureClaims.add(chosen.furnitureUid);
+    return specs;
+  }
+
+  /**
+   * The route from the pet to one candidate's tile — `[]` when it is already standing there,
+   * null when it cannot get there. That distinction is `pickReachable`'s contract, and it is why
+   * this returns null rather than an empty array for a failure.
+   *
+   * The destination tile is unblocked for the search, uniformly for all four kinds. Two of them
+   * (a chair seat, a desk perch) sit on a tile that is blocked for WALKING — which is what the
+   * two hand-rolled delete/restore dances this replaced were for; for the other two the unblock
+   * is a no-op, because their tile is walkable by construction.
+   */
+  private pathToPetTargetTile(pet: Pet, spec: PetTargetSpec): Array<{ col: number; row: number }> | null {
+    if (pet.tileCol === spec.sitCol && pet.tileRow === spec.sitRow) return [];
+    const path = this.withTileUnblocked(`${spec.sitCol},${spec.sitRow}`, () =>
+      findPath(pet.tileCol, pet.tileRow, spec.sitCol, spec.sitRow, this.tileMap, this.blockedTiles, undefined, this.walls),
+    );
+    return path.length > 0 ? path : null;
+  }
+
+  /** Mark the chosen target as taken, so agents and other pets won't take it. */
+  private claimPetTarget(spec: PetTargetSpec): void {
+    if (spec.kind === 'seat' && spec.seatId) {
+      this.petSeatClaims.add(spec.seatId);
+    } else if (spec.kind === 'station' && spec.stationId) {
+      this.petStationClaims.add(spec.stationId);
+    } else if (spec.kind === 'agent' && spec.agentId !== null) {
+      this.petTalkClaims.add(spec.agentId);
+    } else if (spec.furnitureUid) {
+      this.petFurnitureClaims.add(spec.furnitureUid);
     }
-    return chosen;
   }
 
   /** Get character at pixel position (for hit testing). Returns id or null. */

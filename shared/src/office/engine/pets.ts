@@ -92,6 +92,45 @@ export interface PetTarget {
   path: Array<{ col: number; row: number }>;
 }
 
+/** A target as it is CHOSEN — everything but the route to it. Splitting the path off is the
+ *  whole point: it lets the search decide first and path once (see `pickReachable`). */
+export type PetTargetSpec = Omit<PetTarget, "path">;
+
+/**
+ * Pick a candidate at random and path to it; on "cannot get there" try another, up to `tries`.
+ *
+ * This replaced pathing EVERY candidate and only then picking at random, which was
+ * O(candidates × area) — ~66 full searches for one 'sit' decision on uponu, one per unclaimed
+ * agent for 'talk'. See `PET_TARGET_PATH_TRIES` for the numbers and why three is enough.
+ *
+ * Two things about it are load-bearing rather than incidental:
+ *
+ *  - **`pathTo` returns `null` for "cannot get there" and `[]` for "already standing on it".**
+ *    `findPath` answers `[]` to both questions, and the caller used to disambiguate at four
+ *    separate sites with its own `path.length > 0 || (pet.tileCol === … && pet.tileRow === …)`.
+ *    Collapse the two and a pet intermittently refuses to use the thing it is standing on —
+ *    position-dependent, so it looks like a different bug every time.
+ *  - **The choice stays uniform over candidates.** A partial Fisher-Yates swaps a random element
+ *    of the untried tail into place, so nothing is probed twice and nothing is preferred. Sorting
+ *    by distance and taking the nearest would be cheaper still and would pile every animal onto
+ *    the same chair, then serialize them through one claim.
+ */
+export function pickReachable<T>(
+  candidates: T[],
+  tries: number,
+  pathTo: (candidate: T) => Array<{ col: number; row: number }> | null,
+): { candidate: T; path: Array<{ col: number; row: number }> } | null {
+  const pool = candidates.slice();
+  const attempts = Math.min(tries, pool.length);
+  for (let i = 0; i < attempts; i++) {
+    const j = i + Math.floor(Math.random() * (pool.length - i));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+    const path = pathTo(pool[i]);
+    if (path) return { candidate: pool[i], path };
+  }
+  return null;
+}
+
 interface PetUpdateContext {
   walkableTiles: Array<{ col: number; row: number }>;
   tileMap: GroundMap;
