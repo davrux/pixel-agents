@@ -27,6 +27,8 @@ import express from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
+
 import { reloadFurnitureCatalog } from '../assets.js';
 import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
@@ -38,6 +40,39 @@ import { secretEquals } from '../secretCompare.js';
 /** A .tmj is a few hundred KB of JSON, plus any images it carries — well past
  *  express.json's 100kb default, which would reject a real map outright. */
 const MAX_PUSH_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Is this map an acceptable size? The refusal, or null.
+ *
+ * A zone stays at most about twice a screen — a decision (see AGENTS.md), and `MAX_COLS`/`MAX_ROWS`
+ * is where it is written as a number: 100×100 is 10 000 cells against the ~4350 tiles a 1400×813
+ * canvas shows at minimum zoom. Until now that cap was applied to zone CREATION only
+ * (`ZoneStore.clampSize`), while a pushed map took its size straight from the file — so the one
+ * path a real map actually arrives by was the one path with no limit on it.
+ *
+ * Two reasons to refuse rather than clamp. A clamp would silently drop whatever a mapper painted
+ * outside the first 100 columns, and there is no sensible answer to "which part of your map did
+ * you mean"; and the fix is not to make the map smaller but to split it into zones joined by
+ * portals, which is what the message says.
+ *
+ * Here at the ROUTE rather than in `importZoneTmj`, deliberately, even though that would also
+ * cover seeding: `seedBundledZones` runs at boot, and a boot task may never keep the server from
+ * starting. Bundled maps are our own art and are checked by review, a pushed one is input.
+ */
+export function mapSizeRefusal(tmj: { width?: unknown; height?: unknown }): string | null {
+  const cols = Number(tmj.width);
+  const rows = Number(tmj.height);
+  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+    return `map size ${String(tmj.width)}×${String(tmj.height)} is not a whole number of tiles`;
+  }
+  if (cols > MAX_COLS || rows > MAX_ROWS) {
+    return (
+      `map is ${cols}×${rows} tiles, over the ${MAX_COLS}×${MAX_ROWS} a zone may be — ` +
+      `a zone stays at most about twice a screen. Split it into zones joined by a portal instead.`
+    );
+  }
+  return null;
+}
 
 interface PushBody {
   /** Zone to import into. Sent explicitly rather than re-derived here, so the
@@ -179,6 +214,12 @@ async function handlePush(req: Request, res: Response, mapStore: ZoneMapStore, z
   }
   if (!body.tmj || typeof body.tmj !== 'object') {
     return void res.status(400).json({ error: 'missing tmj' });
+  }
+  // Before the import, so an oversized map is neither parsed into a layout nor written anywhere.
+  const tooBig = mapSizeRefusal(body.tmj as { width?: unknown; height?: unknown });
+  if (tooBig) {
+    console.warn(`[zone-push] "${zoneId}" refused: ${tooBig}`);
+    return void res.status(400).json({ error: tooBig });
   }
 
   const files = new Map<string, Buffer>();

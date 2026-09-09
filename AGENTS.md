@@ -802,10 +802,15 @@ check asks: is the release present in the code that acquires?
   a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
 - **A zone map stays at most about twice a screen, decided 2026-09-09** — and the existing
   `MAX_COLS`/`MAX_ROWS` = 100 already says so: 10 000 cells against the ~4350 tiles (87×50) a
-  1400×813 canvas shows at minimum zoom. `uponu` at 56×57 is roughly one screen. One hole to know
-  about rather than trip over: that cap is applied to zone CREATION only (`ZoneStore.clampSize`) —
-  a pushed `.tmj` takes its size straight from the file (`mapBridge.ts`), and the only limit there
-  is 32 MB of JSON. So the decision is a decision, not something the code enforces. So the question
+  1400×813 canvas shows at minimum zoom. `uponu` at 56×57 is roughly one screen. **Both ways in
+  hold to it**: `ZoneStore.clampSize` on zone creation, and `mapSizeRefusal` on a push
+  (`zonePushApi.ts`) — which is where the real maps arrive and where, until this was written down,
+  the only limit was 32 MB of JSON. A push over the cap is REFUSED rather than clamped, because a
+  clamp silently drops whatever was painted past column 100 and there is no sensible answer to
+  "which part did you mean"; the message says to split the map into zones joined by a portal
+  instead. The check sits at the route and deliberately not in `importZoneTmj`, which would also
+  gate `seedBundledZones` — a boot task may never keep the server from starting, and a bundled map
+  is our own art where a pushed one is input. So the question
   "do maps grow?" is answered for now, and what a doubling costs is written down here rather than
   re-derived, because **neither of the two things it costs is interest management**:
   - **The client has no viewport culling anywhere.** `PhaserRenderer.buildStatic()` creates one
@@ -1245,6 +1250,8 @@ background only.)
   against *that* deployment and a release must not undo one. Changing a live map
   is always `scripts/push-zones.sh` (auth: `PIXEL_ADMIN_TOKEN` in
   `X-Pixel-Admin-Token`). Scratch copies (`*-noimport.tmj`) stay out of git.
+  A push is refused if the map is bigger than `MAX_COLS`×`MAX_ROWS` — see the
+  zone-size bullet under § Conventions for why that is a refusal and not a clamp.
 - **Slash-commands for navigation and quick actions.** The framework in
   `shared/src/commands.ts` (`user`/`admin` groups, gated by `mayRunCommand`) is the
   canonical way to reach another view or trigger a quick action — client-side via
