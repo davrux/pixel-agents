@@ -2476,13 +2476,28 @@ export class OfficeState {
     return this.pathAwayFrom(pet, other);
   }
 
-  /** Reactive movement path: a hunter paths toward its nearest quarry ('chase');
-   *  the quarry paths to a reachable tile that increases its distance from the
-   *  nearest hunter ('flee'). Which kinds those are comes from `CHASES` in both
-   *  cases. Returns null when no useful path exists. */
+  /**
+   * Reactive movement path: a hunter paths toward its nearest quarry ('chase'); the quarry paths
+   * to a reachable tile that increases its distance from the nearest hunter ('flee'). Which kinds
+   * those are comes from `CHASES` in both cases. Returns null when no useful path exists.
+   *
+   * **Who the other animal is comes from the same two questions the intent does** —
+   * `chaseQuarryFor` and `hunterNear`, not a second call to `nearestLivingPetOfKinds`. This is
+   * asked on the re-aim cadence for a chase already running, and it used to skip both filters, so
+   * a hunter kept pursuing a quarry that had just fought and could not be caught for 90 seconds:
+   * `catchable` hid it from the hunter's INTENT while this path handed it a route to it twice a
+   * second. AGENTS.md states the rule the other way round — a dog running after a cat it cannot
+   * possibly catch is a chase with no ending — and an in-flight chase is not an exception to it.
+   * The flee half goes through `hunterNear` for the same reason, which adds only its `flee`
+   * switch: fleeing is deliberately NOT gated by the cooldown, because being unavailable for a
+   * brawl is not the same as feeling safe.
+   *
+   * The consequence to expect rather than debug: a chase now ENDS the moment its quarry becomes
+   * protected, instead of following it around until it leaves the shoo radius.
+   */
   private navigatePetReaction(pet: Pet, action: PetAction): Array<{ col: number; row: number }> | null {
     if (action === 'chase') {
-      const quarry = this.nearestLivingPetOfKinds(pet, CHASES[pet.kind]);
+      const quarry = this.chaseQuarryFor(pet);
       if (!quarry) return null;
       // Bounded in STEPS, like the flee half — see PET_CHASE_RANGE_TILES for why 15 and not 10.
       // A quarry five tiles away behind a wall used to cost a search of the whole walkable
@@ -2501,7 +2516,7 @@ export class OfficeState {
       return path.length > 0 ? path : null;
     }
     if (action === 'flee') {
-      const hunter = this.nearestLivingPetOfKinds(pet, fleesFrom(pet.kind));
+      const hunter = this.hunterNear(pet);
       return hunter ? this.pathAwayFrom(pet, hunter) : null;
     }
     return null;
