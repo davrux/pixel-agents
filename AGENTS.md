@@ -694,6 +694,38 @@ check asks: is the release present in the code that acquires?
   10 889 B, 57.95 KB/s). Judge the wire by **KB/s**, never by messages per second. After the change
   the rate rises with activity, which is the direction that means something: 2.5/s at 101 agents
   (0.04 KB/s) and 10.5/s at 301 (0.11 KB/s).
+- **What a MOVING world costs is measured, and `scripts/wire-load.sh` re-measures it.** N headless
+  viewers join and walk; the number that extrapolates is **154-156 bytes per second per moving
+  entity per viewer** (~8 bytes per entity per patch window), and it is linear — 10 walkers gave
+  155 B/s, 30 gave 154, 12 gave 156. So the wire cost is
+  `moving entities × viewers × 155 B/s`:
+
+  | moving | per viewer | 10 viewers | 100 viewers |
+  |---|---|---|---|
+  | 30 | 4.6 KB/s | 0.4 Mbit/s | 3.7 Mbit/s |
+  | 100 | 15 KB/s | 1.2 | 12 |
+  | 300 | 46 KB/s | 3.7 | 37 |
+  | 1000 | 154 KB/s | 12 | 123 |
+
+  Two estimates in a row were wrong by more than 2× before this was measured, which is why the
+  script exists rather than a paragraph of arithmetic. Server CPU rose 6.2 % → 12.3 % of one core
+  from 10 to 30 walkers (each walker is also a viewer), and the encode is **shared**: one pass for
+  all viewers, then a send per socket.
+- **Interest management is a known lever and deliberately NOT built yet.** The trigger to revisit:
+  a zone that regularly holds **more than ~150 moving entities**, or **more than ~30 viewers**, or
+  a map bigger than a screen. Today none of that is true, and two facts decide it: `uponu` is
+  56×57 tiles while the camera's minimum zoom (1) shows more than the whole map — so an
+  interest RADIUS would have to be larger than the map, saving nothing — and the shared encode
+  above means per-viewer filtering trades bandwidth for CPU (a `StateView` per viewer re-walks the
+  changes once per viewer: 300 movers × 100 viewers is 30 000 filtered field encodes per patch,
+  twenty times a second). When it does become necessary, the mechanism is native — `@view()` on
+  the synced collections plus `client.view.add/remove` (@colyseus/schema 5, `client.view` in
+  core 0.18) — and the honest form here is a **viewport** the client asks for (a client may only
+  ever request LESS, never more; see § Security), because distance is not what decides
+  visibility when the camera can show everything. Three traps to design around, each a feature
+  this world already has: a scuffle PAIR must be atomic in a view (the client draws no cloud
+  unless both ends name each other), a call's participants must stay synced regardless of
+  distance, and a viewer's own avatar must never leave its own view.
   `entryFor` also memoizes per placement (a WeakMap), because every non-default placement built
   a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):

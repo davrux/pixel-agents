@@ -23,6 +23,7 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@colyseus/sdk": "^0.18.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.3.0",
