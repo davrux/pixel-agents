@@ -166,9 +166,10 @@ you actually see — `markerSpecs`), and a pet's `drink` has none either. Both f
 frame, on the fly, per frame.
 
 **Who hunts whom is a SPECIES fact in one table; fleeing is that table read backwards.** `CHASES`
-(`office/types.ts`) gives, per `PetKind`, the kinds it hunts — today `dog: ['cat']` and nothing else
-— and `fleesFrom(kind)` derives the other half: every kind that hunts this one *and* that this one
-does not hunt back. Three rules, and each is a mistake the previous shape allowed:
+(`office/types.ts`) gives, per `PetKind`, the kinds it hunts — today a RING, `dog: ['cat']`,
+`cat: ['bird']`, `bird: ['dog']` — and `fleesFrom(kind)` derives the other half: every kind that
+hunts this one *and* that this one does not hunt back. Four rules, and each is a mistake the
+previous shape allowed:
 
 - **Nothing outside that table names a species.** It used to be four words in two engine methods
   (`pet.kind === DOG` beside `nearestLivingPetOfKind(pet, CAT)`, and the mirror for fleeing) plus
@@ -176,6 +177,19 @@ does not hunt back. Three rules, and each is a mistake the previous shape allowe
   no relation at all — not as a decision, but because it appeared in none of those lines. A new
   pairing is now one word, a new species is one row, and the editor writes its own labels from it
   (`Chase cats` for a dog) instead of restating the relation where nobody would think to look.
+- **The ring is the shape, and it is a fairness decision.** The table was a CHAIN
+  (dog → cat → bird, nothing hunting the dog), so the two ends were lopsided by species: the dog
+  was only ever a hunter, the bird only ever prey, and since `PET_HUNTER_WIN_CHANCE` favours the
+  hunter, each end's win rate was fixed for the life of the world. Closing it — `bird: ['dog']`,
+  one word, which is the strongest evidence there is that the relation really does live in data —
+  makes every kind hunt one and be hunted by one. Measured over 40 runs of 20 simulated minutes
+  with two of each kind: the bird went from **15 % of all fight roles at a 38 % win rate to 34 % at
+  51 %**, and the cat from being in **every single fight** (50 % of roles, since it was the only
+  link both hunted and hunting) to a third of them. Two consequences to expect rather than debug: a
+  ring is three ONE-SIDED pairings, so `fleesFrom` still gives everyone exactly one thing to run
+  from and a pair always has precisely one hunter; and where all three meet, running beats hunting
+  (the brain's order, and `reactionOpportunity`'s), so the trio scatters and the fights happen when
+  a PAIR meets, which is most of the time.
 - **Flight is never stored.** "A cat flees a dog" is "a dog chases a cat" from the other end, and
   a world where only one of the two is written down can be configured into a state that does not
   exist. The subtraction is what makes a MUTUAL pairing come out right: if cats ever chase dogs
@@ -183,8 +197,8 @@ does not hunt back. Three rules, and each is a mistake the previous shape allowe
   a corner forever — which is where a scuffle (a comic cloud between them) would go.
 - **A `PetBehaviors` switch is a permission, not the relation.** `chase` and `flee` say whether
   THIS animal may act on its species' relation, so they name no quarry and a flag with nothing to
-  apply to is simply inert (a bird's `chase` is on and hunts nothing). Emma may be a peaceful dog;
-  no dog hunts birds.
+  apply to is simply inert (empty a row and that kind's `chase` stays on and hunts nobody). Emma
+  may be a peaceful dog; no dog hunts birds.
 
 The switches say what they mean, which cost a `PROTOCOL_VERSION` bump to 12: `chaseCats`/`fleeDogs`
 are `chase`/`flee`, and `drink` is **`feedDrink`** — a pet has never been able to use a coffee
@@ -192,8 +206,9 @@ machine, so a switch named for coffee described nothing that exists. `resolvePet
 spelling, so a stored animal keeps its settings; the bump is for the WRITE direction, because an
 older build's editor would read the new names as absent, show every switch off and write the old
 ones back on the next save. `petChase.int.test.ts` pins the table, the derivation (including the
-mutual case, against a hypothetical table, so the property holds before anyone edits `CHASES`) and
-that the engine reads nothing else.
+mutual case and the ring, against hypothetical tables, so the properties hold before anyone edits
+`CHASES`) and that the engine reads nothing else; `petScuffle.int.test.ts` walks all three pairings
+through the catch, including the one that closed the ring.
 
 **A chase ENDS in a cloud, and geometry is what catches.** A hunter that corners its quarry puts
 both animals in `PetState.SCUFFLE` for `PET_SCUFFLE_DURATION_SEC`; the client draws one comic puff

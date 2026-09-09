@@ -154,6 +154,22 @@ export type PetKind = (typeof PetKind)[keyof typeof PetKind];
  * relation at all, not because that was decided but because `BIRD` appears in none of those lines.
  * As a table, a new species is a row and a new pairing is one word.
  *
+ * **It is a RING, not a chain, and that is the whole design of it.** Dog hunts cat, cat hunts bird,
+ * bird hunts dog — so every kind hunts exactly one and is hunted by exactly one. A chain
+ * (dog → cat → bird, which is what this was) makes the two ends lopsided: the dog was only ever a
+ * hunter and the bird only ever prey, so with `PET_HUNTER_WIN_CHANCE` favouring the hunter each end
+ * had a win rate its species could not get away from, and the cat — the only link that was both —
+ * was in every fight there was. Measured over 40 runs of 20 simulated minutes with two of each
+ * kind: on the chain the bird took 15 % of all fight roles at a 38 % win rate and the cat 50 % of
+ * them; on the ring it is 33 / 33 / 34 % of roles at 54 / 45 / 51 %. Closing it is one word, and no
+ * code anywhere knows which kind it is talking about.
+ *
+ * Two consequences worth expecting rather than debugging. A ring is three ONE-SIDED pairings, not
+ * a mutual one, so `fleesFrom` still gives every kind exactly one thing to run from — pairwise,
+ * there is always precisely one hunter and one quarry. And where all three meet at once, running
+ * beats hunting (the brain's priority, and `reactionOpportunity`'s), so the trio scatters instead
+ * of anyone catching anyone: the fights happen when a pair meets, which is most of the time.
+ *
  * A per-VARIANT switch (`PetBehaviors.chase`) says whether a particular animal is allowed to act
  * on its species' relation; this says what the relation IS. Emma may be a peaceful dog, but no
  * dog hunts birds.
@@ -161,7 +177,7 @@ export type PetKind = (typeof PetKind)[keyof typeof PetKind];
 export const CHASES: Readonly<Record<PetKind, readonly PetKind[]>> = {
   dog: ['cat'],
   cat: ['bird'],
-  bird: [],
+  bird: ['dog'],
 };
 
 /** Does `hunter`'s species hunt `quarry`'s? */
@@ -179,6 +195,10 @@ export function chases(hunter: PetKind, quarry: PetKind, table: typeof CHASES = 
  * The subtraction is what makes a MUTUAL pairing fall out right: if cats ever chase dogs back, both
  * sides chase and neither flees, so the two meet in the middle instead of one endlessly shoving the
  * other into a corner. That confrontation is where a scuffle would go.
+ *
+ * A RING is not a mutual pairing and must not be mistaken for one: dog → cat → bird → dog is three
+ * one-sided facts, so the subtraction removes nothing and each kind still flees exactly the one
+ * that hunts it. Only a pair that hunts EACH OTHER cancels.
  */
 export function fleesFrom(kind: PetKind, table: typeof CHASES = CHASES): PetKind[] {
   return (Object.keys(table) as PetKind[]).filter((other) => chases(other, kind, table) && !chases(kind, other, table));

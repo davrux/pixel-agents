@@ -95,6 +95,52 @@ test('a hunter that reaches its quarry puts both of them in one cloud', () => {
   assert.equal(petPose(dog), 'idle');
 });
 
+test('every pairing in the ring ends in a cloud, and no kind is only a hunter', () => {
+  // The relation is a ring — dog → cat → bird → dog — and this walks all three pairings through
+  // the catch. Two of them worked before; `bird` → `dog` is the one that closed it, and closing it
+  // was one word in CHASES, which is what this test is really evidence for: a small animal seeing
+  // off a large one runs through exactly the lines that make a dog catch a cat, and no line names
+  // either species.
+  //
+  // Why it was worth closing: on the old chain the dog was only ever a hunter and the bird only
+  // ever prey, and PET_HUNTER_WIN_CHANCE favours the hunter — so the two ends had a win rate fixed
+  // by their species for the life of the world. Measured over 40 runs of 20 simulated minutes with
+  // two of each kind: the bird went from 15 % of all fight roles at a 38 % win rate to 34 % at
+  // 51 %, and the cat from being in every single fight (50 % of roles) to a third of them.
+  for (const [hunterKind, quarryKind] of [
+    [PetKind.DOG, PetKind.CAT],
+    [PetKind.CAT, PetKind.BIRD],
+    [PetKind.BIRD, PetKind.DOG],
+  ] as const) {
+    const os = world();
+    const hunter = place(os, 1, hunterKind, 4, 4);
+    const quarry = place(os, 2, quarryKind, 5, 4); // adjacent: this is about the catch, not the pursuit
+    // BOTH told to chase, deliberately: the decider cannot make an animal hunt something its
+    // species does not, so what decides which of the two ends up the hunter is the table alone.
+    os.setPetDecider(() => 'chase');
+
+    tick(os, 1);
+
+    assert.equal(stateOf(hunter), PetState.SCUFFLE, `a ${hunterKind} did not catch the ${quarryKind} beside it`);
+    assert.equal(stateOf(quarry), PetState.SCUFFLE, `the ${quarryKind} is not in the cloud its hunter is in`);
+    assert.equal(hunter.scufflePartnerId, quarry.id);
+    assert.equal(quarry.scufflePartnerId, hunter.id, 'the pair is not symmetric');
+    // The roll went one way for the pair, and which way is not decided by the kinds.
+    assert.notEqual(hunter.scuffleWon, quarry.scuffleWon, `both ${hunterKind} and ${quarryKind} believe they won`);
+  }
+
+  // And the ring is three ONE-SIDED facts, not a free-for-all: two animals of one kind told to
+  // chase each other have nothing to chase, so nothing happens. (`chases(dog, dog)` is false, and
+  // that is the table's business — this is the engine agreeing with it.)
+  const os = world();
+  const one = place(os, 1, PetKind.DOG, 4, 4);
+  const two = place(os, 2, PetKind.DOG, 5, 4);
+  os.setPetDecider(() => 'chase');
+  tick(os, 2);
+  assert.notEqual(stateOf(one), PetState.SCUFFLE, 'two dogs fell into a brawl neither species relation allows');
+  assert.equal(two.scufflePartnerId, null);
+});
+
 test('a hunter merely walking past its quarry starts nothing', () => {
   // The narrow condition, and the reason the world is not wall-to-wall clouds: what earns a scuffle
   // is having PURSUED. A dog wandering across a tile beside a sitting cat has not.

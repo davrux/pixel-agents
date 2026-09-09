@@ -2196,7 +2196,9 @@ export class OfficeState {
    *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
   private computePetAffordances(pet: Pet): PetAffordances {
     // Per-variant behaviour switches (editable; default all-on). A flag with nothing to apply to
-    // is inert on its own: a bird's `chase` is on, and `CHASES.bird` is empty.
+    // is inert on its own: emptying a row in CHASES leaves that kind's `chase` switched on and
+    // hunting nobody, which is what a permission does when there is nothing to permit. Today's
+    // table is a ring, so every kind has both a quarry and a hunter.
     const b = getPetConfig(pet.kind, pet.variant).behaviors;
     return {
       canRest: b.rest && this.hasRestAffordance(pet),
@@ -2417,8 +2419,10 @@ export class OfficeState {
   /** Nearest non-despawning pet of any of `kinds` within `radius` tiles (Chebyshev
    *  distance) of `pet`, or null. Used for chase/flee detection and for the catch. */
   private nearestLivingPetOfKinds(pet: Pet, kinds: readonly PetKindEnum[], radius = PET_SHOO_RADIUS_TILES): Pet | null {
-    // An empty relation is the common case (a bird hunts nothing, a dog runs from nothing), and
-    // this is per pet per tick — so answer before walking the collection.
+    // An empty relation costs nothing to answer, and this runs per pet per tick — so answer
+    // before walking the collection. Today's ring gives every kind one quarry and one hunter, but
+    // the relation is DATA: a row emptied in CHASES is one word away, and this is the guard that
+    // keeps it cheap rather than a scan that finds nothing.
     if (kinds.length === 0) return null;
     let best: Pet | null = null;
     let bestDist = radius + 1;
