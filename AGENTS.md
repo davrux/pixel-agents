@@ -780,6 +780,48 @@ check asks: is the release present in the code that acquires?
   script exists rather than a paragraph of arithmetic. Server CPU rose 6.2 % → 12.3 % of one core
   from 10 to 30 walkers (each walker is also a viewer), and the encode is **shared**: one pass for
   all viewers, then a send per socket.
+- **What is derived from the layout is built WITH the layout, and asking it per question was the
+  engine's last real hot spot.** Three answers about the map were recomputed on demand:
+  `occupiedSurfaceTiles` walked all 164 placements TWICE per pet decision (once for the
+  affordance, once for the target search), `seatFacesFurniture` re-found its placement with a
+  linear `find` inside a loop over placements — so `isFurnitureFreeForPet` cost 1.1 µs with one
+  agent and **102 µs with 300**, times 21 perches — and `findFreeSpawnTile` rebuilt the footprint
+  set of every placement and then filtered all 2651 walkable tiles, on every join. Measured on
+  uponu at 300 agents:
+
+  | | before | after |
+  |---|---:|---:|
+  | a pet's `'sit'` decision, end to end | 2.01 ms | **0.21 ms** |
+  | its candidate enumeration | 1.62 ms | 0.02 ms |
+  | `computePetAffordances` | 0.46 ms | 0.02 ms |
+  | `findFreeSpawnTile` (per join) | 0.20 ms | 0.01 ms |
+  | `layoutLoaded` packed (per join) | 0.41 ms | once per map |
+
+  Four rules keep that honest, and each is a way a cached map goes wrong:
+  - **Assigned wholesale, from one place.** `layoutDerived()` builds all three tables and is
+    called at both sites that derive from a layout, right after `walkableTiles`. Never mutated
+    incrementally, so they cannot drift and `leaks.mjs` reads them as layout-bounded.
+  - **A catalog reload is a layout change.** The tables read `entryFor`, so a pushed tileset would
+    stale them — `SimRoom` already rebuilds the layout on `ASSET_CHANGED`, which is what makes
+    caching them safe at all.
+  - **The encoded `layoutLoaded` frame is keyed on the layout OBJECT, not on an invalidation
+    call.** `rebuildFromLayout` assigns a new one, so a pushed map misses the cache by
+    construction and there is no list of "remember to clear this" whose failure mode is every
+    viewer decoding a stale map. `layoutDerived.int.test.ts` fails first if a rebuild ever starts
+    mutating in place.
+  - **A pre-encoded frame goes through `client.enqueueRaw`, never `client.raw`.** `send` is
+    `enqueueRaw` plus the packing, and the queue is what HOLDS a message while a client is still
+    JOINING. `raw` writes to the socket at once, so the frame arrives before the SDK has a handler
+    and is dropped — the world then sits in its loading phase until the deadline and the only
+    clue is a browser console warning. That mistake was made here and caught in a real browser,
+    not by a test; there is a test now.
+
+  And one shape worth reusing: **a spawn needs ONE free tile, so it draws them at random and takes
+  the first free one** (`SPAWN_PROBE_TRIES`, rejection sampling, so the choice stays uniform over
+  free tiles) with the old exhaustive filter as the fallback for a genuinely crowded zone. Same
+  insight as `pickReachable` for a pet's target: the cheap question is "is this one free", not
+  "which ones are".
+
 - **Interest management is a known lever and deliberately NOT built yet.** The trigger to revisit:
   a zone that regularly holds **more than ~150 moving entities**, or **more than ~30 viewers**.
   Map size is deliberately NOT on that list any more, and dropping it was a measurement, not a

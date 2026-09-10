@@ -110,6 +110,18 @@ export const PET_CHASE_RANGE_TILES = 3 * PET_SHOO_RADIUS_TILES; // 15
  */
 export const PET_TARGET_PATH_TRIES = 3;
 /**
+ * How many random tiles a spawn tries before it falls back to filtering the whole map.
+ *
+ * `findFreeSpawnTile` used to filter every walkable tile on every join — 2651 of them on uponu,
+ * each one an `isWalkable`, a set lookup and an area lookup, after rebuilding the footprint set
+ * of all 164 placements: 202 µs per join, on the room's thread. It only ever needed ONE free
+ * tile, so it draws them at random and takes the first free one, which is rejection sampling and
+ * therefore the same uniform choice over free tiles that filtering gave. Eight probes cover a
+ * world where two thirds of the floor is taken; past that the filter still runs, so a genuinely
+ * crowded zone is answered exactly as before rather than approximately.
+ */
+export const SPAWN_PROBE_TRIES = 8;
+/**
  * The scuffle: how a chase ENDS.
  *
  * Before this, a chase had no ending at all — the hunter pathed once to where its quarry stood,
