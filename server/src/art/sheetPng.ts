@@ -100,7 +100,34 @@ export type SheetFromPng =
  * a normalisation: whatever the client sent — palette, greyscale, 16-bit refused earlier, odd
  * chunks — what gets stored and served to other viewers is an RGBA sheet this server wrote.
  */
-export function sheetFromPng(input: unknown, frame: { w: number; h: number }): SheetFromPng {
+/**
+ * pngjs's stream API instead of `PNG.sync.*`, for one reason: the sync calls run zlib on the
+ * MAIN thread, and the largest legal sheet measured **47 ms** there (44 of them the re-encode) —
+ * against a 20 Hz tick budget of 50 ms. One upload therefore stalled the simulation of every zone
+ * in the process for nearly a whole tick, and a client that sends incompressible noise decides
+ * when. The stream API hands the deflate to Node's zlib, which runs it on the libuv threadpool:
+ * the same work, off the thread the world ticks on. A real pixel-art sheet is ~13 ms rather than
+ * 47, so this is about the worst case a client can pick, not the common one.
+ *
+ * What this does NOT change is the order: every cheap check above still happens synchronously and
+ * BEFORE any decoder sees the file, which is what stops a 73-byte bomb claiming 30000×30000.
+ */
+const parsePng = (bytes: Buffer): Promise<PNG> =>
+  new Promise((resolve, reject) => {
+    new PNG().parse(bytes, (err, png) => (err ? reject(err) : resolve(png)));
+  });
+
+const packPng = (png: PNG): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    png
+      .pack()
+      .on('data', (chunk: Buffer) => chunks.push(chunk))
+      .on('end', () => resolve(Buffer.concat(chunks)))
+      .on('error', reject);
+  });
+
+export async function sheetFromPng(input: unknown, frame: { w: number; h: number }): Promise<SheetFromPng> {
   const bytes = input instanceof Uint8Array ? Buffer.from(input.buffer, input.byteOffset, input.byteLength) : null;
   if (!bytes) return { ok: false, reason: 'not bytes' };
   if (bytes.length > MAX_SHEET_PNG_BYTES) return { ok: false, reason: `over ${MAX_SHEET_PNG_BYTES} bytes` };
@@ -127,9 +154,13 @@ export function sheetFromPng(input: unknown, frame: { w: number; h: number }): S
   if (rows > CHARACTER_DIRECTIONS.length) return { ok: false, reason: `${rows} direction rows` };
 
   try {
-    const decoded = PNG.sync.read(bytes);
+    const decoded = await parsePng(bytes);
     // filterType 0 + no RLE: pngjs's default costs 5× on pixel art (see core/assets/pngEncoder).
-    const canonical = PNG.sync.write(decoded, { filterType: 0, deflateStrategy: 0 });
+    // Those are constructor options for the stream API, so the pixels move into a PNG that
+    // carries them — by reference, because copying 1.5 MB to say the same thing is silly.
+    const out = new PNG({ width: decoded.width, height: decoded.height, filterType: 0, deflateStrategy: 0 });
+    out.data = decoded.data;
+    const canonical = await packPng(out);
     return { ok: true, png: canonical, frames, dirs: CHARACTER_DIRECTIONS.slice(0, rows) as string[] };
   } catch (err) {
     // A file that passes every header check and still fails to inflate is corrupt or hostile;

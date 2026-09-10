@@ -536,13 +536,19 @@ if (!chat) {
 // being bypassed by the next path somebody adds, and it is the half that does not depend on
 // knowing today's file names.
 
-const DECODERS = /\b(?:PNG\.sync\.read|decodeCharacterPng|decodePetPng|createImageBitmap|sharp)\s*\(/;
+// `parsePng` is in here because the decode moved behind a named helper: pngjs's SYNC calls run
+// zlib on the thread the world ticks on (47 ms for the largest legal sheet), so the gate now
+// awaits a stream decode. The rule follows the code — a decode this list cannot name is a decode
+// this check silently stops seeing, which is the failure mode the self-test exists for.
+const DECODERS = /\b(?:PNG\.sync\.read|parsePng|decodeCharacterPng|decodePetPng|createImageBitmap|sharp)\s*\(/;
 const GATE_FILE = 'server/src/art/sheetPng.ts';
 const gateSrc = read(GATE_FILE);
 if (!gateSrc) {
   warn(`${GATE_FILE} not found — re-check by hand where a client's image is decoded`);
 } else {
-  const fn = gateSrc.indexOf('export function sheetFromPng');
+  // `async function` since the decode went to the threadpool, so match either spelling rather
+  // than the exact one of the day.
+  const fn = gateSrc.search(/export\s+(?:async\s+)?function\s+sheetFromPng/);
   const decodeAt = fn >= 0 ? gateSrc.slice(fn).search(DECODERS) : -1;
   const before = decodeAt >= 0 ? gateSrc.slice(fn, fn + decodeAt) : '';
   const missing = [];

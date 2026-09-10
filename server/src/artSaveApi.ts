@@ -49,11 +49,11 @@ const MAX_META_BYTES = 4096;
  * sheet as a string, which is the shape this whole change is getting away from. The row handed to
  * the store carries the BYTES for the same reason — they go straight into the assets.png column.
  */
-function sheetRowFrom(
+async function sheetRowFrom(
   body: unknown,
   metaRaw: string | undefined,
   fallbackFrame: { w: number; h: number },
-): { ok: true; row: Record<string, unknown> } | { ok: false; reason: string } {
+): Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; reason: string }> {
   if (typeof metaRaw !== 'string' || metaRaw.length === 0) return { ok: false, reason: 'missing sheet metadata' };
   if (Buffer.byteLength(metaRaw) > MAX_META_BYTES) return { ok: false, reason: 'sheet metadata too long' };
   let meta: { name?: unknown; spec?: unknown; petConfig?: unknown };
@@ -70,7 +70,7 @@ function sheetRowFrom(
   const dim = (v: unknown, dflt: number): number => (Number.isInteger(v) ? (v as number) : dflt);
   const frame = { w: dim(claimed?.w, fallbackFrame.w), h: dim(claimed?.h, fallbackFrame.h) };
 
-  const sheet = sheetFromPng(body, frame);
+  const sheet = await sheetFromPng(body, frame);
   if (!sheet.ok) return { ok: false, reason: sheet.reason };
   const kept = {
     name: meta.name,
@@ -94,10 +94,10 @@ export function registerArtSaveApi(app: Express): void {
     userIdFromCookie(req.headers.cookie) ?? userIdFromBearer(req.headers.authorization);
 
   /** A viewer's own avatar. No id in the path or the payload: it is whoever is signed in. */
-  app.post('/art/avatar', rawPng, (req: Request, res: Response) => {
+  app.post('/art/avatar', rawPng, async (req: Request, res: Response) => {
     const userId = reqUserId(req);
     if (!userId) return void res.status(401).json({ error: 'unauthorized' });
-    const out = sheetRowFrom(req.body, req.header(META_HEADER), { w: CHAR_FRAME_W, h: CHAR_FRAME_H });
+    const out = await sheetRowFrom(req.body, req.header(META_HEADER), { w: CHAR_FRAME_W, h: CHAR_FRAME_H });
     if (!out.ok) return void res.status(400).json({ error: out.reason });
     appStore.setPlayerAvatar(userId, out.row);
     controlBus.emit(AVATAR_CHANGED_EVENT, userId);
@@ -105,7 +105,7 @@ export function registerArtSaveApi(app: Express): void {
   });
 
   /** A gallery skin or a pet. Admin only — that is what `gallery.edit` resolves to. */
-  app.post('/art/asset/:type/:name', rawPng, (req: Request, res: Response) => {
+  app.post('/art/asset/:type/:name', rawPng, async (req: Request, res: Response) => {
     const userId = reqUserId(req);
     if (!userId) return void res.status(401).json({ error: 'unauthorized' });
     if (!userStore.get(userId)?.isAdmin) return void res.status(403).json({ error: 'forbidden' });
@@ -115,7 +115,7 @@ export function registerArtSaveApi(app: Express): void {
     // Asset ids are safe identifiers (char_0, dog_1, …), the same rule the room message had.
     if (!/^[A-Za-z0-9_:-]{1,40}$/.test(name)) return void res.status(400).json({ error: 'bad name' });
     const frame = type === 'pet' ? { w: PET_FRAME_W, h: PET_FRAME_H } : { w: CHAR_FRAME_W, h: CHAR_FRAME_H };
-    const out = sheetRowFrom(req.body, req.header(META_HEADER), frame);
+    const out = await sheetRowFrom(req.body, req.header(META_HEADER), frame);
     if (!out.ok) return void res.status(400).json({ error: out.reason });
     appStore.saveAsset(type as AssetType, name, out.row);
     invalidateMergedBundle();

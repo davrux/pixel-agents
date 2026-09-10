@@ -985,7 +985,30 @@ check asks: is the release present in the code that acquires?
   session, never the payload: `/art/avatar` takes no id at all, and the asset route needs an
   admin. The rooms hear about a save through the control bus (`AVATAR_CHANGED_EVENT`, or
   `ASSET_CHANGED_EVENT` as before) — verified end to end in a browser: the POST answers 200 and
-  the client re-fetches the art at its new content hash. `mmo-readiness` has a rule for the
+  the client re-fetches the art at its new content hash.
+  **And that decode runs OFF the thread the world ticks on** (`parsePng`/`packPng`, pngjs's stream
+  API): `PNG.sync.read`/`write` run zlib on the main thread, and the largest legal sheet measures
+  **47 ms** there — 44 of them the re-encode — against a 20 Hz budget of 50 ms. Measured with a
+  20 Hz timer running alongside five uploads: the worst tick ran **63 ms late and only 15 of 20
+  ticks happened at all**; through the stream API it is 13-17 ms and no tick is skipped, at the
+  same wall clock per conversion (51.6 vs 50.7 ms). So one upload used to stall the simulation of
+  every zone in the process for more than a tick, and a client that sends incompressible noise
+  decided when — a real sheet is ~13 ms rather than 47, which is why this is about the worst case
+  and not the common one. The order is unchanged and is what matters for safety: every cheap
+  check still runs synchronously BEFORE any decoder sees the file. `sheetPng.int.test.ts` asserts
+  the call form is gone, because nothing about the returned sheet differs and no behavioural test
+  can tell the two paths apart.
+  Two measurements that came out of the same look and are worth not re-deriving. **The room's
+  SQLite writes are not a problem**: `setPlayerSpot` (the 5-second checkpoint) is **3.1 µs**, a
+  read 0.8 µs, a viewer setting 4.2 µs — so 300 players checkpointing cost under a millisecond
+  spread over five seconds, and moving the store off-thread would buy nothing while making 57 call
+  sites async. **`encodeDirectionalSheet` still packs synchronously** (`art/artStore.ts`, on
+  `appStore.saveAsset`): 3.2 ms for an ordinary character sheet and **86.7 ms for a maximal one**,
+  on an explicit user action ("save my avatar as a template", `SimRoom`'s one call). That one is
+  worth fixing when somebody is in there anyway — it needs `saveAsset` to become async, which
+  ripples through a store used in 57 places, so it is a change of its own and not a detail. The
+  same function on the art-SERVING route is the legacy fallback for un-repacked rows and is
+  cached per content hash, i.e. cold and bounded. `mmo-readiness` has a rule for the
   shape (a client-supplied image is bounded and header-checked before decoding) with its own
   planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
   world on purpose (measured here: 495 → 16 KB), verifying every row by unpacking it

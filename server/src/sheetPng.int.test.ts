@@ -13,6 +13,7 @@
  * followed by 40 bytes of nothing. Decoding it would ask for 3.6 GB.
  */
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { PNG } from 'pngjs';
@@ -52,9 +53,9 @@ function bomb(w: number, h: number): Buffer {
   return b;
 }
 
-test('a real sheet comes back re-encoded, with its geometry named', () => {
+test('a real sheet comes back re-encoded, with its geometry named', async () => {
   const input = sheetPng(7);
-  const out = sheetFromPng(input, CHAR);
+  const out = await sheetFromPng(input, CHAR);
   assert.equal(out.ok, true, out.ok ? '' : out.reason);
   if (!out.ok) return;
   assert.equal(out.frames, 7, 'seven frames per row, derived from the width');
@@ -67,21 +68,21 @@ test('a real sheet comes back re-encoded, with its geometry named', () => {
   assert.equal(Buffer.compare(after.data, before.data), 0, 'every pixel must survive the round trip');
 });
 
-test('a three-row sheet keeps three rows — the fourth is not invented here', () => {
-  const out = sheetFromPng(sheetPng(7, CHAR.w, CHAR.h, 3), CHAR);
+test('a three-row sheet keeps three rows — the fourth is not invented here', async () => {
+  const out = await sheetFromPng(sheetPng(7, CHAR.w, CHAR.h, 3), CHAR);
   assert.equal(out.ok, true);
   if (!out.ok) return;
   assert.deepEqual(out.dirs, ['down', 'up', 'right']);
   assert.equal(PNG.sync.read(out.png).height, 3 * CHAR.h);
 });
 
-test('the pixels are never spelled out as hex, whatever the size', () => {
+test('the pixels are never spelled out as hex, whatever the size', async () => {
   // The rewrite, stated STRUCTURALLY rather than as a timing. A first version of this test
   // asserted "under 30 ms" and failed at 54 ms inside the full suite — not because the code was
   // slow but because a dozen test files were sharing the machine. A wall clock is a benchmark's
   // instrument, not an assertion's; what the change actually promises is that no SpriteData is
   // produced. (For the record, measured alone: 48 ms before, 12.9 after.)
-  const out = sheetFromPng(sheetPng(24, 64, 64), { w: 64, h: 64 });
+  const out = await sheetFromPng(sheetPng(24, 64, 64), { w: 64, h: 64 });
   assert.equal(out.ok, true, out.ok ? '' : out.reason);
   if (!out.ok) return;
   for (const row of ['down', 'up', 'right', 'left']) {
@@ -91,10 +92,10 @@ test('the pixels are never spelled out as hex, whatever the size', () => {
   assert.equal(out.frames, 24);
 });
 
-test('a bomb is refused from its header, without decoding', () => {
+test('a bomb is refused from its header, without decoding', async () => {
   // 30000×30000 is 3.6 GB of RGBA. The file is 73 bytes, so nothing but the header check can
   // possibly stop it — and it must, or the decoder allocates.
-  const out = sheetFromPng(bomb(30000, 30000), CHAR);
+  const out = await sheetFromPng(bomb(30000, 30000), CHAR);
   assert.equal(out.ok, false);
   if (out.ok) return;
   assert.match(out.reason, /over \d+ pixels/, `expected a size refusal, got: ${out.reason}`);
@@ -102,49 +103,49 @@ test('a bomb is refused from its header, without decoding', () => {
   // Just over the cell cap is refused too, so the bound is the same one the SpriteData path
   // uses rather than a separate opinion.
   const overW = Math.ceil((MAX_SHEET_CELLS + 1) / (4 * CHAR.h)) * CHAR.w;
-  assert.equal(sheetFromPng(bomb(overW, 4 * CHAR.h), CHAR).ok, false);
+  assert.equal((await sheetFromPng(bomb(overW, 4 * CHAR.h), CHAR)).ok, false);
 });
 
-test('the refusals come in order, cheapest first', () => {
-  const reason = (input: unknown, frame = CHAR): string => {
-    const out = sheetFromPng(input, frame);
+test('the refusals come in order, cheapest first', async () => {
+  const reason = async (input: unknown, frame = CHAR): Promise<string> => {
+    const out = await sheetFromPng(input, frame);
     return out.ok ? '(accepted)' : out.reason;
   };
-  assert.equal(reason(null), 'not bytes');
-  assert.equal(reason('a string'), 'not bytes');
-  assert.equal(reason(Buffer.alloc(MAX_SHEET_PNG_BYTES + 1)), `over ${MAX_SHEET_PNG_BYTES} bytes`);
-  assert.equal(reason(Buffer.from('this is not a PNG, it is a sentence long enough to pass the length check')), 'not a PNG');
+  assert.equal(await reason(null), 'not bytes');
+  assert.equal(await reason('a string'), 'not bytes');
+  assert.equal(await reason(Buffer.alloc(MAX_SHEET_PNG_BYTES + 1)), `over ${MAX_SHEET_PNG_BYTES} bytes`);
+  assert.equal(await reason(Buffer.from('this is not a PNG, it is a sentence long enough to pass the length check')), 'not a PNG');
   // A JPEG is a file a user could plausibly pick; it must not reach the PNG decoder.
   const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60)]);
-  assert.equal(reason(jpeg), 'not a PNG');
+  assert.equal(await reason(jpeg), 'not a PNG');
   // 16-bit and interlaced are refused: neither is anything a browser canvas produces, and both
   // widen what the decoder has to do.
   const deep = bomb(64, 128);
   deep[24] = 16;
-  assert.equal(reason(deep), 'bit depth 16');
+  assert.equal(await reason(deep), 'bit depth 16');
   const laced = bomb(64, 128);
   laced[28] = 1;
-  assert.equal(reason(laced), 'interlaced');
+  assert.equal(await reason(laced), 'interlaced');
 });
 
-test('a sheet whose size is not a whole number of cells is refused, not cropped', () => {
+test('a sheet whose size is not a whole number of cells is refused, not cropped', async () => {
   // The decoder floors, so this used to mean a silently dropped partial frame or a row read
   // from outside the image — art that comes back subtly wrong rather than not at all.
-  assert.match((sheetFromPng(bomb(100, 128), CHAR) as { reason: string }).reason, /not a whole number/);
-  assert.match((sheetFromPng(bomb(112, 100), CHAR) as { reason: string }).reason, /not a whole number/);
+  assert.match((await sheetFromPng(bomb(100, 128), CHAR) as { reason: string }).reason, /not a whole number/);
+  assert.match((await sheetFromPng(bomb(112, 100), CHAR) as { reason: string }).reason, /not a whole number/);
   // More rows than there are directions, and more frames than a track may hold.
-  assert.match((sheetFromPng(bomb(112, 5 * 32), CHAR) as { reason: string }).reason, /direction rows/);
-  assert.match((sheetFromPng(bomb(65 * 16, 128), CHAR) as { reason: string }).reason, /frames per row/);
+  assert.match((await sheetFromPng(bomb(112, 5 * 32), CHAR) as { reason: string }).reason, /direction rows/);
+  assert.match((await sheetFromPng(bomb(65 * 16, 128), CHAR) as { reason: string }).reason, /frames per row/);
 });
 
-test('a frame size outside the bounds is refused before the image is looked at', () => {
+test('a frame size outside the bounds is refused before the image is looked at', async () => {
   for (const frame of [{ w: 0, h: 32 }, { w: 16, h: 0 }, { w: 65, h: 32 }, { w: 16, h: 65 }]) {
-    const out = sheetFromPng(sheetPng(7), frame);
+    const out = await sheetFromPng(sheetPng(7), frame);
     assert.equal(out.ok, false, `frame ${frame.w}×${frame.h} must be refused`);
   }
 });
 
-test('the header reader is exact about what it will parse', () => {
+test('the header reader is exact about what it will parse', async () => {
   const png = sheetPng(2);
   const head = readPngHeader(png);
   assert.ok(head);
@@ -158,12 +159,32 @@ test('the header reader is exact about what it will parse', () => {
   assert.equal(readPngHeader(noIhdr), null, 'a first chunk that is not IHDR is not a PNG we read');
 });
 
-test('a truncated but well-declared PNG fails in the decoder, and says so', () => {
+test('a truncated but well-declared PNG fails in the decoder, and says so', async () => {
   // Header fine, dimensions fine, body missing: the last line of defence, and it must be a
   // refusal rather than a throw that takes the message handler down.
   const png = sheetPng(7);
   const cut = png.subarray(0, 40);
-  const out = sheetFromPng(cut, CHAR);
+  const out = await sheetFromPng(cut, CHAR);
   assert.equal(out.ok, false);
   if (!out.ok) assert.match(out.reason, /undecodable/);
+});
+
+test('the conversion keeps zlib off the thread the world ticks on', () => {
+  // Why a source-level assertion: the failure mode is invisible from the outside. `PNG.sync.read`
+  // and `PNG.sync.write` run zlib on the MAIN thread, and the largest legal sheet measured 47 ms
+  // there — against a 20 Hz budget of 50 ms. With a 20 Hz timer running alongside, five uploads
+  // through the sync path made the worst tick run 63 ms late and only 15 of 20 ticks happen at
+  // all; through the stream API it is 13-17 ms late and no tick is skipped, at the same wall-clock
+  // cost per conversion (51.6 vs 50.7 ms). Nothing about the returned sheet differs, so no
+  // behavioural test can tell the two apart — but every viewer in every zone of the process sees
+  // the difference as a dropped frame, chosen by whoever uploads.
+  const src = readFileSync(new URL('./art/sheetPng.ts', import.meta.url), 'utf8');
+  // The CALL form, not the name: the doc comment in that file mentions `PNG.sync.*` to explain
+  // why it is not used, and a test that trips over its own explanation is worse than no test.
+  assert.equal(
+    /PNG\.sync\.(read|write)\s*\(/.test(src),
+    false,
+    'sheetPng.ts is back on the synchronous zlib path: one upload stalls every zone in the process',
+  );
+  assert.ok(src.includes('.pack()'), 'the stream encoder is gone');
 });
