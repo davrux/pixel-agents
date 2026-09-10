@@ -54,6 +54,74 @@ export const PET_SIT_CHANCE = 0.4; // chance a wander decision targets furniture
 export const PET_SHOO_RADIUS_TILES = 5;
 export const PET_FLEE_RANGE_TILES = 7;
 /**
+ * How far a hunter may walk to reach its quarry, in STEPS — the counterpart of
+ * `PET_FLEE_RANGE_TILES`, and for the same reason: an unbounded search is bounded by the map.
+ *
+ * The quarry is always within `PET_SHOO_RADIUS_TILES` in CHEBYSHEV distance, and on a 4-connected
+ * grid a Chebyshev 5 is up to **10 steps** — five across and five down, when the two stand
+ * diagonally. So 10 is the open-floor worst case, not slack: a bound of 10, or "twice the radius",
+ * would silently refuse every diagonal chase that has to round a desk. Three times the radius
+ * leaves five steps of detour, which is a pillar, a sofa or a desk — and not a wall.
+ *
+ * That is the case this exists for. A quarry five tiles away behind a wall used to make
+ * `findPath` exhaust the whole walkable component before answering "no route" (2651 walkable tiles
+ * on uponu), twice a second per hunter, because a search that CANNOT reach its target is the most
+ * expensive kind. A search bounded to S steps visits at most 2S² + 2S + 1 tiles: 481 at 15.
+ * Measured on uponu, interleaved, minimum of nine blocks: that case **1202 → 68 µs**, and the
+ * open-floor case where the bound never bites 7.2 → 7.1 µs — the bound costs nothing when it does
+ * not apply.
+ *
+ * And it is a behaviour improvement rather than only a saving. There is one speed for every pet
+ * and geometry is what catches: 15 steps at `PET_WALK_SPEED_PX_PER_SEC` is about six seconds,
+ * i.e. twelve re-aims, and the quarry is elsewhere long before. A dog that cannot possibly catch
+ * a cat should not be chasing it — the same rule `catchable()` already applies to a quarry that
+ * has just fought, applied to geometry instead of to a cooldown.
+ *
+ * Written as a multiple so that raising the radius cannot quietly make every diagonal chase
+ * impossible; `petChase.int.test.ts` pins that it stays above twice the radius.
+ */
+export const PET_CHASE_RANGE_TILES = 3 * PET_SHOO_RADIUS_TILES; // 15
+/**
+ * How many candidates a pet's target search may PATH before giving up, per decision.
+ *
+ * `findFreePetTarget` used to run one full search per candidate and only then pick at random —
+ * ~66 searches for one 'sit' decision on uponu (45 seat placements plus 21 perches), and one per
+ * unclaimed agent for 'talk', which is up to 301 in the worlds this repo has measured. That is
+ * O(candidates × area), the one term quadratic in map area, on the 20 Hz thread whose whole tick
+ * budget is 0.062 ms.
+ *
+ * A map's walkable floor is one connected component in practice — uponu measures 2651 walkable
+ * tiles in TWO components, of 2648 and 3 — so the first probe answers and the other hundred
+ * searches only ever confirmed it. Three covers a candidate whose own tile is fenced in by other
+ * furniture without reintroducing a search per candidate.
+ *
+ * Measured on uponu, interleaved, minimum of nine blocks (both sides on the current `bfsPath`, so
+ * the old numbers were in fact slightly worse than this):
+ *
+ *   | decision            | candidates | pathing before | after    |
+ *   |---------------------|-----------:|---------------:|---------:|
+ *   | 'sit'               |        101 |       38.3 ms  | 0.29 ms  |
+ *   | 'talk', 100 agents  |        100 |       42.7 ms  | 0.30 ms  |
+ *   | 'talk', 300 agents  |        300 |      149.8 ms  | 0.38 ms  |
+ *
+ * Read the middle column against a tick budget of 50 ms and a whole tick that measures 0.066 ms:
+ * one animal deciding to look for a chair spent most of a tick on it, and in a crowd it spent
+ * three ticks' worth in one call. That is what "quadratic in map area" cost in practice.
+ */
+export const PET_TARGET_PATH_TRIES = 3;
+/**
+ * How many random tiles a spawn tries before it falls back to filtering the whole map.
+ *
+ * `findFreeSpawnTile` used to filter every walkable tile on every join — 2651 of them on uponu,
+ * each one an `isWalkable`, a set lookup and an area lookup, after rebuilding the footprint set
+ * of all 164 placements: 202 µs per join, on the room's thread. It only ever needed ONE free
+ * tile, so it draws them at random and takes the first free one, which is rejection sampling and
+ * therefore the same uniform choice over free tiles that filtering gave. Eight probes cover a
+ * world where two thirds of the floor is taken; past that the filter still runs, so a genuinely
+ * crowded zone is answered exactly as before rather than approximately.
+ */
+export const SPAWN_PROBE_TRIES = 8;
+/**
  * The scuffle: how a chase ENDS.
  *
  * Before this, a chase had no ending at all — the hunter pathed once to where its quarry stood,

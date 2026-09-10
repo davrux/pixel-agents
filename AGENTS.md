@@ -308,6 +308,17 @@ A protected quarry is invisible to the hunter's INTENT and not merely to the cat
 running after a cat it cannot possibly catch is a chase with no ending. Fleeing is deliberately not
 gated: being unavailable for a brawl is not the same as feeling safe.
 
+**That applies to a chase already running, too, and until 2026-09-09 it did not.** There are two
+ways to reach a quarry — `chaseQuarryFor`, which filters through `catchable` and feeds the
+affordance and the walking interrupt, and `navigatePetReaction`, which is what the re-aim calls
+every `PET_REACTION_REPATH_SEC` — and the second asked `nearestLivingPetOfKinds` directly. So the
+rule above held for STARTING a chase and not for continuing one: a hunter kept being handed a route
+to an animal that had just fought, twice a second, for as long as it stayed in range. Both halves
+ask the intent's own questions now (`chaseQuarryFor` / `hunterNear`), which is one scan fewer each,
+and a chase ENDS the moment its quarry becomes protected rather than trailing it out of the radius.
+Measured over 20 simulated minutes with two of each kind, that costs no fights: 28-41 chases and
+17-20 clouds, against 32-43 and 14-18 before, i.e. inside the run-to-run spread.
+
 **A fleeing animal remembers its heading and refuses to reverse.** Every re-aim used to recompute
 the best escape from scratch twice a second, and in a confined space the best answer alternates as
 the hunter moves — measured in an 8×8 room: **21 reversals out of 21 samples, every run**, which is
@@ -362,6 +373,64 @@ Three things about it are load-bearing rather than incidental:
   contract the pathfinder used to give for free — 4-connected, `canStep`-legal, strictly farther,
   within range — and it asserts that BOTH branches answered, decided the way the code decides it
   rather than guessed from the shape of a path.
+
+**A chase is bounded too, and until 2026-09-09 only the flight was.** `findPath` took no step
+limit, so what bounded a search was the reachable walkable component — the whole map. The chase
+half asked that unbounded question every `PET_REACTION_REPATH_SEC` per hunter, and a quarry five
+tiles away BEHIND A WALL is the case it cost the most: **1202 µs on uponu, now 68 µs**, because a
+search that cannot reach its target exhausts everything it can reach before saying no. The open
+floor case, where the bound never bites, is 7.2 → 7.1 µs. Four things make it a decision rather
+than a cap:
+
+- **`PET_CHASE_RANGE_TILES` is 15 = 3 × the shoo radius, and 10 would be a regression.** The
+  quarry is within Chebyshev 5, and on a 4-connected grid a diagonal Chebyshev 5 is **ten steps** —
+  so ten is the open-floor worst case, not slack, and "twice the radius" would silently refuse
+  every diagonal chase that has to round a desk. It is written as a multiple so a changed radius
+  carries the bound with it, and `petChase.int.test.ts` fails if it ever drops to twice.
+- **It is a behaviour improvement, not only a saving.** 15 steps is about six seconds of walking,
+  i.e. twelve re-aims, and the quarry is elsewhere long before — AGENTS.md already says a dog that
+  cannot possibly catch a cat should not be chasing it, and this applies that to geometry instead
+  of to the scuffle cooldown. What is refused is a WALL between them; a doorway or a sofa is still
+  walked round. And it costs the world nothing measurable: 20 simulated minutes on uponu with two
+  of each kind gave **32-43 chases and 14-18 clouds over four bounded runs, against 41 and 17
+  unbounded** — inside the run-to-run spread, so what the bound removes is the hopeless walks and
+  not the fights.
+- **Both branches of `findPath` honour it, and the Dijkstra one counts STEPS, not cost.**
+  `AVOID_TILE_COST` is 8, so an 11-step route across one avoided tile costs 18 — a cap read off
+  the cost would refuse a path well inside the step bound while claiming to be a step bound. A
+  parameter only one branch respects is a parameter that lies. What the bounded Dijkstra gives up
+  is completeness (a node settled by a cheap long route can hide an expensive short one), which is
+  written down where it lives rather than papered over; today's only bounded caller passes no
+  `avoidTiles`.
+- **The affordance stays pathfinding-free.** `canChase` says a quarry EXISTS, not that it can be
+  reached; a search in there would become one per tick.
+
+**A pet's target search picks first and paths once.** `findFreePetTarget` ran a full BFS per
+CANDIDATE and only then picked at random — one per free seat, per perchable table, per bowl, per
+unclaimed agent. That is O(candidates × area), the only term quadratic in map area, and it is the
+one place where the cost was already absurd rather than theoretical: measured on uponu, a `'sit'`
+decision offers **101 candidates and cost 38.3 ms of pathing, now 0.29 ms**; `'talk'` with 300
+agents cost **149.8 ms, now 0.38 ms**. Against a 20 Hz tick budget of 50 ms and a whole tick that
+measures 0.066 ms, one animal looking for a chair spent most of a tick doing it, and in a crowd it
+spent three ticks' worth in a single call. Four rules hold the new shape:
+
+- **`pickReachable` probes at most `PET_TARGET_PATH_TRIES` = 3, uniformly.** A partial
+  Fisher-Yates, so nothing is probed twice and nothing is preferred. Sorting by distance and taking
+  the nearest is cheaper still and piles every animal onto the same chair, then serializes them
+  through one claim — `petTargetSearch.int.test.ts` pins the distribution for that reason.
+- **`null` is "cannot get there", `[]` is "already standing on it".** `findPath` answers `[]` to
+  both, and the old code disambiguated at four separate sites. Collapse the two and a pet
+  intermittently refuses the desk it is lying on.
+- **One claim, after the pick, and none on failure.** The claim used to be made once the candidate
+  list was complete; making it after the pick is a new chance to leave a seat marked as taken by an
+  animal that never went, so that is a test of its own.
+- **Three tries is a fact about maps, not a hunch.** A map's walkable floor is one component in
+  practice — uponu measures 2651 walkable tiles in two components, of 2648 and 3 — so the first
+  probe answers. What it trades away is stated: the pick is uniform over candidates with retry
+  rather than over REACHABLE candidates, so a genuinely islanded map can give up, which the FSM
+  has always handled with a random wander and a 1.5-8 s re-decide. If islands ever make it
+  visible, the fix is one component flood fill per decision — one search whatever the candidate
+  count, the same insight `pathAwayFrom` is built on — and not a search per candidate again.
 
 The sheet is drawn by `scripts/draw-scuffle-cloud.sh` (deterministic — a seeded LCG, so `--check`
 means something) and committed. It is ordinary art: redraw the PNG by hand and nothing downstream
@@ -694,8 +763,117 @@ check asks: is the release present in the code that acquires?
   10 889 B, 57.95 KB/s). Judge the wire by **KB/s**, never by messages per second. After the change
   the rate rises with activity, which is the direction that means something: 2.5/s at 101 agents
   (0.04 KB/s) and 10.5/s at 301 (0.11 KB/s).
+- **What a MOVING world costs is measured, and `scripts/wire-load.sh` re-measures it.** N headless
+  viewers join and walk; the number that extrapolates is **154-156 bytes per second per moving
+  entity per viewer** (~8 bytes per entity per patch window), and it is linear — 10 walkers gave
+  155 B/s, 30 gave 154, 12 gave 156. So the wire cost is
+  `moving entities × viewers × 155 B/s`:
+
+  | moving | per viewer | 10 viewers | 100 viewers |
+  |---|---|---|---|
+  | 30 | 4.6 KB/s | 0.4 Mbit/s | 3.7 Mbit/s |
+  | 100 | 15 KB/s | 1.2 | 12 |
+  | 300 | 46 KB/s | 3.7 | 37 |
+  | 1000 | 154 KB/s | 12 | 123 |
+
+  Two estimates in a row were wrong by more than 2× before this was measured, which is why the
+  script exists rather than a paragraph of arithmetic. Server CPU rose 6.2 % → 12.3 % of one core
+  from 10 to 30 walkers (each walker is also a viewer), and the encode is **shared**: one pass for
+  all viewers, then a send per socket.
+- **What is derived from the layout is built WITH the layout, and asking it per question was the
+  engine's last real hot spot.** Three answers about the map were recomputed on demand:
+  `occupiedSurfaceTiles` walked all 164 placements TWICE per pet decision (once for the
+  affordance, once for the target search), `seatFacesFurniture` re-found its placement with a
+  linear `find` inside a loop over placements — so `isFurnitureFreeForPet` cost 1.1 µs with one
+  agent and **102 µs with 300**, times 21 perches — and `findFreeSpawnTile` rebuilt the footprint
+  set of every placement and then filtered all 2651 walkable tiles, on every join. Measured on
+  uponu at 300 agents:
+
+  | | before | after |
+  |---|---:|---:|
+  | a pet's `'sit'` decision, end to end | 2.01 ms | **0.21 ms** |
+  | its candidate enumeration | 1.62 ms | 0.02 ms |
+  | `computePetAffordances` | 0.46 ms | 0.02 ms |
+  | `findFreeSpawnTile` (per join) | 0.20 ms | 0.01 ms |
+  | `layoutLoaded` packed (per join) | 0.41 ms | once per map |
+
+  Four rules keep that honest, and each is a way a cached map goes wrong:
+  - **Assigned wholesale, from one place.** `layoutDerived()` builds all three tables and is
+    called at both sites that derive from a layout, right after `walkableTiles`. Never mutated
+    incrementally, so they cannot drift and `leaks.mjs` reads them as layout-bounded.
+  - **A catalog reload is a layout change.** The tables read `entryFor`, so a pushed tileset would
+    stale them — `SimRoom` already rebuilds the layout on `ASSET_CHANGED`, which is what makes
+    caching them safe at all.
+  - **The encoded `layoutLoaded` frame is keyed on the layout OBJECT, not on an invalidation
+    call.** `rebuildFromLayout` assigns a new one, so a pushed map misses the cache by
+    construction and there is no list of "remember to clear this" whose failure mode is every
+    viewer decoding a stale map. `layoutDerived.int.test.ts` fails first if a rebuild ever starts
+    mutating in place.
+  - **A pre-encoded frame goes through `client.enqueueRaw`, never `client.raw`.** `send` is
+    `enqueueRaw` plus the packing, and the queue is what HOLDS a message while a client is still
+    JOINING. `raw` writes to the socket at once, so the frame arrives before the SDK has a handler
+    and is dropped — the world then sits in its loading phase until the deadline and the only
+    clue is a browser console warning. That mistake was made here and caught in a real browser,
+    not by a test; there is a test now.
+
+  And one shape worth reusing: **a spawn needs ONE free tile, so it draws them at random and takes
+  the first free one** (`SPAWN_PROBE_TRIES`, rejection sampling, so the choice stays uniform over
+  free tiles) with the old exhaustive filter as the fallback for a genuinely crowded zone. Same
+  insight as `pickReachable` for a pet's target: the cheap question is "is this one free", not
+  "which ones are".
+
+- **Interest management is a known lever and deliberately NOT built yet.** The trigger to revisit:
+  a zone that regularly holds **more than ~150 moving entities**, or **more than ~30 viewers**.
+  Map size is deliberately NOT on that list any more, and dropping it was a measurement, not a
+  simplification: **the patch wire scales with MOVING ENTITIES, not with area** — a large empty map
+  costs nothing on the wire (measured: 0 messages in 20 s on a still `uponu`), so a big map is not
+  what makes per-viewer filtering necessary. Two facts decide the rest: `uponu` is
+  56×57 tiles while the camera's minimum zoom (1) shows more than the whole map — so an
+  interest RADIUS would have to be larger than the map, saving nothing — and the shared encode
+  above means per-viewer filtering trades bandwidth for CPU (a `StateView` per viewer re-walks the
+  changes once per viewer: 300 movers × 100 viewers is 30 000 filtered field encodes per patch,
+  twenty times a second). When it does become necessary, the mechanism is native — `@view()` on
+  the synced collections plus `client.view.add/remove` (@colyseus/schema 5, `client.view` in
+  core 0.18) — and the honest form here is a **viewport** the client asks for (a client may only
+  ever request LESS, never more; see § Security), because distance is not what decides
+  visibility when the camera can show everything. Three traps to design around, each a feature
+  this world already has: a scuffle PAIR must be atomic in a view (the client draws no cloud
+  unless both ends name each other), a call's participants must stay synced regardless of
+  distance, and a viewer's own avatar must never leave its own view.
   `entryFor` also memoizes per placement (a WeakMap), because every non-default placement built
   a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
+- **A zone map stays at most about twice a screen, decided 2026-09-09** — and the existing
+  `MAX_COLS`/`MAX_ROWS` = 100 already says so: 10 000 cells against the ~4350 tiles (87×50) a
+  1400×813 canvas shows at minimum zoom. `uponu` at 56×57 is roughly one screen. **Both ways in
+  hold to it**: `ZoneStore.clampSize` on zone creation, and `mapSizeRefusal` on a push
+  (`zonePushApi.ts`) — which is where the real maps arrive and where, until this was written down,
+  the only limit was 32 MB of JSON. A push over the cap is REFUSED rather than clamped, because a
+  clamp silently drops whatever was painted past column 100 and there is no sensible answer to
+  "which part did you mean"; the message says to split the map into zones joined by a portal
+  instead. The check sits at the route and deliberately not in `importZoneTmj`, which would also
+  gate `seedBundledZones` — a boot task may never keep the server from starting, and a bundled map
+  is our own art where a pushed one is input. So the question
+  "do maps grow?" is answered for now, and what a doubling costs is written down here rather than
+  re-derived, because **neither of the two things it costs is interest management**:
+  - **The client has no viewport culling anywhere.** `PhaserRenderer.buildStatic()` creates one
+    GameObject per non-VOID ground cell — ~3700 live objects for `uponu`, all submitted and
+    depth-sorted every frame, all destroyed and rebuilt on every `buildStatic`. At twice a screen
+    that is ~8-10 000. Nothing in that pipeline scales sublinearly with area, so this is the first
+    thing to measure (F8 / `?perf=1`, and judge by frame time — see above) and the first thing to
+    fix if a big map feels slow.
+  - **The `layoutLoaded` payload is per JOIN and scales with area.** Measured on `uponu`: **245 KB
+    of JSON, ~78 B/cell**, of which `walls` is 46 % and `tileActions` the next largest because it
+    serializes a full object per painted meeting-room cell. Twice a screen is ~700 KB. Deflate
+    handles the wire (`perMessageDeflate` is on, and these arrays are runs of `null,`/`false,`);
+    what it does not handle is one `JSON.stringify` of that object on the room's thread, per join
+    and per live re-push. The optional-array habit is the lever that already exists —
+    `tileFlip` and `decals` are omitted entirely when a map uses none.
+
+  Two consequences of a bigger map that are behaviour rather than cost, and that no optimisation
+  addresses: population is **config-driven, not area-derived** (`maxConcurrent` per pet variant,
+  hard cap 8), so a bigger map holds the same animals and reads as emptier; and a wander target is
+  drawn **uniformly over the whole map** (`characters.ts`, `pets.ts`), so "wander somewhere" turns
+  into a long hike. Both are decisions to take deliberately if maps do grow, not bugs.
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
   `spriteTexture()` packs each SpriteData into shared canvas pages and returns
   `{key, frame}`, and `atlasFromImage()` packs a rectangle of an IMAGE into the same
@@ -1114,6 +1292,8 @@ background only.)
   against *that* deployment and a release must not undo one. Changing a live map
   is always `scripts/push-zones.sh` (auth: `PIXEL_ADMIN_TOKEN` in
   `X-Pixel-Admin-Token`). Scratch copies (`*-noimport.tmj`) stay out of git.
+  A push is refused if the map is bigger than `MAX_COLS`×`MAX_ROWS` — see the
+  zone-size bullet under § Conventions for why that is a refusal and not a clamp.
 - **Slash-commands for navigation and quick actions.** The framework in
   `shared/src/commands.ts` (`user`/`admin` groups, gated by `mayRunCommand`) is the
   canonical way to reach another view or trigger a quick action — client-side via

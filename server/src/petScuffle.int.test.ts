@@ -33,6 +33,7 @@ import {
   PET_AFTERMATH_DURATION_SEC,
   PET_CATCH_RADIUS_TILES,
   PET_HUNTER_WIN_CHANCE,
+  PET_REACTION_REPATH_SEC,
   PET_SCUFFLE_COOLDOWN_SEC,
   PET_SCUFFLE_DURATION_SEC,
 } from '@pixel/shared/office/constants.js';
@@ -409,6 +410,36 @@ test('an animal that just fought is off limits, to everybody, for the cooldown',
     other.tileRow = cat.tileRow;
   }
   assert.equal(offered, false, 'a dog was offered a chase against a cat under immunity');
+});
+
+test('a chase in flight ends when its quarry becomes protected', () => {
+  // The other half of "a protected quarry is invisible to the hunter's INTENT": that was true of
+  // starting a chase (`chaseQuarryFor` filters through `catchable`) and false of one already
+  // running. The re-aim asked `nearestLivingPetOfKinds` directly, so a dog kept being handed a
+  // route to a cat that had just fought and could not be caught for 90 seconds — twice a second,
+  // for as long as the cat stayed within the shoo radius. A pursuit with no possible ending, which
+  // is the exact shape the cooldown exists to prevent.
+  const os = world();
+  const dog = place(os, 1, PetKind.DOG, 4, 4);
+  const cat = place(os, 2, PetKind.CAT, 9, 4); // five tiles: in range, not yet caught
+  os.setPetDecider((pet) => (pet.kind === PetKind.DOG ? 'chase' : 'wander'));
+
+  os.update(1 / 20);
+  assert.equal(dog.reaction, 'chase', 'the dog never started the chase this test is about');
+
+  // The cat becomes untouchable mid-pursuit — the state it is in for 90 seconds after any fight.
+  cat.chaseCooldown = PET_SCUFFLE_COOLDOWN_SEC;
+  cat.wanderTimer = 999; // held still, so only the protection can end the chase
+
+  // Within one re-aim cadence, not eventually.
+  tick(os, PET_REACTION_REPATH_SEC + 0.1);
+  assert.equal(dog.reaction, null, 'the dog kept running after a cat it cannot possibly catch');
+  assert.equal(stateOf(dog) === PetState.SCUFFLE, false, 'a protected cat was caught anyway');
+
+  // And it is not stuck: it goes back to ordinary business rather than standing still.
+  tick(os, 2);
+  assert.equal(stateOf(dog) === PetState.SCUFFLE, false);
+  assert.equal(cat.state === PetState.SCUFFLE, false, 'the immunity did not hold');
 });
 
 test('nobody grabs an animal during the beat', () => {

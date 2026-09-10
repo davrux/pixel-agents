@@ -27,6 +27,13 @@
  *  3. A pet saved before the rename keeps its settings. `chaseCats`/`fleeDogs`/`drink` are read as
  *     `chase`/`flee`/`feedDrink`, because the alternative is every configured animal silently
  *     reverting to all-on.
+ *  4. A chase REACHES, or it does not start. The hunter's path is bounded by
+ *     `PET_CHASE_RANGE_TILES` in steps, the way the flee half has always been bounded by
+ *     `PET_FLEE_RANGE_TILES` — so a quarry five tiles away behind a wall no longer costs a search
+ *     of the whole walkable component twice a second, and no longer sends a dog on a walk it
+ *     cannot finish. The three tests for it pin the two edges that matter: the open-floor worst
+ *     case is a DIAGONAL Chebyshev 5, which is ten steps, so a bound of ten would refuse every
+ *     chase that has to round a desk; and a detour is still walked, only a wall is not.
  *
  * TEST BOUNDARIES:
  *   @real-dependency: OfficeState over a hand-built layout -- Mock? NO. The claim in (2) is about
@@ -36,8 +43,11 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 
+import { PET_CHASE_RANGE_TILES, PET_SHOO_RADIUS_TILES } from '@pixel/shared/office/constants.js';
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
-import { createPet, type PetAffordances } from '@pixel/shared/office/engine/pets.js';
+import { createPet, type PetAction, type PetAffordances } from '@pixel/shared/office/engine/pets.js';
+import { findPath } from '@pixel/shared/office/layout/tileMap.js';
+import { emptyWallEdges, vIndex } from '@pixel/shared/office/wallEdges.js';
 import { resolvePetConfig } from '@pixel/shared/office/sprites/characterSpec.js';
 import { CHASES, chases, fleesFrom, PetKind, PetState, type Pet } from '@pixel/shared/office/types';
 
@@ -281,4 +291,144 @@ test('a pet saved before the rename keeps its switches', () => {
   assert.deepEqual(CHASES[PetKind.BIRD], ['dog'], 'an all-on bird hunts exactly what the table gives it');
   assert.equal(chases(PetKind.BIRD, PetKind.CAT), false, 'and no switch can add a quarry the table does not name');
   assert.equal(resolvePetConfig({}).behaviors.flee, true, 'and it may run, which is what its relation gives it');
+});
+
+// ── The chase is bounded in steps ──────────────────────────────────────────────
+
+const CHASE_COLS = 32;
+const CHASE_ROWS = 14;
+
+/**
+ * A floor divided by a vertical wall at boundary 16, open at the named rows.
+ *
+ * The wall is a run of EDGES, and `crossingBlocked` looks an edge up under the HIGHER of the two
+ * columns — so `vIndex(cols, 16, row)` is what stops a step from 15 to 16. See the paragraph in
+ * `petFleePath.int.test.ts`: getting that backwards produces a confident wrong test rather than a
+ * failing one.
+ */
+function walledWorld(openRows: number[]): { os: OfficeState; walls: ReturnType<typeof emptyWallEdges> } {
+  const walls = emptyWallEdges(CHASE_COLS, CHASE_ROWS);
+  for (let row = 0; row < CHASE_ROWS; row++) {
+    if (!openRows.includes(row)) walls.vertical[vIndex(CHASE_COLS, 16, row)] = true;
+  }
+  const os = new OfficeState({
+    cols: CHASE_COLS,
+    rows: CHASE_ROWS,
+    tiles: new Array(CHASE_COLS * CHASE_ROWS).fill(1),
+    walls,
+    furniture: [],
+  } as never);
+  return { os, walls };
+}
+
+function pet(os: OfficeState, id: number, kind: PetKind, col: number, row: number): Pet {
+  const p = createPet(id, kind, 0, { col, row });
+  p.state = PetState.IDLE;
+  p.effect = null;
+  p.wanderTimer = 0;
+  os.pets.set(id, p);
+  return p;
+}
+
+/** The pet's state without narrowing — see the note in `petScuffle.int.test.ts`. */
+const stateOfPet = (p: Pet): string => p.state;
+
+/** The engine's own chase route, asked directly — deterministic, where ticking a wandering dog is
+ *  not: a refused chase falls through to a RANDOM wander, which would drift the fixture. */
+const chaseRoute = (os: OfficeState, hunter: Pet): Array<{ col: number; row: number }> | null =>
+  (
+    os as unknown as {
+      navigatePetReaction(p: Pet, action: PetAction): Array<{ col: number; row: number }> | null;
+    }
+  ).navigatePetReaction(hunter, 'chase');
+
+test('the bound is wider than the open-floor worst case, whatever the radius becomes', () => {
+  // Chebyshev 5 is up to TEN steps on a 4-connected grid — five across and five down. So this is
+  // not a stylistic assertion: at or below twice the radius, every diagonal chase that has to
+  // round a single desk is refused, and it looks like the dogs got lazy rather than like a bug.
+  assert.ok(
+    PET_CHASE_RANGE_TILES > 2 * PET_SHOO_RADIUS_TILES,
+    `PET_CHASE_RANGE_TILES is ${PET_CHASE_RANGE_TILES}, which is not more than the ${2 * PET_SHOO_RADIUS_TILES} steps ` +
+      `a diagonal Chebyshev ${PET_SHOO_RADIUS_TILES} already costs — every diagonal chase would be refused`,
+  );
+});
+
+test('the open-floor worst case still chases: a diagonal quarry is ten steps away', () => {
+  const { os } = walledWorld(Array.from({ length: CHASE_ROWS }, (_, r) => r)); // no wall at all
+  const dog = pet(os, 1, PetKind.DOG, 6, 3);
+  pet(os, 2, PetKind.CAT, 11, 8); // Chebyshev 5, diagonally: the farthest a quarry can be
+
+  const route = chaseRoute(os, dog);
+  assert.ok(route, 'the farthest legal quarry, on open floor, was refused');
+  assert.equal(route.length, 10, 'a diagonal Chebyshev 5 is ten steps and must be walkable in full');
+
+  // And it really becomes a chase, through the ordinary decision path.
+  os.setPetDecider((p) => (p.kind === PetKind.DOG ? 'chase' : 'wander'));
+  os.update(1 / 20);
+  assert.equal(dog.reaction, 'chase', 'the dog was handed a route and did not take it');
+});
+
+test('a detour is still walked — only a wall is not', () => {
+  // A wall with a doorway two rows down: the way through is nine steps, well inside the bound.
+  const { os } = walledWorld([5]);
+  const dog = pet(os, 1, PetKind.DOG, 14, 3);
+  pet(os, 2, PetKind.CAT, 19, 3);
+
+  const route = chaseRoute(os, dog);
+  assert.ok(route, 'a doorway inside the bound must still be chased through');
+  assert.ok(route.length > 5, 'the fixture is not making the dog go round anything');
+  assert.ok(
+    route.length <= PET_CHASE_RANGE_TILES,
+    `the detour is ${route.length} steps, which is outside the bound — the fixture, not the code`,
+  );
+  assert.equal(route[route.length - 1].col, 19, 'the route does not end at the quarry');
+});
+
+test('a quarry five tiles away behind a wall starts no chase, and the hunter does not stall', () => {
+  // The bug this bound exists for. The way round exists — the wall stops two rows short of the
+  // bottom — so this is NOT a test about unreachability: unbounded, the pathfinder finds a route
+  // and the dog sets off on a walk it cannot finish, having paid for a search of everything it
+  // can reach, twice a second.
+  const { os, walls } = walledWorld([12, 13]);
+  const dog = pet(os, 1, PetKind.DOG, 14, 3);
+  const cat = pet(os, 2, PetKind.CAT, 19, 3);
+  cat.wanderTimer = 999; // held still: this is about what the dog decides
+
+  const inner = os as unknown as { tileMap: never; blockedTiles: never };
+  const unbounded = findPath(14, 3, 19, 3, inner.tileMap, inner.blockedTiles, undefined, walls);
+  assert.ok(unbounded.length > PET_CHASE_RANGE_TILES, 'the fixture must leave a route that is longer than the bound');
+
+  assert.equal(chaseRoute(os, dog), null, 'the hunter took a route longer than the bound');
+
+  // The affordance stays pathfinding-free on purpose — it says a quarry EXISTS, not that it can be
+  // reached. Putting a search in there would put one on the tick.
+  // Collected into an ARRAY rather than a nullable local: `assert.ok` carries an assertion
+  // signature, and a variable only ever assigned inside a closure is still `null` to the compiler
+  // at that point — so asserting it narrows the type to `never` and every later read fails to
+  // typecheck while passing at runtime. Same trap as `stateOf` in petScuffle.int.test.ts.
+  const offered: PetAffordances[] = [];
+  os.setPetDecider((p, aff) => {
+    if (p.id === dog.id && offered.length === 0) offered.push(aff);
+    return p.kind === PetKind.DOG ? 'chase' : 'wander';
+  });
+  os.update(1 / 20);
+  assert.equal(offered.length, 1, 'the dog never asked its brain');
+  assert.equal(offered[0].canChase, true, 'the affordance must still see the cat — reachability is not its question');
+
+  // And the refusal is graceful: the decision falls through to the ordinary wander branch.
+  assert.equal(dog.reaction, null, 'a chase started anyway');
+  for (let i = 0; i < 40; i++) {
+    os.update(1 / 20);
+    assert.equal(dog.reaction, null, 'a chase started on a later tick');
+  }
+  // "Not stuck" asserted MECHANICALLY rather than by looking at the state: a random wander target
+  // can be the animal's own tile, which legitimately leaves it IDLE with a pause — the flake this
+  // file's header already warns about for another test. What must be true after a refusal is that
+  // a next decision is scheduled, which is what tells a graceful fall-through from a stall.
+  assert.ok(
+    stateOfPet(dog) === PetState.WANDER || dog.wanderTimer > 0,
+    'the refusal left the dog neither walking nor waiting to decide again — that is a stall',
+  );
+  // The window stays short on purpose: at 2.5 tiles/s the dog cannot reach the gap at the bottom
+  // of the wall in two seconds, so "no chase" is still about the wall and not about distance.
 });
