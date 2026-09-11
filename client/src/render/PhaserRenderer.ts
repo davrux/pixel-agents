@@ -168,6 +168,9 @@ interface CharGObjects {
  * speech bubbles. Static layers (floor, walls, furniture) are built once per
  * layout; characters/pets/bubbles are pooled and updated every frame.
  */
+/** How far down its own height a driver's body is pushed to sit in the seat. */
+const DRIVER_SEAT_FRACTION = 0.34;
+
 const NO_OVERLAY: WarpOverlay = { kind: 'none' };
 
 export class PhaserRenderer {
@@ -191,6 +194,10 @@ export class PhaserRenderer {
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
   private readonly karts = new Map<number, Phaser.GameObjects.Image>();
+  /** Who is driving, rebuilt every frame in syncKarts — read by syncCharacters, which runs
+   *  after it, to sit those bodies in a seat. Cleared rather than deleted from, so it is
+   *  bounded by the karts on the map. */
+  private readonly drivers = new Set<number>();
   /** The tiled rain over a materialising character, one per character while the effect lasts. */
   private readonly matrixRain = new Map<number, Phaser.GameObjects.TileSprite>();
   /** One overlay image per character mid-warp, for the styles that play FRAMES rather than
@@ -490,6 +497,7 @@ export class PhaserRenderer {
    */
   private syncKarts(): void {
     const karts = this.state.getKarts?.() ?? [];
+    this.drivers.clear();
     const seen = new Set<number>();
     for (const kart of karts) {
       seen.add(kart.id);
@@ -498,6 +506,7 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
         this.karts.set(kart.id, img);
       }
+      if (kart.driverId) this.drivers.add(kart.driverId);
       const frame = vehicleFrame(KART_SHEET, kart.drawHeading ?? kart.heading);
       // A vehicle strip is ONE row of headings, not four rows of facings, so the sheet store's
       // direction is always its first row — the heading is the column.
@@ -563,7 +572,16 @@ export class PhaserRenderer {
     const pose = ch.pose ?? getCharacterPose(ch);
     const cell = poseFrame(getSkinSpec(ch.skin), pose, ch.frame, sheetColumns(ch.skin));
     const frameH = size.h;
-    const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+    // A seated body sinks into its chair; a driver sinks into the cockpit, which is the same
+    // trick and a bigger number. The kart's x/y is its MIDDLE while a character is anchored at
+    // the feet, so with no offset the figure stands on the bodywork and the kart reads as a
+    // skateboard. A third of the frame's height puts the torso over the seat at any figure size.
+    const driving = this.drivers.has(ch.id);
+    const sit = driving
+      ? Math.round(frameH * DRIVER_SEAT_FRACTION)
+      : ch.state === CharacterState.TYPE
+        ? CHARACTER_SITTING_OFFSET_PX
+        : 0;
 
     // Mid-warp the body is the ordinary atlas sprite with a style applied to it — faded, squeezed,
     // and (for the sweep styles) an overlay tiled over it. Two draws whatever the figure's size;

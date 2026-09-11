@@ -137,6 +137,10 @@ const MAX_IFRAME_URL_LEN = 500;
 /** Parse+validate one Action (from an untrusted save payload) — https://
  *  only for iframe, closed sets of literal kinds elsewhere. Returns null for
  *  anything malformed (dropped, not defaulted). */
+/** A gate number or a grid position: a whole number in [0, MAX_RACE_INDEX]. */
+const MAX_RACE_INDEX = 255;
+const raceIndex = (raw: unknown): number => Math.max(0, Math.min(MAX_RACE_INDEX, Math.floor(Number(raw) || 0)));
+
 export function sanitizeAction(raw: unknown): Action | null {
   if (!raw || typeof raw !== 'object') return null;
   const rec = raw as Record<string, unknown>;
@@ -166,6 +170,15 @@ export function sanitizeAction(raw: unknown): Action | null {
       return { kind: 'toggle' };
     case 'spawnPoint':
       return { kind: 'spawnPoint' };
+    // A gate's number and a grid slot's order are the payload, and both are clamped here because
+    // this runs on EVERY write path — the numbers index a lap order and fill a starting grid, so
+    // a fractional or negative one would sort into nonsense. The cap is deliberately generous
+    // (a track with more than this many gates is not a track) and exists so a crafted layout
+    // cannot make a map with four billion gates.
+    case 'raceGate':
+      return { kind: 'raceGate', gate: raceIndex(rec.gate) };
+    case 'raceStart':
+      return { kind: 'raceStart', slot: raceIndex(rec.slot) };
     default:
       return null;
   }

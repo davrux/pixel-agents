@@ -31,6 +31,7 @@ import { raceTrack } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
+import { sanitizeLayoutActions, sanitizeLayoutImages, sanitizeLayoutTexts } from './layoutSanitize.js';
 import { importTmjToLayout } from './tiled/mapBridge.js';
 import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
@@ -58,6 +59,21 @@ test('the committed map imports as a track: four gates, a grid, its lap count', 
   for (const gate of track.gates) {
     assert.ok(gate.tiles.size >= 4, `gate ${gate.index} is only ${gate.tiles.size} tiles wide`);
   }
+});
+
+test('the map survives the save path: a stored track is still a track', () => {
+  // The regression this pins cost a live world: `sanitizeAction` is an ALLOW-LIST that runs on
+  // every write, so the gates and the grid were stripped the moment the map was stored and the
+  // zone came up with a perfectly good road and no karts on it. Nothing in the importer or the
+  // model can see that — both work on a layout that never went through a save.
+  const stored = sanitizeLayoutImages(
+    sanitizeLayoutActions(sanitizeLayoutTexts(JSON.parse(JSON.stringify(layout)))),
+  ) as unknown as OfficeLayout;
+  const track = raceTrack(stored);
+  assert.ok(track, 'the stored map is no longer a race track');
+  assert.equal(track.gates.length, 4, `gates after a save: ${track.gates.length}`);
+  assert.equal(track.grid.length, 4, `grid slots after a save: ${track.grid.length}`);
+  assert.equal(track.laps, 3, 'the lap count did not survive a save');
 });
 
 test('the engine puts one kart on each grid slot, parked and facing the first corner', () => {

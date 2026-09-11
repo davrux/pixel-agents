@@ -34,14 +34,34 @@ const CHECK = process.argv.includes('--check');
 
 const COLS = 44;
 const ROWS = 30;
-/** Road, from uponu's own most-used ground tile, and the collision marker. */
-const ROAD_GID = 8964;
-const KERB_GID = 1184;
+/**
+ * The four tiles this track is painted with, all of them already in the tileset table copied
+ * below. No new art: what makes a ring read as a CIRCUIT rather than as a grey donut is which
+ * existing tiles go where.
+ *
+ *  - `ROAD` is plain asphalt out of the imported road sheet (decal-roads, local 100).
+ *  - `KERB_RED`/`KERB_WHITE` are two solid colours out of the palette-baked floor set, laid in
+ *    alternating pairs. A red-and-white kerb is what a circuit actually has, so the edge of the
+ *    pit is legible from any distance — the first version painted a single flat blue and read as
+ *    a bug rather than as a boundary.
+ *  - `LINE_DARK` is the other half of the chequered start-finish band.
+ */
+const ROAD_GID = 8864 + 100;
+const KERB_RED_GID = 1171 + 62;
+const KERB_WHITE_GID = 1171 + 24;
+const LINE_DARK_GID = 1171 + 2;
 const COLLISION_GID = 7021;
+
+/** Alternating pairs, along whichever axis the stripe runs. */
+const kerbAt = (col: number, row: number): number =>
+  Math.floor((col + row) / 2) % 2 === 0 ? KERB_RED_GID : KERB_WHITE_GID;
 
 /** The ring: a road eight tiles wide, with a long bottom straight for start and finish. */
 const OUTER = { left: 2, right: COLS - 3, top: 2, bottom: ROWS - 3 };
 const INNER = { left: 11, right: COLS - 12, top: 9, bottom: ROWS - 10 };
+/** Where the lap is counted, and where the chequered band is painted. One constant, so the
+ *  picture and the gate cannot drift apart. */
+const START_LINE_COL = 26;
 
 const onRing = (col: number, row: number): boolean => {
   const inOuter = col >= OUTER.left && col <= OUTER.right && row >= OUTER.top && row <= OUTER.bottom;
@@ -73,10 +93,19 @@ for (let row = 0; row < ROWS; row++) {
         (row === INNER.top - 1 || row === INNER.bottom + 1) && col >= INNER.left - 1 && col <= INNER.right + 1;
       const innerSide =
         (col === INNER.left - 1 || col === INNER.right + 1) && row >= INNER.top - 1 && row <= INNER.bottom + 1;
-      ground[i] = inner || innerSide ? KERB_GID : ROAD_GID;
+      // The start-finish band: a chequered column across the bottom straight, on the same tiles
+      // gate 0 covers, so what the eye reads and what the engine counts are the same line.
+      const onStartLine = col === START_LINE_COL && row >= INNER.bottom + 1 && row <= OUTER.bottom;
+      ground[i] = onStartLine
+        ? row % 2 === 0
+          ? KERB_WHITE_GID
+          : LINE_DARK_GID
+        : inner || innerSide
+          ? kerbAt(col, row)
+          : ROAD_GID;
     } else if (onBarrier(col, row)) {
       // Ground under the barrier as well: it is a wall, not a hole.
-      ground[i] = KERB_GID;
+      ground[i] = kerbAt(col, row);
       collision[i] = COLLISION_GID;
     }
   }
@@ -112,7 +141,7 @@ const start = (col: number, row: number, slot: number) =>
 const objects: ReturnType<typeof marker>[] = [];
 /** Gate 0 across the bottom straight; then right, top, left — anticlockwise. */
 const bottomRow = { from: INNER.bottom + 1, to: OUTER.bottom };
-for (let row = bottomRow.from; row <= bottomRow.to; row++) objects.push(gate(26, row, 0));
+for (let row = bottomRow.from; row <= bottomRow.to; row++) objects.push(gate(START_LINE_COL, row, 0));
 for (let col = INNER.right + 1; col <= OUTER.right; col++) objects.push(gate(col, 15, 1));
 for (let row = OUTER.top; row <= INNER.top - 1; row++) objects.push(gate(18, row, 2));
 for (let col = OUTER.left; col <= INNER.left - 1; col++) objects.push(gate(col, 15, 3));

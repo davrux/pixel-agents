@@ -141,6 +141,23 @@ function solid(world: KartWorld, x: number, y: number): boolean {
 }
 
 /**
+ * Which of the four ways a BODY can face is closest to a kart's heading.
+ *
+ * Sixteen headings for the kart, four for its driver, and that asymmetry is the point: the kart is
+ * drawn from above where a turn is a different picture, while a character's art is four
+ * three-quarter views. Quadrants rather than nearest-axis, so the diagonals go to the horizontal
+ * facings — a driver seen from the side reads as driving, one seen head-on reads as parked.
+ */
+export function facingFromHeading(heading: number): 0 | 1 | 2 | 3 {
+  const a = wrapAngle(heading);
+  const q = Math.PI / 4;
+  if (a < q || a >= 7 * q) return 2; // east → RIGHT
+  if (a < 3 * q) return 0; // south → DOWN
+  if (a < 5 * q) return 1; // west → LEFT
+  return 3; // north → UP
+}
+
+/**
  * One tick of one kart. Returns what the room has to react to, so the caller decides what a lap
  * or a finish MEANS (a message, a score, a chequered flag) while this file stays pure.
  */

@@ -40,7 +40,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
-import { bumpKarts, createKart, updateKart, type Kart } from '../race/kart.js';
+import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart } from '../race/kart.js';
 import { headingFrom, raceTrack, type RaceTrack } from '../race/track.js';
 import { canStep, DIRS_4, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
@@ -1118,6 +1118,10 @@ export class OfficeState {
       ch.y = kart.y;
       ch.tileCol = Math.floor(kart.x / TILE_SIZE);
       ch.tileRow = Math.floor(kart.y / TILE_SIZE);
+      // Facing follows the kart, in the four the body has art for. It is world state, not
+      // presentation — everybody must see the driver looking the same way — and without it the
+      // driver keeps whichever way they were walking when they got in.
+      ch.dir = facingFromHeading(kart.heading);
     }
   }
 

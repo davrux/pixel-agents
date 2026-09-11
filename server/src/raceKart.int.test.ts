@@ -30,7 +30,7 @@ import { strict as assert } from 'node:assert';
 import test from 'node:test';
 
 import { KART_FALL_SEC, KART_MAX_SPEED_PX_PER_SEC } from '@pixel/shared/office/constants.js';
-import { bumpKarts, createKart, updateKart, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
+import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
 import { gateAt, headingFrom, raceProgress, raceTrack, type RaceTrack, wrapAngle } from '@pixel/shared/office/race/track.js';
 import { TILE_SIZE, TileType, type Action, type OfficeLayout } from '@pixel/shared/office/types';
 
@@ -307,4 +307,21 @@ test('a heading stays inside one turn, however long the kart circles', () => {
   // The other direction, and the one atan2 hands out: a gate that points north-west.
   assert.equal(wrapAngle(-Math.PI / 2).toFixed(4), ((3 * Math.PI) / 2).toFixed(4));
   assert.equal(wrapAngle(0), 0);
+});
+
+test('a driver faces the way the kart points, in the four a body has art for', () => {
+  const deg = (d: number) => facingFromHeading((d * Math.PI) / 180);
+  // Sixteen headings for the kart, four for the driver: the asymmetry is the point, since a
+  // character's art is four three-quarter views and a kart's is a picture per angle.
+  assert.equal(deg(0), 2, 'east is RIGHT');
+  assert.equal(deg(90), 0, 'south is DOWN');
+  assert.equal(deg(180), 1, 'west is LEFT');
+  assert.equal(deg(270), 3, 'north is UP');
+  // Quadrants, not nearest-axis: a diagonal goes to the HORIZONTAL facing, because a driver seen
+  // from the side reads as driving where one seen head-on reads as parked.
+  assert.equal(deg(30), 2, 'east-south-east still faces right');
+  assert.equal(deg(150), 1, 'west-south-west still faces left');
+  assert.equal(deg(-30), 2, 'a negative heading is wrapped first');
+  // Every heading answers, and only with a facing that exists.
+  for (let d = 0; d < 720; d += 3) assert.ok([0, 1, 2, 3].includes(deg(d)), `heading ${d} gave nothing`);
 });
