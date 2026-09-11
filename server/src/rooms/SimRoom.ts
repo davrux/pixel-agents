@@ -646,7 +646,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const spawnAt = options?.arrive ? this.zone.arrive : (resume ?? undefined);
     // The avatar's name is always the player's display name (username or userId).
     const displayName = username || userId || undefined;
-    const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
+    const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined, userId);
     // Placement first, then the resume: addPlayer answers "where does somebody go
     // when we have to choose" (never a furniture tile), which is not the same
     // question as "where were they" — a chair IS a furniture tile. See resumePlayer.

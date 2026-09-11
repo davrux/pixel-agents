@@ -53,7 +53,7 @@ type Inner = {
   warpPlayer(id: number, col: number, row: number): boolean;
   characters: Map<number, Character>;
   setWarpStylePref(name: string, style: string): void;
-  addPlayer(skin?: string, name?: string, at?: { col: number; row: number }): number;
+  addPlayer(skin?: string, name?: string, at?: { col: number; row: number }, ownerId?: string): number;
 };
 const inner = (os: OfficeState): Inner => os as unknown as Inner;
 
@@ -107,7 +107,7 @@ test('a warp plays the OWNER’s style, and the body moves when THAT style says 
   const os = world();
   const i = inner(os);
   i.setWarpStylePref('owner', 'implode'); // 0.5 s per phase
-  const id = i.addPlayer('char_0', 'owner', { col: 2, row: 2 });
+  const id = i.addPlayer('char_0', 'Owner McDisplayname', { col: 2, row: 2 }, 'owner');
   const ch = i.characters.get(id);
   assert.ok(ch);
   // Past the spawn effect it got on arrival.
@@ -140,7 +140,7 @@ test('a longer style keeps the body in place longer — the durations are actual
   const os = world();
   const i = inner(os);
   i.setWarpStylePref('slowpoke', 'phoenix'); // 1.0 s per phase
-  const id = i.addPlayer('char_0', 'slowpoke', { col: 2, row: 2 });
+  const id = i.addPlayer('char_0', 'Slow Poke', { col: 2, row: 2 }, 'slowpoke');
   const ch = i.characters.get(id)!;
   tick(os, 3);
 
@@ -154,7 +154,26 @@ test('a longer style keeps the body in place longer — the durations are actual
 test('a pawn with no owner preference warps in the default style', () => {
   const os = world();
   const i = inner(os);
-  const id = i.addPlayer('char_0', 'nobody-set-this', { col: 2, row: 2 });
+  const id = i.addPlayer('char_0', 'Nobody', { col: 2, row: 2 }, 'nobody-set-this');
   const ch = i.characters.get(id)!;
   assert.equal(ch.warpStyle, DEFAULT_WARP_STYLE, 'the spawn effect had no style at all');
+});
+
+test('the style follows the ACCOUNT, not the name shown on the avatar', () => {
+  // The bug this pins, reported from the running world: the preference is stored under the
+  // user id, and the lookup read `folderName` — which is the owner's user id for an AGENT but the
+  // free DISPLAY NAME for a player avatar. So anybody whose display name differs from their login
+  // id silently got the default, and the first version of every test above used one string for
+  // both and therefore passed.
+  const os = world();
+  const i = inner(os);
+  i.setWarpStylePref('u-42', 'beam');
+
+  const mine = i.characters.get(i.addPlayer('char_0', 'Ada Lovelace', { col: 2, row: 2 }, 'u-42'))!;
+  assert.equal(mine.warpStyle, 'beam', 'a display name that is not the account id lost the style');
+
+  // And a pawn whose display name happens to collide with somebody else's account id must not
+  // inherit that account's style.
+  const other = i.characters.get(i.addPlayer('char_0', 'u-42', { col: 5, row: 5 }, 'someone-else'))!;
+  assert.equal(other.warpStyle, DEFAULT_WARP_STYLE, 'a display name was used as an account key');
 });

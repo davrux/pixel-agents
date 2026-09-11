@@ -944,6 +944,9 @@ export class OfficeState {
 
     if (folderName) {
       ch.folderName = folderName;
+      // For an agent the two are the same thing — its label is its owner's user id — but the
+      // lookup reads `ownerId` only, so both paths have to set it.
+      ch.ownerId = folderName;
     }
     if (!skipSpawnEffect) {
       this.beginWarp(ch, 'spawn');
@@ -1005,7 +1008,12 @@ export class OfficeState {
 
   /** Spawn a human player's avatar (a viewer-driven Character, not the agent
    *  FSM) at a free walkable tile. Returns its id. */
-  addPlayer(preferredSkin?: string, name?: string, spawnAt?: { col: number; row: number }): number {
+  addPlayer(
+    preferredSkin?: string,
+    name?: string,
+    spawnAt?: { col: number; row: number },
+    ownerId?: string,
+  ): number {
     const id = this.nextPlayerId++;
     const skin = preferredSkin ?? this.pickDiverseSkin();
     const ch = createCharacter(id, skin, null, null);
@@ -1014,6 +1022,9 @@ export class OfficeState {
     ch.isActive = false;
     ch.state = CharacterState.IDLE;
     if (name) ch.folderName = name; // the owning user — shown as the avatar's name
+    // The account, separately from the name shown: a display name is free text and is NOT a key
+    // (see Character.ownerId).
+    if (ownerId) ch.ownerId = ownerId;
     // Spawn at the requested tile when it's free, else a free random tile (never
     // on a wall, furniture, or another entity).
     const spawn = this.findFreeSpawnTile(spawnAt);
@@ -1165,7 +1176,7 @@ export class OfficeState {
   private beginWarp(ch: Character, phase: 'spawn' | 'despawn'): void {
     ch.matrixEffect = phase;
     ch.matrixEffectTimer = 0;
-    ch.warpStyle = (ch.folderName ? this.warpStylePrefs.get(ch.folderName) : undefined) ?? DEFAULT_WARP_STYLE;
+    ch.warpStyle = (ch.ownerId ? this.warpStylePrefs.get(ch.ownerId) : undefined) ?? DEFAULT_WARP_STYLE;
   }
 
   /** A user's chosen warp style, seeded when a room starts and updated when they change it.
@@ -1823,6 +1834,7 @@ export class OfficeState {
     // A sub-agent belongs to whoever owns its parent, so it carries the same
     // owner name and is labelled like every other agent avatar.
     if (parentCh?.folderName) ch.folderName = parentCh.folderName;
+    if (parentCh?.ownerId) ch.ownerId = parentCh.ownerId;
     this.beginWarp(ch, 'spawn');
     this.characters.set(id, ch);
 

@@ -919,6 +919,14 @@ check asks: is the release present in the code that acquires?
     real teleport — a style that took longer on one machine would show the jump on another.
     The engine reads `warpStyle(ch.warpStyle).durationSec`, and `warpStyle.int.test.ts`
     fails if a 1.0 s phoenix ever moves a body on a 0.5 s implosion's schedule.
+  - **The account key is `Character.ownerId`, not `folderName`.** `folderName` means two things —
+    an agent's label IS its owner's user id, while a player avatar's is the free DISPLAY name — so
+    a preference looked up by it works for agents and silently falls back to the default for every
+    account whose display name differs from its login id. Which is most of them, and not the one
+    the first live check used. Reported from the running world; fixed by giving the pawn its
+    account explicitly, and `warpStyle.int.test.ts` now uses a display name that differs from the
+    id in every fixture — the first version of those tests passed one string for both and
+    therefore could not see it.
   - **The style comes from the ACCOUNT, never from the warp message.** Everyone else sees
     it, so § Security applies: a client says which style it wants
     (`setWarpStyle`), the id is validated against the table on the way into the store **and

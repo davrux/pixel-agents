@@ -1164,6 +1164,16 @@ export interface Character {
   warpStyle: WarpStyleId | null;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
+  /**
+   * The ACCOUNT this pawn belongs to, for anything resolved per user.
+   *
+   * Its own field because `folderName` means two different things: for an AGENT it is the owner's
+   * user id (an agent's label IS its owner), and for a PLAYER avatar it is the free display name.
+   * The warp style was looked up by `folderName` at first and silently fell back to the default
+   * for every account whose display name differs from its login id — which is most of them, and
+   * not the one I tested with.
+   */
+  ownerId?: string;
 
   // -- Agent Teams --
   /** Team name this agent belongs to */
