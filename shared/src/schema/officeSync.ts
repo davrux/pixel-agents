@@ -111,6 +111,35 @@ export class PetSync extends PawnSync {
 }
 
 /**
+ * A kart: a body somebody drives, and the fourth thing on this wire that extends `PawnSync`.
+ *
+ * It is a PAWN by AGENTS.md's own vocabulary — a body with a transform that something possesses —
+ * and the expensive direction on purpose: a kart exists without a driver (parked, and bumpable),
+ * which a "riding" flag on a character could not express.
+ *
+ * What is synced is what a client cannot derive: where it is, which way it points, and who is in
+ * it. Its VELOCITY is deliberately absent — the client interpolates position like it does for
+ * every other pawn, and a kart's speed only ever fed presentation.
+ */
+export class KartSync extends PawnSync {
+  /**
+   * Heading in hundredths of a radian, 0…628.
+   *
+   * A `uint16` rather than a float because it is read sixteen times per rotation by the renderer
+   * (one sprite per 22.5°) and a hundredth of a radian is a fortieth of that step — below what any
+   * number of headings can show, and two bytes instead of eight at 20 patches a second per kart.
+   */
+  @type('uint16') heading = 0;
+  /** The character driving, or 0 for a parked kart. `int32`, the type an id has — the pet cloud's
+   *  partner id was `uint16` for one afternoon and the live world caught it. */
+  @type('int32') driverId = 0;
+  @type('uint8') lap = 0;
+  /** Last gate passed, as an index into the track's gates. */
+  @type('uint8') gate = 0;
+  @type('boolean') finished = false;
+}
+
+/**
  * Hands a collection definition to `@type` without the compiler type-checking the
  * argument. Purely type-level — `type` receives exactly the object literal written at
  * the call site, so the wire layout is still decided by the same code as before.
@@ -132,6 +161,8 @@ const collection = (definition: unknown): DefinitionType => definition as Defini
 export class RoomState extends Schema {
   @type(collection({ map: CharacterSync })) characters = new MapSchema<CharacterSync>();
   @type(collection({ map: PetSync })) pets = new MapSchema<PetSync>();
+  /** The karts on this zone's track; empty in every zone whose map is not one (see `raceTrack`). */
+  @type(collection({ map: KartSync })) karts = new MapSchema<KartSync>();
   /**
    * Which placed furniture is currently switched ON, by `PlacedFurniture.uid`.
    *

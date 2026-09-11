@@ -40,6 +40,8 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
+import { bumpKarts, createKart, updateKart, type Kart } from '../race/kart.js';
+import { headingFrom, raceTrack, type RaceTrack } from '../race/track.js';
 import { canStep, DIRS_4, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
 import {
@@ -212,6 +214,14 @@ export class OfficeState {
   /** Per-user pinned character skin (folderName → skin id). */
   private skinPrefs = new Map<string, string>();
   private warpStylePrefs = new Map<string, WarpStyleId>();
+  /**
+   * The karts on this zone's track, and the track itself — both empty/null in every zone whose
+   * map is not one. Derived with the layout (see `layoutDerived`), like every other answer about
+   * the map, and the karts are placed on the grid the moment a track appears.
+   */
+  karts: Map<number, Kart> = new Map();
+  private track: RaceTrack | null = null;
+  private nextKartId = 3_000_000;
 
   // ── Pets ──────────────────────────────────────────────────
   /** Live pets, keyed by a dedicated id space (disjoint from characters). */
@@ -1004,6 +1014,113 @@ export class OfficeState {
     return ch && ch.controller === ControllerKind.HUMAN ? ch : null;
   }
 
+  /**
+   * The pawn a WALK command may move: a human's, and not one that is currently driving.
+   *
+   * Its own accessor rather than a test inside each of the walk commands, for the reason
+   * `humanPawn` exists at all — ten copies of one rule is where the eleventh forgets, and the
+   * eleventh here would let somebody click-to-walk their avatar out from under a moving kart.
+   * Only the WALK commands ask this: chatting, changing a setting or looking at a board are all
+   * fine from a driving seat.
+   */
+  private walkingPawn(id: number): Character | null {
+    const ch = this.humanPawn(id);
+    return ch && this.kartOf(id) === null ? ch : null;
+  }
+
+  /** The kart this character is driving, or null. One source of truth: the kart names its driver,
+   *  never the other way round, so the two cannot disagree. */
+  kartOf(characterId: number): Kart | null {
+    for (const kart of this.karts.values()) if (kart.driverId === characterId) return kart;
+    return null;
+  }
+
+  /**
+   * Put a human into the nearest free kart, or take them out of the one they are in.
+   *
+   * Boarding is a request like every other command: the server decides whether there is a kart
+   * close enough and free, and answers by doing it or not. Distance is checked against the
+   * CHARACTER, so walking up to a kart is how you get in — there is no "kart list" to pick from.
+   */
+  boardKart(characterId: number, reachPx = TILE_SIZE * 2): boolean {
+    const ch = this.humanPawn(characterId);
+    if (!ch) return false;
+    const already = this.kartOf(characterId);
+    if (already) {
+      // Out, and put the body beside the kart rather than inside it, so the next board is not
+      // instant and the figure is not standing in the bodywork.
+      already.driverId = null;
+      already.state = 'idle';
+      already.input = { throttle: 0, steer: 0 };
+      ch.x = already.x + TILE_SIZE;
+      ch.y = already.y;
+      ch.tileCol = Math.floor(ch.x / TILE_SIZE);
+      ch.tileRow = Math.floor(ch.y / TILE_SIZE);
+      return true;
+    }
+    // Drop whatever the body was walking towards: the walk FSM does not run on a driver (see
+    // walkingPawn), so a held direction would otherwise sit there and march the avatar off the
+    // moment they step back out.
+    ch.heldDir = null;
+    let best: Kart | null = null;
+    let bestDist = reachPx;
+    for (const kart of this.karts.values()) {
+      if (kart.driverId !== null) continue;
+      const d = Math.hypot(kart.x - ch.x, kart.y - ch.y);
+      if (d <= bestDist) {
+        best = kart;
+        bestDist = d;
+      }
+    }
+    if (!best) return false;
+    best.driverId = characterId;
+    best.state = 'drive';
+    // Stop whatever the body was doing: a walk path would otherwise keep being consumed under it.
+    ch.path = [];
+    ch.heldDir = null;
+    return true;
+  }
+
+  /** What a driver is asking their kart for. Clamped here, because it arrives from a client. */
+  setKartInput(characterId: number, input: { throttle?: unknown; steer?: unknown }): void {
+    const kart = this.kartOf(characterId);
+    if (!kart) return;
+    const trit = (v: unknown): -1 | 0 | 1 => (v === 1 || v === '1' ? 1 : v === -1 || v === '-1' ? -1 : 0);
+    kart.input = { throttle: trit(input?.throttle), steer: trit(input?.steer) };
+  }
+
+  /**
+   * One tick of every kart, plus the bumps between them.
+   *
+   * Called from `update`, and the ORDER matters: move everybody first, then resolve contacts, so
+   * two karts cannot take it in turns to shove each other within one tick. With eight karts the
+   * pairwise pass is 28 comparisons.
+   */
+  private updateKarts(dt: number): void {
+    if (!this.track || this.karts.size === 0) return;
+    const world = { tileMap: this.tileMap, blockedTiles: this.blockedTiles, walls: this.walls, track: this.track };
+    for (const kart of this.karts.values()) updateKart(kart, dt, world);
+    const list = [...this.karts.values()];
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) bumpKarts(list[i], list[j]);
+    }
+    // The driver rides along: the body follows the kart rather than being simulated, which is
+    // also what keeps it out of the walk FSM while driving.
+    for (const kart of this.karts.values()) {
+      if (kart.driverId === null) continue;
+      const ch = this.characters.get(kart.driverId);
+      if (!ch) {
+        kart.driverId = null; // the driver left the zone; the kart is free again
+        kart.state = 'idle';
+        continue;
+      }
+      ch.x = kart.x;
+      ch.y = kart.y;
+      ch.tileCol = Math.floor(kart.x / TILE_SIZE);
+      ch.tileRow = Math.floor(kart.y / TILE_SIZE);
+    }
+  }
+
   // ── Players (human viewer avatars) ────────────────────────────────
 
   /** Spawn a human player's avatar (a viewer-driven Character, not the agent
@@ -1216,7 +1333,7 @@ export class OfficeState {
    *  avatar up to it rather than doing nothing. Paths via the shared
    *  pathfinder; returns false if nothing walkable is reachable at all. */
   walkPlayer(id: number, col: number, row: number): boolean {
-    const ch = this.humanPawn(id);
+    const ch = this.walkingPawn(id);
     if (!ch) return false;
     // Outside the play area (off the map, or a VOID gap in it) — no-op, not
     // "walk to the nearest real tile". A click ON a real but non-walkable
@@ -1252,7 +1369,7 @@ export class OfficeState {
    *  nearestWalkableTile snapping like walkPlayer — you can't warp into a
    *  wall. Available to every player (not admin-gated). */
   warpPlayer(id: number, col: number, row: number): boolean {
-    const ch = this.humanPawn(id);
+    const ch = this.walkingPawn(id);
     if (!ch) return false;
     if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
     // Unlike findFreeSpawnTile/findFreeSitPoint (automatic placement, which must
@@ -1289,7 +1406,7 @@ export class OfficeState {
    *  direction. Returns false if there's no seat at the tile or it's unreachable.
    *  The seat tile is normally blocked, so it's temporarily unblocked to path. */
   sitPlayerAt(id: number, col: number, row: number): boolean {
-    const ch = this.humanPawn(id);
+    const ch = this.walkingPawn(id);
     if (!ch) return false;
     let point: InteractionPoint | undefined;
     for (const p of this.points.values()) {
@@ -1337,7 +1454,7 @@ export class OfficeState {
    *  keyboard walking: while held, the player steps tile-by-tile that way
    *  (validated per step). Abandons any in-flight click-to-walk path. */
   setPlayerDir(id: number, dir: Direction | null): boolean {
-    const ch = this.humanPawn(id);
+    const ch = this.walkingPawn(id);
     if (!ch) return false;
     if (dir !== null && ch.state === CharacterState.SIT) ch.state = CharacterState.IDLE; // stand up to move
     if (dir !== null) {
@@ -2145,6 +2262,7 @@ export class OfficeState {
    * and gets the server's clock — the one clock the whole world shares.
    */
   update(dt: number, nowMs: number = Date.now()): void {
+    this.updateKarts(dt);
     this.tickTalkingObjects(nowMs);
     // Furniture: the only reason a rebuild can be due is that somebody sat down, stood up or
     // turned in their seat, which switches nearby electronics. The animation clock used to be the
@@ -2384,6 +2502,30 @@ export class OfficeState {
     this.surfaceUids = surface;
     const outside = this.walkableTiles.filter((t) => this.areaIdAt(t.col, t.row) === null);
     this.spawnablePool = outside.length > 0 ? outside : this.walkableTiles;
+    this.buildTrack();
+  }
+
+  /**
+   * The track this map describes, and one kart per grid slot.
+   *
+   * Rebuilt with the layout rather than kept across one, because a pushed map moves the gates:
+   * a kart holding a gate index from the old track would be racing a lap that no longer exists.
+   * Karts are placed rather than spawned over time — a starting grid is the one thing on a race
+   * map that is fully authored, so there is nothing to decide per tick.
+   */
+  private buildTrack(): void {
+    this.track = raceTrack(this.layout);
+    this.karts.clear();
+    if (!this.track) return;
+    for (const slot of this.track.grid) {
+      const id = this.nextKartId++;
+      this.karts.set(id, createKart(id, slot, headingFrom(this.track, this.track.gates[0])));
+    }
+  }
+
+  /** The track, for the room (standings, the finish) — null in a zone that is not one. */
+  raceTrack(): RaceTrack | null {
+    return this.track;
   }
 
   /** First column of this perch with nothing else standing on it, as a rest spot

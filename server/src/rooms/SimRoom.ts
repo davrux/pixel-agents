@@ -21,9 +21,9 @@ import {
 import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
 import { isWorkStatus } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
-import { CharacterSync, PetSync, RoomState } from '@pixel/shared/schema';
+import { CharacterSync, KartSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
-import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
+import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
@@ -576,7 +576,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(PRESENCE_EVENT, this.onPresenceChanged);
 
     this.registerRoomHandlers();
-    this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
+    // A race zone ticks faster, and only a race zone. Steering at 20 Hz feels like posting
+    // letters; the alternative to a higher rate is client-side prediction, which invariant 2
+    // rules out. A tick costs 19 µs (measured on uponu with 300 agents), so three times as many
+    // of them is affordable — and the PATCH rate is separate and stays 20 Hz, so this buys input
+    // latency and not bandwidth.
+    const hz = this.os.raceTrack() ? RACE_TICK_HZ : TICK_HZ;
+    this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / hz);
   }
 
   onDispose(): void {
@@ -1500,6 +1506,19 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (userId) appStore.setViewerSetting(userId, 'soundEnabled', !!msg?.enabled);
     });
     /**
+     * Get in or out of a kart. A request, like every other command: the server decides whether
+     * there is a free kart within reach of the player's own body.
+     */
+    this.onMessage('kartBoard', (client) => {
+      const id = this.players.get(client.sessionId);
+      if (id !== undefined) this.os.boardKart(id);
+    });
+    /** What the driver is asking for. Clamped in the engine, because it comes from a client. */
+    this.onMessage('kartInput', (client, msg: { throttle?: unknown; steer?: unknown }) => {
+      const id = this.players.get(client.sessionId);
+      if (id !== undefined) this.os.setKartInput(id, msg ?? {});
+    });
+    /**
      * The viewer's warp style. NOT a viewer setting, even though it is set the same way: this one
      * is seen by everybody, so the id is validated against the table here and published on the
      * pawn — the client never sends a style with a warp.
@@ -1905,6 +1924,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.handleSpokenLines();
     this.syncCharacters();
     this.syncPets();
+    this.syncKarts();
     this.syncFurnitureOn();
     this.recordScuffleResults();
     this.checkpointSpots(dt);
@@ -2130,6 +2150,43 @@ export class SimRoom extends Room<{ state: RoomState }> {
     }
     for (const key of [...this.state.pets.keys()]) {
       if (!live.has(key)) this.state.pets.delete(key);
+    }
+  }
+
+  /**
+   * Push the karts, in every zone whose map is a track and no other.
+   *
+   * Position and heading are what a client cannot derive; velocity is deliberately not sent — the
+   * renderer interpolates a kart like any other pawn, and its speed only ever fed presentation.
+   * The heading travels as hundredths of a radian in a `uint16` because the renderer reads it
+   * sixteen times per turn and two bytes beat eight, twenty times a second, per kart.
+   */
+  private syncKarts(): void {
+    const live = new Set<string>();
+    for (const kart of this.os.karts.values()) {
+      const key = String(kart.id);
+      live.add(key);
+      const ks = this.state.karts.get(key) ?? new KartSync();
+      if (!this.state.karts.has(key)) {
+        ks.id = kart.id;
+        this.state.karts.set(key, ks);
+      }
+      ks.x = kart.x;
+      ks.y = kart.y;
+      ks.state = kart.state;
+      // A kart is driven by whoever is in it, and by nobody when it is parked — the same question
+      // every other pawn answers, so a client asks it once for any of them.
+      ks.controller = kart.driverId === null ? ControllerKind.NONE : ControllerKind.HUMAN;
+      // Normalised into 0…2π first: the heading accumulates turns and a uint16 would wrap.
+      const turn = ((kart.heading % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      ks.heading = Math.round(turn * 100);
+      ks.driverId = kart.driverId ?? 0;
+      ks.lap = Math.min(255, kart.lap);
+      ks.gate = Math.min(255, kart.gate);
+      ks.finished = kart.finished;
+    }
+    for (const key of [...this.state.karts.keys()]) {
+      if (!live.has(key)) this.state.karts.delete(key);
     }
   }
 

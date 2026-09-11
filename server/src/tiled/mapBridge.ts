@@ -215,6 +215,10 @@ export function importTmjToLayout(
   const layers = (tmj.layers as Array<Record<string, unknown>>) ?? [];
   const mapProps: PropBag = Object.fromEntries(((tmj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
   const mapName = typeof mapProps.mapName === 'string' && mapProps.mapName ? mapProps.mapName : null;
+  // How many laps a race over this map is. Only meaningful together with gates — `raceTrack`
+  // decides whether the map is a track at all, and from the GATES, so this number alone claims
+  // nothing.
+  const laps = Number.isFinite(Number(mapProps.laps)) ? Math.max(1, Math.floor(Number(mapProps.laps))) : undefined;
 
   // Resolve GIDs against THIS map's own tileset firstgid/source list, not
   // registry.resolve's disk-order assumption — see resolveFromTmjTilesets.
@@ -772,6 +776,7 @@ export function importTmjToLayout(
     walls: wallEdges,
     tileBlocked,
     tileActions,
+    ...(laps === undefined ? {} : { laps }),
     texts,
     images,
     // Same rule as `decals` below: left out unless the map actually mirrors
