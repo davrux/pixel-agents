@@ -115,6 +115,20 @@ export const IMPLODE_SHEET: EffectSheet = {
   frames: 4,
 };
 
+/**
+ * The flash a folding figure collapses into: a line of light across the body, at its middle.
+ *
+ * 32 wide so it overhangs a 16px figure on both sides — a line exactly as wide as the body reads
+ * as a belt rather than as a seam closing — and 16 tall to give the glow room above and below the
+ * line itself. Four frames: a thin seam, the flash at its widest, a bright narrow core, a dot.
+ */
+export const FOLD_SHEET: EffectSheet = {
+  id: 'fold',
+  frameW: 32,
+  frameH: 16,
+  frames: 4,
+};
+
 /** Every effect sheet, for the client's loading phase and the server's art registry. */
 export const EFFECT_SHEETS: readonly EffectSheet[] = [
   SCUFFLE_SHEET,
@@ -122,6 +136,7 @@ export const EFFECT_SHEETS: readonly EffectSheet[] = [
   BEAM_SHEET,
   PHOENIX_SHEET,
   IMPLODE_SHEET,
+  FOLD_SHEET,
 ];
 
 /**
@@ -143,7 +158,7 @@ export const EFFECT_SHEETS: readonly EffectSheet[] = [
  * presentation and lives in the client (AGENTS.md invariant 2). What is here is what both sides
  * must agree on: the id, how long it takes, and which art it needs fetched.
  */
-export type WarpStyleId = 'matrix' | 'beam' | 'phoenix' | 'implode';
+export type WarpStyleId = 'matrix' | 'beam' | 'phoenix' | 'implode' | 'smoke' | 'fold';
 
 export interface WarpStyle {
   id: WarpStyleId;
@@ -164,6 +179,12 @@ export const WARP_STYLES: readonly WarpStyle[] = [
   // A touch longer than the first version (0.5 s): being drawn INTO something needs a beat where
   // the figure is thin and the hole is open, and at half a second that beat was a frame or two.
   { id: 'implode', label: 'Implosion', durationSec: 0.65, sheet: IMPLODE_SHEET },
+  // The ninja exit, and the one style that needed no new art at all: the pets' scuffle puff is
+  // already committed, already in this table's own sheet list, and a comic cloud hides a figure
+  // exactly as well as it hides two animals.
+  { id: 'smoke', label: 'Smoke', durationSec: 0.55, sheet: SCUFFLE_SHEET },
+  // Fast and hard, the opposite of the rain: the body is squeezed to a line and the line flashes.
+  { id: 'fold', label: 'Fold', durationSec: 0.45, sheet: FOLD_SHEET },
 ];
 
 export const DEFAULT_WARP_STYLE: WarpStyleId = 'matrix';

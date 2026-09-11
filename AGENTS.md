@@ -941,10 +941,15 @@ check asks: is the release present in the code that acquires?
   - **An unknown id resolves to the DEFAULT, never to "no effect"** — the opposite of the
     `ControllerKind` rule and for the opposite reason: an unclaimed pawn should be inert,
     while an unstyled warp still has to cover the teleport.
-  - **Two shapes cover four styles.** Anything that SWEEPS is a tiling texture (matrix,
-    beam) for the reason above; anything that sits where the figure is and boils is a frame
-    sequence (phoenix), because scrolling a flame reads as a passing light rather than as
-    burning. `implode` is the one that also moves the BODY: X collapses early while Y holds
+  - **Two shapes cover six styles, and every one of them has art.** Anything that SWEEPS is
+    a tiling texture (matrix, beam) for the reason above; anything that sits where the figure
+    is is a frame sequence (phoenix, smoke, implode, fold), because scrolling a flame reads as
+    a passing light rather than as burning. `smoke` needed no NEW art — the pets' scuffle puff
+    was already committed and already in this table's sheet list, and a comic cloud hides a
+    figure exactly as well as it hides two animals. **The rule the implosion taught: a
+    transform says what the BODY does, never where it went, so a style is never art-free.**
+    `fold` squeezes the body onto a seam and the seam flashes; without the flash it is a
+    figure being flattened and then nothing. `implode` is the one that also moves the BODY: X collapses early while Y holds
     on, so the figure is pulled thin before it is swallowed, it spins a quarter turn and it
     darkens — and the renderer anchors that at the body's MIDDLE, because the sprite's own
     origin is at its feet and a shrink there reads as sinking into the floor. It started as

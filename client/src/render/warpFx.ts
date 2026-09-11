@@ -27,7 +27,7 @@
  * each). A missing sheet now means no effect — the figure is drawn whole — which is the honest
  * answer for art that did not arrive, and cheaper than a second renderer nobody looks at.
  */
-import { BEAM_BAND_PX, BEAM_SHEET, MATRIX_RAIN_BAND_PX, MATRIX_RAIN_SHEET, warpStyle, type WarpStyleId } from '@pixel/shared/office/effects.js';
+import { BEAM_BAND_PX, MATRIX_RAIN_BAND_PX, warpStyle, type WarpStyleId } from '@pixel/shared/office/effects.js';
 import { warpProgress } from '@pixel/shared/office/engine/matrixEffect.js';
 import type { Character } from '@pixel/shared/office/types';
 
@@ -73,24 +73,34 @@ function tileTexture(scene: Phaser.Scene, id: string): string | null {
   return key;
 }
 
+/** The SWEEP styles, and how much of their tile carries art. A style in here tiles; one that is
+ *  not plays its sheet as frames. */
+const TILE_BANDS: Partial<Record<WarpStyleId, number>> = {
+  matrix: MATRIX_RAIN_BAND_PX,
+  beam: BEAM_BAND_PX,
+};
+
+/** Where a frame style's art belongs. Anything that covers the figure sits at its feet; anything
+ *  that marks the POINT it went into sits at its middle. */
+const FRAME_ANCHORS: Partial<Record<WarpStyleId, 'feet' | 'centre'>> = {
+  phoenix: 'feet',
+  smoke: 'feet',
+  implode: 'centre',
+  fold: 'centre',
+};
+
 /** What to draw over a character mid-warp — `none` when the style needs nothing, or when its art
- *  did not load. */
+ *  did not load. Adding a style is an entry in one of the two tables above. */
 export function warpOverlay(scene: Phaser.Scene, id: WarpStyleId): WarpOverlay {
-  if (id === 'matrix') {
-    const key = tileTexture(scene, MATRIX_RAIN_SHEET.id);
-    return key ? { kind: 'tile', key, bandPx: MATRIX_RAIN_BAND_PX, anchor: 'feet' } : NONE;
+  const sheet = warpStyle(id).sheet;
+  if (!sheet) return NONE;
+  const bandPx = TILE_BANDS[id];
+  if (bandPx !== undefined) {
+    const key = tileTexture(scene, sheet.id);
+    return key ? { kind: 'tile', key, bandPx, anchor: 'feet' } : NONE;
   }
-  if (id === 'beam') {
-    const key = tileTexture(scene, BEAM_SHEET.id);
-    return key ? { kind: 'tile', key, bandPx: BEAM_BAND_PX, anchor: 'feet' } : NONE;
-  }
-  // Both frame styles resolve the same way; only where the art sits differs.
-  if (id === 'phoenix' || id === 'implode') {
-    const sheet = warpStyle(id).sheet;
-    if (!sheet || !sheetBitmap(effectSheetId(sheet.id))) return NONE;
-    return { kind: 'frames', sheetId: sheet.id, frames: sheet.frames, anchor: id === 'implode' ? 'centre' : 'feet' };
-  }
-  return NONE;
+  if (!sheetBitmap(effectSheetId(sheet.id))) return NONE;
+  return { kind: 'frames', sheetId: sheet.id, frames: sheet.frames, anchor: FRAME_ANCHORS[id] ?? 'feet' };
 }
 
 /**
@@ -120,7 +130,9 @@ export function warpBandScrollX(id: number, frameW: number): number {
  * and fading it as well would just make it disappear early.
  */
 export function warpBodyAlpha(ch: Character): number {
-  if (ch.warpStyle === 'implode') return 1;
+  // The styles that hide the body by MOVING it keep their opacity: fading as well would make them
+  // disappear early, before the collapse or the seam has finished the job.
+  if (ch.warpStyle === 'implode' || ch.warpStyle === 'fold') return 1;
   const progress = warpProgress(ch);
   return ch.matrixEffect === 'spawn' ? Math.min(1, progress * 1.35) : Math.max(0, 1 - progress * 1.15);
 }
@@ -155,10 +167,22 @@ const NO_TRANSFORM: WarpBodyTransform = { scaleX: 1, scaleY: 1, angle: 0, darken
  * Never exactly 0 — Phaser treats a zero scale as a degenerate quad.
  */
 export function warpBodyTransform(ch: Character): WarpBodyTransform {
-  if (ch.warpStyle !== 'implode') return NO_TRANSFORM;
+  const style = ch.warpStyle;
+  if (style !== 'implode' && style !== 'fold') return NO_TRANSFORM;
   const p = warpProgress(ch);
   // 0 = whole, 1 = gone. The arrival is the same curve played backwards.
   const pull = ch.matrixEffect === 'spawn' ? 1 - p : p;
+  if (style === 'fold') {
+    // Squeezed onto the seam: height goes, width swells a little as it is pressed. No spin and no
+    // darkening — this one is a light effect, and a figure that dims on the way into a flash
+    // fights the flash.
+    return {
+      scaleX: 1 + pull * 0.18,
+      scaleY: Math.max(0.01, 1 - Math.pow(pull, 0.85)),
+      angle: 0,
+      darken: 0,
+    };
+  }
   return {
     scaleX: Math.max(0.01, 1 - Math.pow(pull, 1.2)),
     scaleY: Math.max(0.01, 1 - Math.pow(pull, 2.8)),
