@@ -34,10 +34,17 @@ import type { Character } from '@pixel/shared/office/types';
 import { effectSheetId } from '../art/effects.js';
 import { sheetBitmap } from '../art/sheetStore.js';
 
-/** How a style is drawn over the figure. */
+/**
+ * How a style is drawn over the figure.
+ *
+ * `anchor` is where the art belongs relative to the body: a sweep and a flame sit ON the figure
+ * (feet), while an implosion's hole sits at the point the figure is drawn INTO, which is its
+ * middle. Getting that wrong is the difference between a collapse and a figure sinking into the
+ * floor.
+ */
 export type WarpOverlay =
-  | { kind: 'tile'; key: string; bandPx: number }
-  | { kind: 'frames'; sheetId: string; frames: number }
+  | { kind: 'tile'; key: string; bandPx: number; anchor: 'feet' }
+  | { kind: 'frames'; sheetId: string; frames: number; anchor: 'feet' | 'centre' }
   | { kind: 'none' };
 
 const NONE: WarpOverlay = { kind: 'none' };
@@ -71,17 +78,19 @@ function tileTexture(scene: Phaser.Scene, id: string): string | null {
 export function warpOverlay(scene: Phaser.Scene, id: WarpStyleId): WarpOverlay {
   if (id === 'matrix') {
     const key = tileTexture(scene, MATRIX_RAIN_SHEET.id);
-    return key ? { kind: 'tile', key, bandPx: MATRIX_RAIN_BAND_PX } : NONE;
+    return key ? { kind: 'tile', key, bandPx: MATRIX_RAIN_BAND_PX, anchor: 'feet' } : NONE;
   }
   if (id === 'beam') {
     const key = tileTexture(scene, BEAM_SHEET.id);
-    return key ? { kind: 'tile', key, bandPx: BEAM_BAND_PX } : NONE;
+    return key ? { kind: 'tile', key, bandPx: BEAM_BAND_PX, anchor: 'feet' } : NONE;
   }
-  if (id === 'phoenix') {
+  // Both frame styles resolve the same way; only where the art sits differs.
+  if (id === 'phoenix' || id === 'implode') {
     const sheet = warpStyle(id).sheet;
-    return sheet && sheetBitmap(effectSheetId(sheet.id)) ? { kind: 'frames', sheetId: sheet.id, frames: sheet.frames } : NONE;
+    if (!sheet || !sheetBitmap(effectSheetId(sheet.id))) return NONE;
+    return { kind: 'frames', sheetId: sheet.id, frames: sheet.frames, anchor: id === 'implode' ? 'centre' : 'feet' };
   }
-  return NONE; // implode: a transform, no art
+  return NONE;
 }
 
 /**
@@ -116,19 +125,46 @@ export function warpBodyAlpha(ch: Character): number {
   return ch.matrixEffect === 'spawn' ? Math.min(1, progress * 1.35) : Math.max(0, 1 - progress * 1.15);
 }
 
+/** What the body itself does — the identity for every style but `implode`. */
+export interface WarpBodyTransform {
+  scaleX: number;
+  scaleY: number;
+  /** Degrees. */
+  angle: number;
+  /** 0 = untouched, 1 = black. */
+  darken: number;
+}
+
+const NO_TRANSFORM: WarpBodyTransform = { scaleX: 1, scaleY: 1, angle: 0, darken: 0 };
+
 /**
- * The body's scale — 1 for every style but `implode`, which collapses it to a point and back.
+ * How an imploding body is drawn INTO a point, rather than merely made smaller.
  *
- * Eased rather than linear (`p³`), because a linear squeeze reads as a sprite being resized; the
- * cube keeps the figure nearly whole for most of the phase and then snaps away, which reads as a
- * collapse. Never exactly 0: Phaser treats a zero scale as a degenerate quad, and a hundredth of
- * a pixel is invisible anyway.
+ * The first version scaled both axes by `1 - p³` and left it at that, and it read as a figure
+ * walking away from the camera. Three things were missing, and each is one line here:
+ *
+ *  - **The two axes are not the same.** X collapses early and Y holds on (exponents 1.2 against
+ *    2.8), so the figure is pulled THIN before it is swallowed — which is what being sucked in
+ *    looks like, and what a uniform scale can never show.
+ *  - **It spins as it goes.** A quarter turn's worth, eased so it barely moves at first.
+ *  - **It goes dark.** The point it vanishes into is a hole; a figure that keeps its colours to
+ *    the last pixel looks lit from somewhere.
+ *
+ * The caller anchors this at the body's MIDDLE (see PhaserRenderer): with the sprite's own origin
+ * at its feet, a shrink converges on the floor, which reads as sinking rather than as collapsing.
+ * Never exactly 0 — Phaser treats a zero scale as a degenerate quad.
  */
-export function warpBodyScale(ch: Character): number {
-  if (ch.warpStyle !== 'implode') return 1;
+export function warpBodyTransform(ch: Character): WarpBodyTransform {
+  if (ch.warpStyle !== 'implode') return NO_TRANSFORM;
   const p = warpProgress(ch);
-  const shrink = ch.matrixEffect === 'spawn' ? 1 - p : p;
-  return Math.max(0.01, 1 - shrink * shrink * shrink);
+  // 0 = whole, 1 = gone. The arrival is the same curve played backwards.
+  const pull = ch.matrixEffect === 'spawn' ? 1 - p : p;
+  return {
+    scaleX: Math.max(0.01, 1 - Math.pow(pull, 1.2)),
+    scaleY: Math.max(0.01, 1 - Math.pow(pull, 2.8)),
+    angle: Math.pow(pull, 2) * 90,
+    darken: Math.min(1, Math.pow(pull, 1.4)),
+  };
 }
 
 /**

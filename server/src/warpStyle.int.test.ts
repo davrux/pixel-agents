@@ -119,19 +119,22 @@ test('a warp plays the OWNER’s style, and the body moves when THAT style says 
   assert.equal(ch.matrixEffect, 'despawn');
   assert.equal(ch.warpStyle, 'implode', 'the warp did not take the owner’s style');
 
+  // Timings read from the table, never written out: the styles are tuned by eye and a hardcoded
+  // 0.5 became wrong the first time somebody lengthened the implosion.
+  const phase = warpStyle('implode').durationSec;
   // Still on the old tile a third of the way through — the effect is covering the jump.
-  tick(os, 0.15);
+  tick(os, phase * 0.3);
   assert.deepEqual([ch.tileCol, ch.tileRow], [2, 2], 'the body moved before the effect could hide it');
 
-  // And moved once implode's own 0.5 s is up. A style-blind check against the old 0.7 s constant
+  // And moved once implode's OWN phase is up. A style-blind check against the old single constant
   // would still be waiting here, which is exactly the bug this pins.
-  tick(os, 0.45);
+  tick(os, phase * 0.8);
   assert.deepEqual([ch.tileCol, ch.tileRow], [9, 9], 'the body never arrived');
   assert.equal(ch.matrixEffect, 'spawn', 'the second half did not start');
   assert.equal(ch.warpStyle, 'implode', 'the style changed between the two halves');
 
   // The arrival finishes and takes the style with it.
-  tick(os, 0.6);
+  tick(os, phase + 0.2);
   assert.equal(ch.matrixEffect, null);
   assert.equal(ch.warpStyle, null, 'the style is still set with no phase running');
 });
@@ -145,9 +148,10 @@ test('a longer style keeps the body in place longer — the durations are actual
   tick(os, 3);
 
   i.warpPlayer(id, 9, 9);
-  tick(os, 0.6); // past implode's whole phase, well short of phoenix's
+  // Past implode's whole phase, still short of phoenix's — the gap between the two is the claim.
+  tick(os, warpStyle('implode').durationSec + 0.05);
   assert.deepEqual([ch.tileCol, ch.tileRow], [2, 2], 'phoenix moved the body on implode’s schedule');
-  tick(os, 0.5);
+  tick(os, warpStyle('phoenix').durationSec);
   assert.deepEqual([ch.tileCol, ch.tileRow], [9, 9]);
 });
 

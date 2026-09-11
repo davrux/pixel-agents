@@ -944,8 +944,14 @@ check asks: is the release present in the code that acquires?
   - **Two shapes cover four styles.** Anything that SWEEPS is a tiling texture (matrix,
     beam) for the reason above; anything that sits where the figure is and boils is a frame
     sequence (phoenix), because scrolling a flame reads as a passing light rather than as
-    burning; and `implode` needs no art at all — it is a cubed squeeze on the frame the
-    renderer already has. Adding a style is a row in the table plus a case in `warpFx.ts`,
+    burning. `implode` is the one that also moves the BODY: X collapses early while Y holds
+    on, so the figure is pulled thin before it is swallowed, it spins a quarter turn and it
+    darkens — and the renderer anchors that at the body's MIDDLE, because the sprite's own
+    origin is at its feet and a shrink there reads as sinking into the floor. It started as
+    a uniform cubed squeeze with no art, and that read as a figure walking away from the
+    camera; what makes it a collapse is something AT the point, so it has a 16×16 hole with
+    a bright rim, drawn at its authored size (a disc stretched to a 64×64 figure is a
+    portal, not a point). Adding a style is a row in the table plus a case in `warpFx.ts`,
     and its art gets a deterministic draw script like the cloud's
     (`scripts/draw-beam.sh`, `scripts/draw-phoenix.sh`, both with `--check` and a
     `--preview` that composites onto the canvas ground — a white beam on a transparent

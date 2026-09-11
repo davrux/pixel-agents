@@ -68,7 +68,7 @@ import {
   warpBandScrollX,
   warpBandScrollY,
   warpBodyAlpha,
-  warpBodyScale,
+  warpBodyTransform,
   warpOverlay,
   warpOverlayAlpha,
   type WarpOverlay,
@@ -519,7 +519,24 @@ export class PhaserRenderer {
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(depth);
     g.body.setAlpha(ch.matrixEffect ? warpBodyAlpha(ch) : 1);
-    g.body.setScale(ch.matrixEffect ? warpBodyScale(ch) : 1);
+    // A style may also move the body itself (implode pulls it thin, spins it and darkens it).
+    // The sprite's origin is at its FEET, so a scale converges on the floor — offsetting y by the
+    // height it lost keeps the collapse centred on the body instead, which is the difference
+    // between being drawn into a point and sinking into the ground.
+    const t = ch.matrixEffect ? warpBodyTransform(ch) : null;
+    if (t) {
+      g.body.setScale(t.scaleX, t.scaleY);
+      g.body.setAngle(t.angle);
+      g.body.setPosition(ch.x, ch.y + sit - (frameH * (1 - t.scaleY)) / 2);
+      if (t.darken > 0) {
+        const v = Math.round(255 * (1 - t.darken));
+        g.body.setTint((v << 16) | (v << 8) | v);
+      } else g.body.clearTint();
+    } else {
+      g.body.setScale(1);
+      g.body.setAngle(0);
+      g.body.clearTint();
+    }
     g.body.setVisible(true);
     this.drawWarpOverlay(ch, overlay, size.w, frameH, sit, depth);
 
@@ -642,13 +659,23 @@ export class PhaserRenderer {
         this.removeWarpOverlay(ch.id);
         return;
       }
-      const img = this.warpFrames.get(ch.id) ?? this.scene.add.image(0, 0, tex.key, tex.frame).setOrigin(0.5, 1);
+      const img = this.warpFrames.get(ch.id) ?? this.scene.add.image(0, 0, tex.key, tex.frame);
       this.warpFrames.set(ch.id, img);
       this.removeWarpTile(ch.id);
       img.setTexture(tex.key, tex.frame);
-      img.setPosition(ch.x, ch.y + sit);
       img.setDepth(depth + MATRIX_RAIN_DEPTH_OFFSET);
-      img.setDisplaySize(w * 1.5, h);
+      if (overlay.anchor === 'centre') {
+        // The hole sits at the point the figure goes into — its middle, not its feet — and keeps
+        // its authored pixel size: a 16x16 disc stretched to a 64x64 figure is a portal, not a
+        // point.
+        img.setOrigin(0.5, 0.5);
+        img.setScale(1);
+        img.setPosition(ch.x, ch.y + sit - h / 2);
+      } else {
+        img.setOrigin(0.5, 1);
+        img.setPosition(ch.x, ch.y + sit);
+        img.setDisplaySize(w * 1.5, h);
+      }
       img.setVisible(true);
       return;
     }

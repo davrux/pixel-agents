@@ -100,8 +100,29 @@ export const PHOENIX_SHEET: EffectSheet = {
   frames: 6,
 };
 
+/**
+ * The point an imploding figure is drawn into — a dark disc with a bright rim.
+ *
+ * 16x16 and drawn at the figure's MIDDLE rather than its feet, which is the whole reason this
+ * sheet exists: without something at the point, a collapse is just a sprite getting smaller, and
+ * it reads as a figure walking away from the camera. Four frames, because the hole only has to
+ * open, hold and close.
+ */
+export const IMPLODE_SHEET: EffectSheet = {
+  id: 'implode',
+  frameW: 16,
+  frameH: 16,
+  frames: 4,
+};
+
 /** Every effect sheet, for the client's loading phase and the server's art registry. */
-export const EFFECT_SHEETS: readonly EffectSheet[] = [SCUFFLE_SHEET, MATRIX_RAIN_SHEET, BEAM_SHEET, PHOENIX_SHEET];
+export const EFFECT_SHEETS: readonly EffectSheet[] = [
+  SCUFFLE_SHEET,
+  MATRIX_RAIN_SHEET,
+  BEAM_SHEET,
+  PHOENIX_SHEET,
+  IMPLODE_SHEET,
+];
 
 /**
  * How a pawn leaves and arrives — the one table, and the only place a style is named.
@@ -140,9 +161,9 @@ export const WARP_STYLES: readonly WarpStyle[] = [
   // Longer, because a flame has to catch, burn and die back to read as one; at 0.7 it looks like
   // a flicker rather than a cremation.
   { id: 'phoenix', label: 'Phoenix', durationSec: 1.0, sheet: PHOENIX_SHEET },
-  // Shorter and art-free: the figure is squeezed to a point and flashes. A transform on the frame
-  // the renderer already has, which is why this one needs no sheet at all.
-  { id: 'implode', label: 'Implosion', durationSec: 0.5, sheet: null },
+  // A touch longer than the first version (0.5 s): being drawn INTO something needs a beat where
+  // the figure is thin and the hole is open, and at half a second that beat was a frame or two.
+  { id: 'implode', label: 'Implosion', durationSec: 0.65, sheet: IMPLODE_SHEET },
 ];
 
 export const DEFAULT_WARP_STYLE: WarpStyleId = 'matrix';
