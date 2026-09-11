@@ -12,6 +12,8 @@ import { isPackedArtType, packArt, unpackArt } from './art/artStore.js';
 import { Direction, type PlayerSpot } from '@pixel/shared/office/types.js';
 
 import { db } from './db.js';
+import { isWarpStyleId, type WarpStyleId } from '@pixel/shared/office/effects.js';
+
 import { PREF_KINDS, userChildDdl } from './schema/tables.js';
 import { migrateUserBlobs } from './schema/migrateUserBlobs.js';
 
@@ -269,6 +271,32 @@ class AppStore {
   setCharPref(userId: string, skin: string): void {
     this.putPref(userId, PREF_KINDS.charSkin, skin);
   }
+  /**
+   * Every user's warp style, for seeding a room — and one user's, for a join.
+   *
+   * Validated on READ as well as on write, and that is not belt and braces: the row is reachable
+   * by a restore or a hand-edit, and an id this build does not know would otherwise travel to
+   * every viewer. An unknown value simply reads as unset, which resolves to the default style.
+   */
+  getWarpStyles(): Record<string, WarpStyleId> {
+    const rows = this.db
+      .prepare('SELECT user_id, value FROM user_prefs WHERE kind = ?')
+      .all(PREF_KINDS.warpStyle) as Array<{ user_id: string; value: string }>;
+    const out: Record<string, WarpStyleId> = {};
+    for (const r of rows) if (isWarpStyleId(r.value)) out[r.user_id] = r.value;
+    return out;
+  }
+  getWarpStyle(userId: string): WarpStyleId | null {
+    const value = this.pref(userId, PREF_KINDS.warpStyle);
+    return isWarpStyleId(value) ? value : null;
+  }
+  /** Refuses an unknown id rather than storing it — the gate for what a client asks for. */
+  setWarpStyle(userId: string, style: unknown): boolean {
+    if (!isWarpStyleId(style)) return false;
+    this.putPref(userId, PREF_KINDS.warpStyle, style);
+    return true;
+  }
+
   /** Remove a user's pinned skin (e.g. when that character was deleted). */
   clearCharPref(userId: string): void {
     this.dropPref(userId, PREF_KINDS.charSkin);

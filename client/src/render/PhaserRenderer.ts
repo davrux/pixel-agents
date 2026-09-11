@@ -22,16 +22,10 @@ import {
 } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
 import { getCharacterPose } from '@pixel/shared/office/engine/index.js';
-import {
-  matrixBodyAlpha,
-  matrixProgress,
-  matrixRainDim,
-  renderMatrixEffect,
-} from '@pixel/shared/office/engine/matrixEffect.js';
+import { warpProgress } from '@pixel/shared/office/engine/matrixEffect.js';
 import type {
   FurnitureInstance,
   OfficeLayout,
-  SpriteData,
   GroundMap,
 } from '@pixel/shared/office/types.js';
 
@@ -53,14 +47,14 @@ import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
 } from '@pixel/shared/office/sprites/spriteData.js';
-import { matrixRainScrollX, matrixRainScrollY, SCUFFLE_SHEET } from '@pixel/shared/office/effects.js';
+import { SCUFFLE_SHEET, warpStyle } from '@pixel/shared/office/effects.js';
 import { animationFrameAt } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
 import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
 import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
 import { effectSheetId } from '../art/effects';
-import { sheetCellFrame, sheetCellPixels, sheetColumns, sheetFrameSize } from '../art/sheetStore';
+import { sheetCellFrame, sheetColumns, sheetFrameSize } from '../art/sheetStore';
 import {
   spriteTexture,
   spriteTextureFor,
@@ -68,10 +62,17 @@ import {
   registerFurnitureAtlas,
   registerSheetTexture,
   sheetFrame,
-  type SpriteTex,
 } from './sprites.js';
 import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
-import { matrixRainTexture } from './matrixRain.js';
+import {
+  warpBandScrollX,
+  warpBandScrollY,
+  warpBodyAlpha,
+  warpBodyScale,
+  warpOverlay,
+  warpOverlayAlpha,
+  type WarpOverlay,
+} from './warpFx.js';
 
 const FLOOR_DEPTH = -100000;
 /** Placed background images (OfficeLayout.images) — a fixed layer just above
@@ -150,6 +151,8 @@ interface CharGObjects {
  * speech bubbles. Static layers (floor, walls, furniture) are built once per
  * layout; characters/pets/bubbles are pooled and updated every frame.
  */
+const NO_OVERLAY: WarpOverlay = { kind: 'none' };
+
 export class PhaserRenderer {
   private readonly statics: Phaser.GameObjects.Image[] = [];
   /** Free-text labels (OfficeLayout.texts) — rebuilt wholesale alongside
@@ -170,10 +173,11 @@ export class PhaserRenderer {
   private lastFurnitureRef: unknown = null;
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
-  /** Per-character canvas texture key for the Matrix FALLBACK effect (see matrixRain.ts). */
-  private readonly matrixKeys = new Map<number, string>();
   /** The tiled rain over a materialising character, one per character while the effect lasts. */
   private readonly matrixRain = new Map<number, Phaser.GameObjects.TileSprite>();
+  /** One overlay image per character mid-warp, for the styles that play FRAMES rather than
+   *  scrolling a tile (phoenix). Destroyed with the effect, like the tile. */
+  private readonly warpFrames = new Map<number, Phaser.GameObjects.Image>();
 
   /** Keep the fetched floor/wall sheets as textures — one per sheet, drawn from
    *  by frame (see sprites.ts). Call once the sheets have loaded, before
@@ -478,7 +482,7 @@ export class PhaserRenderer {
         g.bubble.destroy();
         for (const m of g.markers) m.destroy();
         this.chars.delete(id);
-        this.removeMatrixArt(id);
+        this.removeWarpArt(id);
       }
     }
   }
@@ -500,28 +504,24 @@ export class PhaserRenderer {
     const frameH = size.h;
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
 
-    // Matrix digital rain (spawn/despawn): the body is the ordinary atlas sprite, faded, with the
-    // rain tiled over it — two draws instead of one filled rect per pixel per frame. The pixel path
-    // answers only when the rain sheet did not load; it is the one caller in the client that still
-    // needs hex pixels for art, and it needs them per frame.
-    const rainKey = ch.matrixEffect ? matrixRainTexture(this.scene) : null;
-    const tex =
-      ch.matrixEffect && !rainKey
-        ? this.matrixTexture(ch, sheetCellPixels(ch.skin, ch.dir, cell.col) ?? [])
-        : sheetCellFrame(this.scene, ch.skin, ch.dir, cell.col, cell.synthSit);
+    // Mid-warp the body is the ordinary atlas sprite with a style applied to it — faded, squeezed,
+    // and (for the sweep styles) an overlay tiled over it. Two draws whatever the figure's size;
+    // see render/warpFx.ts for which style does what and why.
+    const overlay = ch.matrixEffect ? warpOverlay(this.scene, warpStyle(ch.warpStyle).id) : NO_OVERLAY;
+    const tex = sheetCellFrame(this.scene, ch.skin, ch.dir, cell.col, cell.synthSit);
     if (!tex) {
       g.body.setVisible(false);
-      this.removeMatrixArt(ch.id);
+      this.removeWarpArt(ch.id);
       return;
     }
     const depth = ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
     g.body.setTexture(tex.key, tex.frame);
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(depth);
-    // The fallback texture already carries the fade in its pixels; the atlas sprite does not.
-    g.body.setAlpha(rainKey ? matrixBodyAlpha(ch) : 1);
+    g.body.setAlpha(ch.matrixEffect ? warpBodyAlpha(ch) : 1);
+    g.body.setScale(ch.matrixEffect ? warpBodyScale(ch) : 1);
     g.body.setVisible(true);
-    this.drawMatrixRain(ch, rainKey, size.w, frameH, sit, depth);
+    this.drawWarpOverlay(ch, overlay, size.w, frameH, sit, depth);
 
     // Status markers over the head (☕ / 💤 afk / muted mic).
     this.drawMarkers(ch, g, frameH, sit);
@@ -608,96 +608,98 @@ export class PhaserRenderer {
     for (let i = texs.length; i < g.markers.length; i++) g.markers[i].setVisible(false);
   }
 
-  /** Render the Matrix effect for a character into its own canvas texture
-   *  (created once per character, refreshed each frame while active). */
-  /** The Matrix materialise/dissolve effect draws fresh pixels every frame, so it
-   *  keeps its own per-character canvas: packing it would fill the atlas with one
-   *  dead frame per frame. Returns the same shape as spriteTexture so the caller
-   *  needs no branch — a bare key, no frame. */
-  private matrixTexture(ch: Character, sd: SpriteData): SpriteTex {
-    const h = sd.length;
-    const w = h > 0 ? sd[0].length : 0;
-    let key = this.matrixKeys.get(ch.id);
-    if (!key || !this.scene.textures.exists(key)) {
-      key = `matrix_${ch.id}`;
-      if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
-      this.scene.textures.createCanvas(key, Math.max(1, w), Math.max(1, h));
-      this.matrixKeys.set(ch.id, key);
-    }
-    const canvasTex = this.scene.textures.get(key) as Phaser.Textures.CanvasTexture;
-    const ctx = canvasTex.getContext();
-    ctx.clearRect(0, 0, w, h);
-    renderMatrixEffect(ctx, ch, sd, 0, 0, 1);
-    canvasTex.refresh();
-    return { key };
-  }
-
   /**
-   * The rain over one materialising character.
+   * The overlay over one warping character.
    *
-   * A `TileSprite` rather than an image, for the reason that decides everything else here: figures
-   * are 16×32 up to 64×64, and a sheet stretched to fit would give a tall character fat drops and a
-   * small one fine ones. Tiling keeps the drops at their authored pixel size on every figure, and
-   * scrolling the sheet's one band of drops across the frame IS the sweep (see matrixRain.ts).
+   * A `TileSprite` for the sweep styles, for the reason that decides everything else here: figures
+   * are 16x32 up to 64x64, and a sheet stretched to fit would give a tall character fat drops and
+   * a small one fine ones. Tiling keeps the art at its authored pixel size on every figure, and
+   * scrolling one band across the frame IS the sweep. A frame style plays its sheet in place
+   * instead, and `none` draws nothing at all — which is also what a missing sheet degrades to.
    *
-   * Called with `key === null` whenever the effect is not running, which makes it the release site
-   * too: the sprite — and the fill-pattern texture Phaser builds for it — lives exactly as long as
-   * the effect, not as long as the character.
+   * Called with `none` whenever no effect is running, which makes it the release site too: the
+   * sprite — and the fill-pattern texture Phaser builds for it — lives exactly as long as the
+   * effect, not as long as the character.
    */
-  private drawMatrixRain(
+  private drawWarpOverlay(
     ch: Character,
-    key: string | null,
+    overlay: WarpOverlay,
     w: number,
     h: number,
     sit: number,
     depth: number,
   ): void {
-    if (!key) {
-      this.removeMatrixRain(ch.id);
+    if (overlay.kind === 'none') {
+      this.removeWarpOverlay(ch.id);
       return;
     }
-    let rain = this.matrixRain.get(ch.id);
-    if (!rain) {
-      rain = this.scene.add.tileSprite(0, 0, w, h, key).setOrigin(0.5, 1);
-      this.matrixRain.set(ch.id, rain);
+    if (overlay.kind === 'frames') {
+      // A flame sits where the figure is: one frame of the sheet, advanced on the client's own
+      // clock (presentation timing), scaled to the figure's frame.
+      const frame = Math.min(overlay.frames - 1, Math.floor(warpProgress(ch) * overlay.frames));
+      const tex = sheetCellFrame(this.scene, effectSheetId(overlay.sheetId), Direction.DOWN, frame);
+      if (!tex) {
+        this.removeWarpOverlay(ch.id);
+        return;
+      }
+      const img = this.warpFrames.get(ch.id) ?? this.scene.add.image(0, 0, tex.key, tex.frame).setOrigin(0.5, 1);
+      this.warpFrames.set(ch.id, img);
+      this.removeWarpTile(ch.id);
+      img.setTexture(tex.key, tex.frame);
+      img.setPosition(ch.x, ch.y + sit);
+      img.setDepth(depth + MATRIX_RAIN_DEPTH_OFFSET);
+      img.setDisplaySize(w * 1.5, h);
+      img.setVisible(true);
+      return;
     }
+    let tile = this.matrixRain.get(ch.id);
+    if (!tile) {
+      tile = this.scene.add.tileSprite(0, 0, w, h, overlay.key).setOrigin(0.5, 1);
+      this.matrixRain.set(ch.id, tile);
+    }
+    this.removeWarpFrames(ch.id);
     // The body's own rectangle: origin (0.5, 1) at the feet, so the sweep covers the figure and
     // nothing else. The size only changes if a viewer changes skin mid-effect.
-    if (rain.width !== w || rain.height !== h) rain.setSize(w, h);
-    rain.setPosition(ch.x, ch.y + sit);
+    if (tile.width !== w || tile.height !== h) tile.setSize(w, h);
+    if (tile.texture.key !== overlay.key) tile.setTexture(overlay.key);
+    tile.setPosition(ch.x, ch.y + sit);
     // Just in front of its own body, which leaves the ordering between characters alone.
-    rain.setDepth(depth + MATRIX_RAIN_DEPTH_OFFSET);
-    rain.tilePositionX = matrixRainScrollX(ch.id);
-    rain.tilePositionY = matrixRainScrollY(matrixProgress(ch), h);
-    rain.setAlpha(matrixRainDim(ch));
-    rain.setVisible(true);
+    tile.setDepth(depth + MATRIX_RAIN_DEPTH_OFFSET);
+    tile.tilePositionX = warpBandScrollX(ch.id, tile.width);
+    tile.tilePositionY = warpBandScrollY(warpProgress(ch), h, overlay.bandPx);
+    tile.setAlpha(warpOverlayAlpha(ch));
+    tile.setVisible(true);
   }
 
-  private removeMatrixRain(id: number): void {
-    const rain = this.matrixRain.get(id);
-    if (!rain) return;
-    rain.destroy();
+  private removeWarpTile(id: number): void {
+    const tile = this.matrixRain.get(id);
+    if (!tile) return;
+    tile.destroy();
     this.matrixRain.delete(id);
   }
 
-  /** Everything the effect allocated for one character — the rain sprite and, if the sheet was
-   *  missing, its fallback canvas. One release site, called when a character goes and when its
-   *  art does. */
-  private removeMatrixArt(id: number): void {
-    this.removeMatrixRain(id);
-    this.removeMatrixTexture(id);
+  private removeWarpFrames(id: number): void {
+    const img = this.warpFrames.get(id);
+    if (!img) return;
+    img.destroy();
+    this.warpFrames.delete(id);
+  }
+
+  private removeWarpOverlay(id: number): void {
+    this.removeWarpTile(id);
+    this.removeWarpFrames(id);
+  }
+
+  /** Everything the effect allocated for one character. One release site, called when a character
+   *  goes and when its art does. */
+  private removeWarpArt(id: number): void {
+    this.removeWarpOverlay(id);
   }
 
   /** One cloud per scuffling pair, keyed `<lowId>:<highId>`; destroyed when the pair ends. */
   private readonly scuffleClouds = new Map<string, Phaser.GameObjects.Image>();
   /** One badge per pet that is currently gloating or licking its wounds; destroyed with the pet. */
   private readonly petBadges = new Map<number, Phaser.GameObjects.Image>();
-
-  private removeMatrixTexture(id: number): void {
-    const key = this.matrixKeys.get(id);
-    if (key && this.scene.textures.exists(key)) this.scene.textures.remove(key);
-    this.matrixKeys.delete(id);
-  }
 
   /**
    * The scuffle clouds: one picture per PAIR, drawn between the two animals, with both of them

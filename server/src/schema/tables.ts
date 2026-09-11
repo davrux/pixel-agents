@@ -217,6 +217,9 @@ export const PREF_KINDS = {
   playerSkin: 'player_skin',
   /** Viewer settings, as a JSON object — the one kind whose value is not a scalar. */
   viewer: 'viewer',
+  /** How the user's pawns leave and arrive — a `WarpStyleId`. Not a viewer setting: everyone
+   *  else sees it, so it is resolved server-side and published on the pawn. */
+  warpStyle: 'warp_style',
 } as const;
 
 /** Lookup by table name, bounded by the constant list above. */

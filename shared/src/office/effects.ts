@@ -67,8 +67,96 @@ export const MATRIX_RAIN_SHEET: EffectSheet = {
 /** How much of `MATRIX_RAIN_SHEET` carries drops, measured from its top edge. */
 export const MATRIX_RAIN_BAND_PX = 28;
 
+/**
+ * The beam: a column of light that sweeps the figure, as a TILING texture like the rain.
+ *
+ * Same shape and the same two draws, because the problem is the same one — the sweep has to cross
+ * figures from 16x32 to 64x64, and frames authored for one height either stretch or crop. What
+ * differs is only the picture in the tile: one bright column with soft edges instead of a band of
+ * glyphs.
+ */
+export const BEAM_SHEET: EffectSheet = {
+  id: 'beam',
+  frameW: 32,
+  frameH: 128,
+  frames: 1,
+};
+
+/** How much of `BEAM_SHEET` carries the beam, measured from its top edge. */
+export const BEAM_BAND_PX = 40;
+
+/**
+ * The phoenix flame, as a frame sequence over the figure — not a tile.
+ *
+ * A flame is not a wavefront: it sits where the figure is and boils, so scrolling one band across
+ * it would read as a passing light rather than as burning. 24x32 covers a 16x32 figure with room
+ * for the flame to lick above the head, and a taller figure gets it scaled to its frame, which is
+ * honest for fire in a way it would not be for pixel rain.
+ */
+export const PHOENIX_SHEET: EffectSheet = {
+  id: 'phoenix',
+  frameW: 24,
+  frameH: 32,
+  frames: 6,
+};
+
 /** Every effect sheet, for the client's loading phase and the server's art registry. */
-export const EFFECT_SHEETS: readonly EffectSheet[] = [SCUFFLE_SHEET, MATRIX_RAIN_SHEET];
+export const EFFECT_SHEETS: readonly EffectSheet[] = [SCUFFLE_SHEET, MATRIX_RAIN_SHEET, BEAM_SHEET, PHOENIX_SHEET];
+
+/**
+ * How a pawn leaves and arrives — the one table, and the only place a style is named.
+ *
+ * A warp is not decoration: between `despawn` and `spawn` the server MOVES the body
+ * (`officeState.update`'s pendingWarp branch), so the effect is what hides a real teleport. Two
+ * consequences that decide the shape of this table:
+ *
+ *  - **The duration belongs to the world, not to the renderer.** It is where the body is
+ *    repositioned, so a style that took longer on one viewer's machine would show the jump on
+ *    another. It lives here, per style, and the engine reads it.
+ *  - **An unknown id resolves to the DEFAULT, never to "no effect".** That is the opposite of the
+ *    `ControllerKind` rule, where the zero value is deliberately inert — and for the opposite
+ *    reason: an unclaimed pawn should do nothing, while an unstyled warp still has to cover the
+ *    teleport. A style that resolved to nothing would let the figure visibly pop.
+ *
+ * Everything else about a style — frames, curves, tinting, how the body is revealed — is
+ * presentation and lives in the client (AGENTS.md invariant 2). What is here is what both sides
+ * must agree on: the id, how long it takes, and which art it needs fetched.
+ */
+export type WarpStyleId = 'matrix' | 'beam' | 'phoenix' | 'implode';
+
+export interface WarpStyle {
+  id: WarpStyleId;
+  /** Shown in the settings picker; the client never invents its own label for a style. */
+  label: string;
+  /** Seconds per PHASE — one for the dissolve, one for the materialise. */
+  durationSec: number;
+  /** The sheet this style draws with, or null when it needs no art of its own. */
+  sheet: EffectSheet | null;
+}
+
+export const WARP_STYLES: readonly WarpStyle[] = [
+  { id: 'matrix', label: 'Matrix', durationSec: 0.7, sheet: MATRIX_RAIN_SHEET },
+  { id: 'beam', label: 'Beam', durationSec: 0.8, sheet: BEAM_SHEET },
+  // Longer, because a flame has to catch, burn and die back to read as one; at 0.7 it looks like
+  // a flicker rather than a cremation.
+  { id: 'phoenix', label: 'Phoenix', durationSec: 1.0, sheet: PHOENIX_SHEET },
+  // Shorter and art-free: the figure is squeezed to a point and flashes. A transform on the frame
+  // the renderer already has, which is why this one needs no sheet at all.
+  { id: 'implode', label: 'Implosion', durationSec: 0.5, sheet: null },
+];
+
+export const DEFAULT_WARP_STYLE: WarpStyleId = 'matrix';
+
+/** The style for an id, falling back to the default for anything unknown or empty — see the note
+ *  on the table about why the fallback is a real effect and not none. */
+export function warpStyle(id: string | null | undefined): WarpStyle {
+  return WARP_STYLES.find((s) => s.id === id) ?? WARP_STYLES.find((s) => s.id === DEFAULT_WARP_STYLE)!;
+}
+
+/** Whether an id is one this build knows — the gate for anything a client or a stored row says. */
+export function isWarpStyleId(id: unknown): id is WarpStyleId {
+  return typeof id === 'string' && WARP_STYLES.some((s) => s.id === id);
+}
 
 /**
  * Where the band has to sit in the texture for a sweep that has got `progress` of the way down a

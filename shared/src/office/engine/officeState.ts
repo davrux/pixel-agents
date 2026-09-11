@@ -39,6 +39,7 @@ import {
   layoutToSitPoints,
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
+import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { canStep, DIRS_4, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
 import {
@@ -77,7 +78,6 @@ import {
   ControllerKind,
   Direction,
   fleesFrom,
-  MATRIX_EFFECT_DURATION,
   PetKind as PetKindEnum,
   PetState,
   TILE_SIZE,
@@ -85,7 +85,6 @@ import {
 } from '../types.js';
 import { claimPoint, createCharacter, releasePoint, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
-import { matrixEffectSeeds } from './matrixEffect.js';
 import { announceDue, hourChimes, QuoteSchedule, talkingObjects, type SpokenLine } from './talkingObjects.js';
 import type { PetAction, PetAffordances, PetTarget, PetTargetSpec } from './pets.js';
 import {
@@ -212,6 +211,7 @@ export class OfficeState {
   private nextSubagentId = -1;
   /** Per-user pinned character skin (folderName → skin id). */
   private skinPrefs = new Map<string, string>();
+  private warpStylePrefs = new Map<string, WarpStyleId>();
 
   // ── Pets ──────────────────────────────────────────────────
   /** Live pets, keyed by a dedicated id space (disjoint from characters). */
@@ -946,9 +946,7 @@ export class OfficeState {
       ch.folderName = folderName;
     }
     if (!skipSpawnEffect) {
-      ch.matrixEffect = 'spawn';
-      ch.matrixEffectTimer = 0;
-      ch.matrixEffectSeeds = matrixEffectSeeds();
+      this.beginWarp(ch, 'spawn');
     }
     this.characters.set(id, ch);
   }
@@ -970,9 +968,7 @@ export class OfficeState {
     if (this.selectedAgentId === id) this.selectedAgentId = null;
     if (this.cameraFollowId === id) this.cameraFollowId = null;
     // Start despawn animation instead of immediate delete
-    ch.matrixEffect = 'despawn';
-    ch.matrixEffectTimer = 0;
-    ch.matrixEffectSeeds = matrixEffectSeeds();
+    this.beginWarp(ch, 'despawn');
     ch.bubbleType = null;
   }
 
@@ -1025,9 +1021,7 @@ export class OfficeState {
     ch.tileRow = spawn.row;
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
     ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
-    ch.matrixEffect = 'spawn';
-    ch.matrixEffectTimer = 0;
-    ch.matrixEffectSeeds = matrixEffectSeeds();
+    this.beginWarp(ch, 'spawn');
     this.characters.set(id, ch);
     return id;
   }
@@ -1159,6 +1153,27 @@ export class OfficeState {
     return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
   }
 
+  /**
+   * Start a warp phase on a character: the phase, its timer, and the style it plays in.
+   *
+   * One place, deliberately — nine sites begin a phase (joins, despawns, both halves of a warp,
+   * subagents), and a style resolved at eight of them is a style forgotten at the ninth. It comes
+   * from the OWNER's stored preference and never from a message, so every viewer draws the same
+   * thing — which also means an agent warps like the account that owns it, the rule its skin
+   * already follows.
+   */
+  private beginWarp(ch: Character, phase: 'spawn' | 'despawn'): void {
+    ch.matrixEffect = phase;
+    ch.matrixEffectTimer = 0;
+    ch.warpStyle = (ch.folderName ? this.warpStylePrefs.get(ch.folderName) : undefined) ?? DEFAULT_WARP_STYLE;
+  }
+
+  /** A user's chosen warp style, seeded when a room starts and updated when they change it.
+   *  Keyed by the owner name, exactly like `skinPrefs`. */
+  setWarpStylePref(folderName: string, style: WarpStyleId): void {
+    this.warpStylePrefs.set(folderName, style);
+  }
+
   /** Set a character's owner name (a player's display name; shown as its label). */
   setCharacterName(id: number, name: string): void {
     const ch = this.characters.get(id);
@@ -1254,9 +1269,7 @@ export class OfficeState {
     ch.state = CharacterState.IDLE;
     ch.pendingWarp = { col, row };
     if (ch.matrixEffect !== 'despawn') {
-      ch.matrixEffect = 'despawn';
-      ch.matrixEffectTimer = 0;
-      ch.matrixEffectSeeds = matrixEffectSeeds();
+      this.beginWarp(ch, 'despawn');
     }
     return true;
   }
@@ -1810,9 +1823,7 @@ export class OfficeState {
     // A sub-agent belongs to whoever owns its parent, so it carries the same
     // owner name and is labelled like every other agent avatar.
     if (parentCh?.folderName) ch.folderName = parentCh.folderName;
-    ch.matrixEffect = 'spawn';
-    ch.matrixEffectTimer = 0;
-    ch.matrixEffectSeeds = matrixEffectSeeds();
+    this.beginWarp(ch, 'spawn');
     this.characters.set(id, ch);
 
     this.subagentIdMap.set(key, id);
@@ -1839,9 +1850,7 @@ export class OfficeState {
         if (home && home.occupantId === ch.id) home.occupantId = null;
       }
       // Start despawn animation — keep character in map for rendering
-      ch.matrixEffect = 'despawn';
-      ch.matrixEffectTimer = 0;
-      ch.matrixEffectSeeds = matrixEffectSeeds();
+      this.beginWarp(ch, 'despawn');
       ch.bubbleType = null;
     }
     // Clean up tracking maps immediately so keys don't collide
@@ -1870,9 +1879,7 @@ export class OfficeState {
             if (home && home.occupantId === ch.id) home.occupantId = null;
           }
           // Start despawn animation
-          ch.matrixEffect = 'despawn';
-          ch.matrixEffectTimer = 0;
-          ch.matrixEffectSeeds = matrixEffectSeeds();
+          this.beginWarp(ch, 'despawn');
           ch.bubbleType = null;
         }
         this.subagentMeta.delete(id);
@@ -2140,12 +2147,14 @@ export class OfficeState {
       // Handle matrix effect animation
       if (ch.matrixEffect) {
         ch.matrixEffectTimer += dt;
-        if (ch.matrixEffectTimer >= MATRIX_EFFECT_DURATION) {
+        // The ACTIVE style decides how long a phase lasts, and that is why the duration is world
+        // state and not the renderer's business: the body is repositioned exactly at this boundary.
+        if (ch.matrixEffectTimer >= warpStyle(ch.warpStyle).durationSec) {
           if (ch.matrixEffect === 'spawn') {
             // Spawn complete — clear effect, resume normal FSM
             ch.matrixEffect = null;
             ch.matrixEffectTimer = 0;
-            ch.matrixEffectSeeds = [];
+            ch.warpStyle = null;
           } else if (ch.pendingWarp) {
             // Despawn half of a warp — reposition, then spawn back in at the
             // new tile (see warpPlayer). Never deleted, unlike a real leave.
@@ -2160,9 +2169,7 @@ export class OfficeState {
             // camera, which reads as arriving with your back turned. A freshly
             // joined player already starts DOWN (see createCharacter).
             ch.dir = Direction.DOWN;
-            ch.matrixEffect = 'spawn';
-            ch.matrixEffectTimer = 0;
-            ch.matrixEffectSeeds = matrixEffectSeeds();
+            this.beginWarp(ch, 'spawn');
           } else {
             // Despawn complete — mark for deletion
             toDelete.push(ch.id);

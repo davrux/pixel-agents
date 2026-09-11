@@ -1,4 +1,5 @@
 import { getMessageBytes, Protocol, Room, type AuthContext, type Client } from '@colyseus/core';
+import { DEFAULT_WARP_STYLE, type WarpStyleId } from '@pixel/shared/office/effects.js';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { petScoreStore } from '../petScoreStore.js';
 import { withArtUrl } from '../art/artUrl.js';
@@ -551,6 +552,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const [name, skin] of Object.entries(appStore.getCharPrefs())) {
       this.os.setSkinPref(name, skin);
     }
+    // And their warp styles, for the same reason and keyed the same way.
+    for (const [name, style] of Object.entries(appStore.getWarpStyles())) {
+      this.os.setWarpStylePref(name, style);
+    }
 
     // Seed any agents that already exist (mock/feed started before this room),
     // but only those whose owner is currently viewing this zone.
@@ -671,9 +676,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // Wire compatibility, checked by the client (see PROTOCOL_VERSION).
       protocol: PROTOCOL_VERSION,
     });
-    // Personal viewer prefs (per user; anonymous viewers get the defaults).
+    // Personal viewer prefs (per user; anonymous viewers get the defaults). The warp style rides
+    // along although it is NOT one of them — everyone sees it, so it is published on the pawn —
+    // because the settings panel has to show which one is picked, and that is one round trip.
     const vs = userId ? appStore.getViewerSettings(userId) : defaultViewerSettings();
-    client.send('m', { type: 'settingsLoaded', ...vs });
+    const warpStyle = (userId ? appStore.getWarpStyle(userId) : null) ?? DEFAULT_WARP_STYLE;
+    client.send('m', { type: 'settingsLoaded', ...vs, warpStyle });
   }
 
   onLeave(client: Client): void {
@@ -1491,6 +1499,17 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'soundEnabled', !!msg?.enabled);
     });
+    /**
+     * The viewer's warp style. NOT a viewer setting, even though it is set the same way: this one
+     * is seen by everybody, so the id is validated against the table here and published on the
+     * pawn — the client never sends a style with a warp.
+     */
+    this.onMessage('setWarpStyle', (client, msg: { style?: unknown }) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      if (!appStore.setWarpStyle(userId, msg?.style)) return; // unknown id: refused silently
+      this.os.setWarpStylePref(userId, msg!.style as WarpStyleId);
+    });
     this.onMessage('setAlwaysShowLabels', (client, msg: { enabled?: boolean }) => {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'alwaysShowLabels', !!msg?.enabled);
@@ -2060,6 +2079,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.bubbleTimer = ch.bubbleTimer;
       cs.matrixEffect = ch.matrixEffect ?? '';
       cs.matrixEffectTimer = ch.matrixEffectTimer;
+      cs.warpStyle = ch.warpStyle ?? '';
       cs.isSubagent = ch.isSubagent;
       cs.controller = ch.controller;
       cs.afk = ch.afk ?? false;

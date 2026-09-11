@@ -901,11 +901,50 @@ check asks: is the release present in the code that acquires?
   by `matrixRainScrollY()`, and the empty gap (100 px) is longer than the tallest legal
   figure so a second band can never enter while the first is leaving
   (`matrixRain.int.test.ts` pins both, with the geometry read off the committed PNG); and
-  the shared formulas — progress, body alpha, flicker — live in `engine/matrixEffect.ts`
-  because the pixel path still exists as the FALLBACK for a sheet that did not load, and a
-  second copy of `progress * 1.35` in the client is the drift the cadence tables already
-  taught us about. Per-figure variety comes from a horizontal offset derived from the
-  character id, which is what replaced the 64 stagger seeds.
+  per-figure variety comes from a horizontal offset derived from the character id, which is
+  what replaced the 64 stagger seeds.
+  **The pixel path is gone** (2026-09-11), and with it the seed array on `Character` and a
+  second copy of every curve. It existed as a fallback for a sheet that failed to load, and
+  the choice it offered was "7.10 ms per frame" against "no effect"; a missing sheet now
+  simply draws no effect and the figure whole, which is the honest answer for art that did
+  not arrive. What stays in `shared` is only what both sides must agree on — the phase and
+  the per-style duration; the curves moved to `client/src/render/warpFx.ts`, where
+  presentation belongs.
+- **How a pawn arrives and leaves is the owner's choice, from one table.** `WARP_STYLES`
+  (`office/effects.ts`) gives, per style, its label, its duration and the sheet it needs:
+  `matrix` (the default), `beam`, `phoenix`, `implode`. Five rules, and each is a decision
+  rather than a detail:
+  - **The duration belongs to the world, not to the renderer.** Between the two phases the
+    server MOVES the body (`update`'s `pendingWarp` branch), so the effect is what hides a
+    real teleport — a style that took longer on one machine would show the jump on another.
+    The engine reads `warpStyle(ch.warpStyle).durationSec`, and `warpStyle.int.test.ts`
+    fails if a 1.0 s phoenix ever moves a body on a 0.5 s implosion's schedule.
+  - **The style comes from the ACCOUNT, never from the warp message.** Everyone else sees
+    it, so § Security applies: a client says which style it wants
+    (`setWarpStyle`), the id is validated against the table on the way into the store **and
+    on the way out** (that row is reachable by a restore), and the server publishes it on
+    the pawn. Join, right-click warp, portal travel and reconnect therefore all look the
+    same, and no reconciliation between two sources is needed — the destination, by
+    contrast, stays a client REQUEST that the server validates, as it always was.
+  - **It is not a lasting pawn property.** `CharacterSync.warpStyle` is set with the phase
+    and cleared with it, because it is only ever read while one runs — unlike `skin`, which
+    is needed every frame. One place sets both (`beginWarp`), since nine sites begin a
+    phase and a style resolved at eight of them is a style forgotten at the ninth.
+  - **An unknown id resolves to the DEFAULT, never to "no effect"** — the opposite of the
+    `ControllerKind` rule and for the opposite reason: an unclaimed pawn should be inert,
+    while an unstyled warp still has to cover the teleport.
+  - **Two shapes cover four styles.** Anything that SWEEPS is a tiling texture (matrix,
+    beam) for the reason above; anything that sits where the figure is and boils is a frame
+    sequence (phoenix), because scrolling a flame reads as a passing light rather than as
+    burning; and `implode` needs no art at all — it is a cubed squeeze on the frame the
+    renderer already has. Adding a style is a row in the table plus a case in `warpFx.ts`,
+    and its art gets a deterministic draw script like the cloud's
+    (`scripts/draw-beam.sh`, `scripts/draw-phoenix.sh`, both with `--check` and a
+    `--preview` that composites onto the canvas ground — a white beam on a transparent
+    sheet looks like nothing in an image viewer and like a beam in the game).
+  It cost `PROTOCOL_VERSION` 16: not for the field as such, but because an older build sees
+  a style value it does not know, draws nothing, and then the teleport it was hiding becomes
+  visible — which is the case AGENTS.md's own exception does NOT cover.
 - **Characters and pets are drawn from their sheet, not from pixels.** `poseFrames.ts`
   (shared) turns a pose into a COLUMN — same rule as `spriteForPose`, arithmetic instead
   of arrays — and `client/src/art/sheetStore.ts` hands the renderer that cell out of the

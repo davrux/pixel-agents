@@ -45,9 +45,19 @@ export class CharacterSync extends PawnSync {
   /** '' | 'permission' | 'waiting'. */
   @type('string') bubble = '';
   @type('number') bubbleTimer = 0;
-  /** '' | 'spawn' | 'despawn' (matrix effect). */
+  /** '' | 'spawn' | 'despawn' — the warp PHASE. (Named for the Matrix effect, which was the only
+   *  style when it was written; the style is beside it now.) */
   @type('string') matrixEffect = '';
   @type('number') matrixEffectTimer = 0;
+  /**
+   * Which warp style is playing — a `WarpStyleId`, set with the phase and cleared with it.
+   *
+   * Deliberately NOT a lasting property of the pawn, unlike `skin`: it is only ever read while a
+   * phase is running, so carrying it between warps would be state that can go stale for nothing.
+   * It is resolved server-side from the owner's account, never taken from the warp message, so
+   * every viewer draws the same thing and a client cannot claim a style per warp.
+   */
+  @type('string') warpStyle = '';
   @type('boolean') isSubagent = false;
   // Identity + tooltip
   @type('string') folderName = '';

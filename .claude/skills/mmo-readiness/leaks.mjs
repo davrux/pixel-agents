@@ -137,11 +137,17 @@ const BOUNDED_FIELDS = new Map([
   ['client/src/render/sprites.ts:missingArt', 'ids warned about once — bounded by the catalog'],
   ['shared/src/office/floorTiles.ts:warnedSets', 'ground sets warned about once — bounded by the tileset table'],
   ['shared/src/office/wallTiles.ts:warnedWallSets', 'wall sets warned about once — likewise'],
+  ['client/src/render/warpFx.ts:warned', 'warp styles whose art is missing, warned about once — bounded by WARP_STYLES'],
   // Session-lifetime tables built from a fixed key space.
   ['client/src/matrix/MatrixUI.ts:sections', 'one element per ViewName — built once, the views are an enum'],
   ['client/src/conference/videoFilters.ts:generated', 'one data URL per filter preset — bounded by the preset table'],
   // Per-room / per-account state whose key space is the world, not the traffic.
   ['server/src/sim/director.ts:ownerZone', 'one zone id per feed owner — bounded by the users table'],
+  [
+    'shared/src/office/engine/officeState.ts:warpStylePrefs',
+    'one warp style per account that chose one, seeded from the store when the room starts — ' +
+      'the same key space and the same bound as skinPrefs beside it, i.e. the users table',
+  ],
   ['client/src/matrix/MatrixUI.ts:lastEncryptedState', 'one boolean per room opened — bounded by the room list'],
   ['client/src/matrix/MatrixUI.ts:membersCache', 'one member list per room whose member panel was opened; each open overwrites'],
   // Preferences the user set by hand, deliberately persisted across reconnects.
@@ -343,8 +349,8 @@ if (urlBad.length) {
 // ── 5. Per-entity textures are removed ─────────────────────────────────────
 //
 // A texture is GPU memory the garbage collector cannot help with. A canvas texture per
-// uploaded image is the usual shape; the Matrix effect's FALLBACK still makes one per
-// character (and removes it), while its normal path shares one tile for the whole world.
+// uploaded image is the usual shape; a warp's sweep styles share ONE tile each for the whole
+// world (the per-character fallback that made one per character is gone with the pixel path).
 
 /** Files whose textures live as long as the session, and why. */
 const TEXTURES_KEPT = new Map([
@@ -354,9 +360,10 @@ const TEXTURES_KEPT = new Map([
   ],
   ['client/src/render/markerIcons.ts', 'one icon set, rasterised per zoom step and reused'],
   [
-    'client/src/render/matrixRain.ts',
-    'ONE 32x128 rain tile for the whole world, created on first use and shared by every ' +
-      'character (the per-character sprites that scroll it are destroyed in PhaserRenderer)',
+    'client/src/render/warpFx.ts',
+    'ONE tile per SWEEP STYLE for the whole world (two today: rain and beam), created on first ' +
+      'use and shared by every character — bounded by WARP_STYLES, and the per-character sprites ' +
+      'that scroll them are destroyed in PhaserRenderer',
   ],
 ]);
 const texBad = [];

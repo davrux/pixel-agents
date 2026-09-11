@@ -8,6 +8,7 @@ export {
   DECAL_DEPTH,
   WALK_OVER_DEPTH,
 } from './constants.js';
+import type { WarpStyleId } from './effects.js';
 
 /**
  * The only special ground value there is.
@@ -1157,10 +1158,10 @@ export interface Character {
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */
   matrixEffect: 'spawn' | 'despawn' | null;
-  /** Timer counting up from 0 to MATRIX_EFFECT_DURATION */
+  /** Timer counting up from the active style's durationSec (see WARP_STYLES) */
   matrixEffectTimer: number;
-  /** Per-column random seeds (16 values) for staggered rain timing */
-  matrixEffectSeeds: number[];
+  /** The style playing, or null — set with the phase, cleared with it (see WARP_STYLES). */
+  warpStyle: WarpStyleId | null;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
 

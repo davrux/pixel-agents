@@ -92,7 +92,7 @@ export const WORLD_ROOM = 'world';
  *     and another added is the sharpest kind of wire change there is: an older build decodes the
  *     new state into nonsense, so it must be sent to the version gate instead.
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

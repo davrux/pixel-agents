@@ -11,7 +11,6 @@ import {
   FUEL_COLOR_DANGER,
   FUEL_COLOR_OK,
   FUEL_COLOR_WARN,
-  MATRIX_SEED_COUNT,
   MAX_CONTEXT_TOKENS,
   TOKEN_CRITICAL_THRESHOLD,
   TOKEN_DANGER_THRESHOLD,
@@ -19,6 +18,13 @@ import {
   TOOL_OVERLAY_VERTICAL_OFFSET,
 } from '@pixel/shared/office/constants.js';
 import { poseFrameMs } from '@pixel/shared/office/poseCadence.js';
+import {
+  DEFAULT_WARP_STYLE,
+  isWarpStyleId,
+  WARP_STYLES,
+  type WarpStyleId,
+} from '@pixel/shared/office/effects.js';
+
 import { loadEffectSheets } from '../art/effects.js';
 import {
   CharacterState,
@@ -165,20 +171,6 @@ const IDLE_GRACE_FRAMES = 6;
 const LOADING_DEADLINE_MS = 15_000;
 const SLEEP_AFTER_IDLE_FRAMES = 120;
 
-/** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
- *  derived from the agent id — and from which half of the effect this is, so a
- *  warp's dissolve and the materialise that follows it don't run the exact same
- *  column order back to back. Both inputs are synced, so every viewer still
- *  renders an identical sweep. */
-function matrixSeeds(id: number, phase: 'spawn' | 'despawn'): number[] {
-  const seeds: number[] = [];
-  let s = ((id * 2654435761) ^ (phase === 'spawn' ? 0x9e3779b9 : 0)) >>> 0; // Knuth multiplicative hash
-  for (let i = 0; i < MATRIX_SEED_COUNT; i++) {
-    s = (s * 1664525 + 1013904223) >>> 0; // LCG step
-    seeds.push(s / 0xffffffff);
-  }
-  return seeds;
-}
 
 /** A plausible zone id (slug). The server is authoritative and falls back to the
  *  office for unknown ids, so the client only sanitises the shape. */
@@ -403,6 +395,17 @@ export class OfficeScene extends Phaser.Scene {
    *  is the player's own editable copy — not a gallery template. */
   private myAvatarId: string | null = null;
   private alwaysShowLabels = false;
+  /** The warp style this viewer picked — mirrored locally only to paint the picker; what plays is
+   *  whatever the server publishes on the pawn. */
+  private warpStyle: WarpStyleId = DEFAULT_WARP_STYLE;
+
+  /** Paint the picker's selected segment. Separate from the click handler because the panel is
+   *  also (re)painted when it opens, from whatever the account said at join. */
+  private markWarpStyle(): void {
+    for (const btn of this.settingsPanel?.querySelectorAll<HTMLButtonElement>('#pa-warp .seg') ?? []) {
+      btn.classList.toggle('on', btn.dataset.warp === this.warpStyle);
+    }
+  }
   /** Settings: recenter the camera on the player as they move (see update()).
    *  Off = the old, pre-follow behavior — the camera stays wherever you leave it. */
   private cameraFollowEnabled = true;
@@ -1029,12 +1032,12 @@ export class OfficeScene extends Phaser.Scene {
     const me = ((cs.matrixEffect as string) || null) as Character['matrixEffect'];
     if (me && me !== rc.matrixEffect) {
       rc.matrixEffectTimer = (cs.matrixEffectTimer as number) || 0;
-      rc.matrixEffectSeeds = matrixSeeds(rc.id, me);
     } else if (!me) {
       rc.matrixEffectTimer = 0;
-      rc.matrixEffectSeeds = undefined;
     }
     rc.matrixEffect = me;
+    // The style the server resolved from the owner's account — '' whenever no phase is running.
+    rc.warpStyle = ((cs.warpStyle as string) || null) as RenderChar['warpStyle'];
     rc.isSubagent = cs.isSubagent as boolean;
     rc.controller = cs.controller as ControllerKind;
     rc.afk = cs.afk as boolean;
@@ -3780,6 +3783,9 @@ export class OfficeScene extends Phaser.Scene {
     this.soundOn = m.soundEnabled !== false;
     this.volume = typeof m.alertVolume === 'number' ? (m.alertVolume as number) : 1;
     this.alwaysShowLabels = !!m.alwaysShowLabels;
+    // Not a viewer setting (everyone sees it), but it arrives on the same message: one round trip
+    // for everything the panel has to show.
+    if (isWarpStyleId(m.warpStyle)) this.warpStyle = m.warpStyle;
     this.cameraFollowEnabled = m.cameraFollow !== false;
     this.iframeOverlay = m.iframeOverlay === true;
     setSoundEnabled(this.soundOn);
@@ -3870,6 +3876,11 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
       <div class="row"><input id="pa-iframe-overlay" type="checkbox"><label for="pa-iframe-overlay">Web pages open as an overlay</label></div>
       <div class="hint">On: a window over the world. Off: a column beside it, and the world makes room.</div>
+      <label for="pa-warp">How you arrive and leave</label>
+      <div class="pa-seg" id="pa-warp">${WARP_STYLES.map(
+        (w) => `<button class="seg" data-warp="${w.id}">${w.label}</button>`,
+      ).join('')}</div>
+      <div class="hint">Everyone sees this one — it plays on your avatar and on your agents.</div>
       <button id="pa-check-updates">Check for updates</button>
       <div id="pa-update-status" class="hint" style="margin:0.35rem 0 0;"></div>
       <button id="pa-change-server">Change server</button>`;
@@ -4001,6 +4012,17 @@ export class OfficeScene extends Phaser.Scene {
       this.cameraDetachAt = null;
       this.room?.send('setCameraFollow', { enabled: this.cameraFollowEnabled });
     };
+    // The warp style is the one "setting" here that others see, so it is stored per ACCOUNT and
+    // published on the pawn — the client only says which it wants, and the server validates the id
+    // against WARP_STYLES before anything reaches the wire.
+    for (const btn of panel.querySelectorAll<HTMLButtonElement>('#pa-warp .seg')) {
+      btn.onclick = () => {
+        const id = btn.dataset.warp as WarpStyleId;
+        this.warpStyle = id;
+        this.markWarpStyle();
+        this.room?.send('setWarpStyle', { style: id });
+      };
+    }
     iframeOverlay.onchange = () => {
       this.iframeOverlay = iframeOverlay.checked;
       // Act on the page they are looking at, not just the next one — a viewer
@@ -4537,6 +4559,7 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-camfollow')!.checked = this.cameraFollowEnabled;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-iframe-overlay')!.checked = this.iframeOverlay;
+    this.markWarpStyle();
     // Account section: only for logged-in users; reflect the current agent token.
     const account = this.settingsPanel.querySelector<HTMLDivElement>('#pa-account');
     if (account) account.style.display = this.myUserId ? '' : 'none';

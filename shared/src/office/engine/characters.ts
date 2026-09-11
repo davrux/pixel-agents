@@ -66,7 +66,7 @@ export function createCharacter(
     parentAgentId: null,
     matrixEffect: null,
     matrixEffectTimer: 0,
-    matrixEffectSeeds: [],
+    warpStyle: null,
     inputTokens: 0,
     outputTokens: 0,
   };
