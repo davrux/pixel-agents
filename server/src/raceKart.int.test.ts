@@ -31,7 +31,7 @@ import test from 'node:test';
 
 import { KART_FALL_SEC, KART_MAX_SPEED_PX_PER_SEC } from '@pixel/shared/office/constants.js';
 import { bumpKarts, createKart, updateKart, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
-import { gateAt, headingFrom, raceProgress, raceTrack, type RaceTrack } from '@pixel/shared/office/race/track.js';
+import { gateAt, headingFrom, raceProgress, raceTrack, type RaceTrack, wrapAngle } from '@pixel/shared/office/race/track.js';
 import { TILE_SIZE, TileType, type Action, type OfficeLayout } from '@pixel/shared/office/types';
 
 const COLS = 24;
@@ -291,4 +291,20 @@ test('the same inputs give the same numbers', () => {
     { x: a.x, y: a.y, heading: a.heading, vx: a.vx, vy: a.vy, gate: a.gate, lap: a.lap },
     { x: b.x, y: b.y, heading: b.heading, vx: b.vx, vy: b.vy, gate: b.gate, lap: b.lap },
   );
+});
+
+test('a heading stays inside one turn, however long the kart circles', () => {
+  const { world: w } = world();
+  const kart = createKart(1, at(8, 12), 0);
+  kart.driverId = 42;
+  // Twelve seconds of holding one lock is about six full turns at KART_STEER_RAD_PER_SEC.
+  drive(kart, w, 12, { throttle: 1, steer: 1 });
+  assert.ok(kart.heading >= 0 && kart.heading < Math.PI * 2, `heading ran away: ${kart.heading}`);
+  // Why it matters, stated as the thing that breaks: the wire carries the heading as hundredths
+  // of a radian in a uint16, so an unwrapped angle arrives pointing somewhere else entirely.
+  const onWire = Math.round(kart.heading * 100);
+  assert.ok(onWire >= 0 && onWire <= 65535, `a uint16 cannot carry ${onWire}`);
+  // The other direction, and the one atan2 hands out: a gate that points north-west.
+  assert.equal(wrapAngle(-Math.PI / 2).toFixed(4), ((3 * Math.PI) / 2).toFixed(4));
+  assert.equal(wrapAngle(0), 0);
 });

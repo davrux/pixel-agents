@@ -47,7 +47,7 @@ import {
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
-import { gateAt, headingFrom, nextGate, type RaceTrack } from './track.js';
+import { gateAt, headingFrom, nextGate, wrapAngle, type RaceTrack } from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
 export interface KartInput {
@@ -111,6 +111,7 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
 
 const tileOf = (px: number): number => Math.floor(px / TILE_SIZE);
 
+
 /** Is this pixel on ground a kart may be on? Walls are edges and handled by the mover. */
 function onTrack(world: KartWorld, x: number, y: number): boolean {
   return isWalkable(tileOf(x), tileOf(y), world.tileMap, world.blockedTiles);
@@ -161,7 +162,7 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   if (input.steer !== 0) {
     const grip = KART_STEER_AT_REST + (1 - KART_STEER_AT_REST) * Math.min(1, Math.abs(along) / KART_MAX_SPEED_PX_PER_SEC);
     const sign = along < 0 ? -1 : 1;
-    kart.heading += input.steer * sign * KART_STEER_RAD_PER_SEC * grip * dt;
+    kart.heading = wrapAngle(kart.heading + input.steer * sign * KART_STEER_RAD_PER_SEC * grip * dt);
   }
 
   // ── thrust, drag and grip ─────────────────────────────────────────────────

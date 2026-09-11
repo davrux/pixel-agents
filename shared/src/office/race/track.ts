@@ -113,9 +113,23 @@ export function nextGate(track: RaceTrack, index: number): RaceGate {
  * road and the direction of travel is implied by where the next one is. That is also what makes a
  * respawn correct without a second property per gate.
  */
+/**
+ * Keep an angle in [0, 2pi). Not cosmetic: a kart that turns the same way for a while otherwise
+ * accumulates without bound — measured at -7.1 rad after two laps of one oval — and the wire
+ * carries a heading as hundredths of a radian in a `uint16`, so anything negative or past 655
+ * arrives at the client pointing somewhere else entirely. It lives here rather than beside the
+ * kart because `kart.ts` already imports this file, and the other direction would be a cycle.
+ */
+export function wrapAngle(rad: number): number {
+  const full = Math.PI * 2;
+  const wrapped = rad % full;
+  return wrapped < 0 ? wrapped + full : wrapped;
+}
+
 export function headingFrom(track: RaceTrack, gate: RaceGate): number {
   const to = nextGate(track, gate.index);
-  return Math.atan2(to.y - gate.y, to.x - gate.x);
+  // Wrapped, because `atan2` answers in (-pi, pi] and the wire carries a heading unsigned.
+  return wrapAngle(Math.atan2(to.y - gate.y, to.x - gate.x));
 }
 
 /**
