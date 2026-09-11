@@ -42,6 +42,12 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
     // the map has nothing to state about it, not because it behaves like them.
     case 'talkingObject':
       return { kind };
+    // A gate's number and a grid slot's order are the payload. Both default to 0, which for a
+    // gate means the finish line and for a slot means pole position.
+    case 'raceGate':
+      return { kind, gate: Math.max(0, Math.floor(Number(props[`${prefix}Gate`]) || 0)) };
+    case 'raceStart':
+      return { kind, slot: Math.max(0, Math.floor(Number(props[`${prefix}Slot`]) || 0)) };
     case 'iframe':
       return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
     case 'appliance':

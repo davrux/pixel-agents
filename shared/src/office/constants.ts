@@ -290,3 +290,69 @@ export const WALK_OVER_DEPTH = -99998;
  * come here at all; it sorts positionally with the furniture.
  */
 export const DECAL_DEPTH = -99998.5;
+
+// ── Karts ────────────────────────────────────────────────────────────────────
+/**
+ * A kart is KINEMATIC, not physical: position, heading and one scalar speed, integrated at the
+ * tick and collided against tiles. AGENTS.md invariant 3 rules out a physics engine because it
+ * would cost determinism and headless execution, and none of what a kart racer needs asks for
+ * one — there is no stacking, no spin, no restitution to solve, just a body that goes where it
+ * points and stops at walls.
+ *
+ * The numbers are in pixels and seconds, like every other speed here (`WALK_SPEED_PX_PER_SEC` is
+ * 45 and a pet walks at 40), so a kart at 110 is about two and a half times a walking figure —
+ * fast enough to feel like driving on a 16 px grid without crossing a tile per tick.
+ */
+export const KART_MAX_SPEED_PX_PER_SEC = 110;
+/** Reverse is deliberately slow: it is for getting off a wall, not for racing backwards. */
+export const KART_MAX_REVERSE_PX_PER_SEC = 35;
+export const KART_ACCEL_PX_PER_SEC2 = 190;
+export const KART_BRAKE_PX_PER_SEC2 = 320;
+/** Coasting loss per second, as a fraction — a kart slows when you let go, but does not stop dead. */
+export const KART_DRAG_PER_SEC = 1.1;
+/**
+ * How fast sideways motion bleeds away, per second.
+ *
+ * This one number is the whole difference between a kart and a shopping trolley, and it is why
+ * the model carries a velocity VECTOR rather than one speed along the heading. High grip and a
+ * kart goes exactly where it points; low grip and it drifts through corners — and, the reason it
+ * matters beyond feel, a shove from the side has somewhere to live. With a scalar speed a bump
+ * could only displace a kart by a pixel and then be forgotten, so nobody could be pushed off a
+ * bridge.
+ */
+export const KART_LATERAL_GRIP_PER_SEC = 7;
+/**
+ * Turn rate at full speed, in radians per second, and the share of it available when standing
+ * still. Not zero at rest, because a kart that cannot be aimed while parked is infuriating; not
+ * one either, because spinning on the spot is not driving.
+ */
+export const KART_STEER_RAD_PER_SEC = 3.1;
+export const KART_STEER_AT_REST = 0.35;
+/** Collision radius in pixels — a kart is 16 px of art, and bodies that touch at 9 read as
+ *  touching before they overlap. */
+export const KART_RADIUS_PX = 9;
+/** What the RAMMER gives away, as a share of the closing speed. Under 1 so a collision costs
+ *  both of them something, which is what makes ramming a trade rather than a free win. */
+export const KART_BUMP_TRANSFER = 0.7;
+/**
+ * What the rammed kart RECEIVES, as a multiple of the closing speed — deliberately above 1, so a
+ * bump is not momentum-conserving.
+ *
+ * This number was found by a test rather than chosen. Sideways velocity bleeds off at
+ * `KART_LATERAL_GRIP_PER_SEC`, so a shove slides a kart about `shove / grip` pixels: at the
+ * physical share (0.7 of a 60 px/s closing speed) that is six pixels — less than half a tile, and
+ * "push somebody off the bridge" is then impossible however hard you hit them. At 1.8 the same
+ * contact slides them about fifteen, which is a lane. Arcade racers all cheat here for the same
+ * reason; what matters is that the cheat is one named number and not a special case.
+ */
+export const KART_BUMP_GAIN = 1.8;
+/** The shove a bump always adds, in px/s, so touching at a crawl still nudges. */
+export const KART_BUMP_MIN_PX_PER_SEC = 25;
+/** How long a kart is out of the race after leaving the ground, before it reappears at its last
+ *  gate. Long enough to read as a punishment, short enough not to end the race for them. */
+export const KART_FALL_SEC = 1.2;
+/** Simulation rate for a zone whose map is a race track. Steering at 20 Hz feels like posting
+ *  letters; the tick costs 19 µs (measured on uponu with 300 agents), so a race room can afford
+ *  three times as many of them, and the PATCH rate stays 20 Hz either way — this buys input
+ *  latency, not bandwidth. */
+export const RACE_TICK_HZ = 60;

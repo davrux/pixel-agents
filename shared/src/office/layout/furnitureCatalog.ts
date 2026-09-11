@@ -281,7 +281,12 @@ export function effectiveAction(item: PlacedFurniture, entry: FurnitureCatalogEn
  * narrows away the null the callers just tested for.
  */
 export function isClickAction(action: Action | null | undefined): action is Action {
-  return !!action && action.kind !== 'appliance' && action.kind !== 'talkingObject';
+  if (!action) return false;
+  // The race markers are neither clicked nor arrived at: a gate is asked about by the kart
+  // crossing it, sixty times a second, and firing a client notification each time is the opposite
+  // of what they are for.
+  if (action.kind === 'raceGate' || action.kind === 'raceStart') return false;
+  return action.kind !== 'appliance' && action.kind !== 'talkingObject';
 }
 
 // ── Behaviour resolution ────────────────────────────────────────

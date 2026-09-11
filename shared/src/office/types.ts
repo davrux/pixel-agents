@@ -521,6 +521,21 @@ export type Action =
    *  stripped out. */
   | { kind: 'spawnPoint' }
   /**
+   * A checkpoint gate on a race track, `gate` being its position in the lap — gate 0 IS the
+   * finish line.
+   *
+   * Gates are how every racing game makes a lap mean something: a kart may only pass the NEXT
+   * one, so cutting the infield or driving backwards earns no progress, and the finish counts
+   * only when the whole ring has been walked. They also answer respawning for free — a kart that
+   * falls comes back at the last gate it passed, facing the next one.
+   *
+   * A tile action rather than a new layer, like `spawnPoint`: it is a marker the room reads and
+   * then asks about per tick, and the Actions pipeline already carries markers.
+   */
+  | { kind: 'raceGate'; gate: number }
+  /** A slot on the starting grid, `slot` being the order karts are placed in (0 = pole). */
+  | { kind: 'raceStart'; slot: number }
+  /**
    * A talking object: it speaks by itself, with nobody there. On every full
    * hour it says the time — a speech bubble reading `9 UHR, 9 UHR !!!` — and
    * between the hours it says a random quote out of the world's pool
@@ -963,6 +978,12 @@ export interface OfficeLayout {
   version: 1 | 2 | 3;
   cols: number;
   rows: number;
+  /**
+   * How many laps a race over this map is, when it is a race at all — see `raceTrack`, which
+   * decides that from the GATES rather than from a flag, so a map cannot claim to be a track
+   * without having one. Optional, so a map that is not a track carries nothing.
+   */
+  laps?: number;
   /**
    * Per cell: the local tile id inside `floorSets[tileFloorSet[i]]`, or VOID.
    *
