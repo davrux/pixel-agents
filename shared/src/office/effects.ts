@@ -116,6 +116,21 @@ export const IMPLODE_SHEET: EffectSheet = {
 };
 
 /**
+ * The puff a figure vanishes in — its own sheet, not the pets' scuffle cloud.
+ *
+ * It started as that cloud, because the art was already committed, and it was wrong twice over:
+ * a comic brawl puff has a paw and a tail poking out of it, and at 32x32 over a 16x32 figure it
+ * read as a fight rather than an exit. This one is 24x24, drawn from soft grey blobs with no
+ * outline, and it RISES across its frames — smoke goes up, a scuffle stays put.
+ */
+export const SMOKE_SHEET: EffectSheet = {
+  id: 'smoke',
+  frameW: 24,
+  frameH: 24,
+  frames: 5,
+};
+
+/**
  * The flash a folding figure collapses into: a line of light across the body, at its middle.
  *
  * 32 wide so it overhangs a 16px figure on both sides — a line exactly as wide as the body reads
@@ -137,6 +152,7 @@ export const EFFECT_SHEETS: readonly EffectSheet[] = [
   PHOENIX_SHEET,
   IMPLODE_SHEET,
   FOLD_SHEET,
+  SMOKE_SHEET,
 ];
 
 /**
@@ -179,10 +195,10 @@ export const WARP_STYLES: readonly WarpStyle[] = [
   // A touch longer than the first version (0.5 s): being drawn INTO something needs a beat where
   // the figure is thin and the hole is open, and at half a second that beat was a frame or two.
   { id: 'implode', label: 'Implosion', durationSec: 0.65, sheet: IMPLODE_SHEET },
-  // The ninja exit, and the one style that needed no new art at all: the pets' scuffle puff is
-  // already committed, already in this table's own sheet list, and a comic cloud hides a figure
-  // exactly as well as it hides two animals.
-  { id: 'smoke', label: 'Smoke', durationSec: 0.55, sheet: SCUFFLE_SHEET },
+  // The ninja exit. It borrowed the pets' scuffle puff at first, for the art that was already
+  // there, and that was wrong twice: a brawl cloud has a paw sticking out of it, and 32x32 over a
+  // 16x32 figure reads as a fight.
+  { id: 'smoke', label: 'Smoke', durationSec: 0.55, sheet: SMOKE_SHEET },
   // Fast and hard, the opposite of the rain: the body is squeezed to a line and the line flashes.
   { id: 'fold', label: 'Fold', durationSec: 0.45, sheet: FOLD_SHEET },
 ];

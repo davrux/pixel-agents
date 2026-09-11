@@ -944,12 +944,17 @@ check asks: is the release present in the code that acquires?
   - **Two shapes cover six styles, and every one of them has art.** Anything that SWEEPS is
     a tiling texture (matrix, beam) for the reason above; anything that sits where the figure
     is is a frame sequence (phoenix, smoke, implode, fold), because scrolling a flame reads as
-    a passing light rather than as burning. `smoke` needed no NEW art — the pets' scuffle puff
-    was already committed and already in this table's sheet list, and a comic cloud hides a
-    figure exactly as well as it hides two animals. **The rule the implosion taught: a
-    transform says what the BODY does, never where it went, so a style is never art-free.**
-    `fold` squeezes the body onto a seam and the seam flashes; without the flash it is a
-    figure being flattened and then nothing. `implode` is the one that also moves the BODY: X collapses early while Y holds
+    a passing light rather than as burning. **The rule the implosion taught: a transform says
+    what the BODY does, never where it went, so a style is never art-free** — `fold` squeezes
+    the body onto a seam and the seam flashes, and without the flash it is a figure being
+    flattened and then nothing. `smoke` borrowed the pets' scuffle puff at first, for the art
+    that was already committed, and that was wrong twice over: a comic brawl cloud has a paw
+    and a tail poking out of it, and 32×32 over a 16×32 figure reads as a fight rather than an
+    exit. It has its own 24×24 sheet that RISES across its frames, coloured from the summed
+    blob FIELD rather than blob by blob — a ring per circle made every internal edge visible,
+    so the puff read as a bunch of bubbles. And a frame overlay is scaled by HEIGHT and
+    uniformly, never stretched to the figure's box: the flame's sheet happens to share a 16×32
+    figure's aspect and the puff's does not, so a stretch squashed one of the two. `implode` is the one that also moves the BODY: X collapses early while Y holds
     on, so the figure is pulled thin before it is swallowed, it spins a quarter turn and it
     darkens — and the renderer anchors that at the body's MIDDLE, because the sprite's own
     origin is at its feet and a shrink there reads as sinking into the floor. It started as

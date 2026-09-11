@@ -44,7 +44,7 @@ import { sheetBitmap } from '../art/sheetStore.js';
  */
 export type WarpOverlay =
   | { kind: 'tile'; key: string; bandPx: number; anchor: 'feet' }
-  | { kind: 'frames'; sheetId: string; frames: number; anchor: 'feet' | 'centre' }
+  | { kind: 'frames'; sheetId: string; frames: number; frameH: number; anchor: 'feet' | 'centre' }
   | { kind: 'none' };
 
 const NONE: WarpOverlay = { kind: 'none' };
@@ -100,7 +100,7 @@ export function warpOverlay(scene: Phaser.Scene, id: WarpStyleId): WarpOverlay {
     return key ? { kind: 'tile', key, bandPx, anchor: 'feet' } : NONE;
   }
   if (!sheetBitmap(effectSheetId(sheet.id))) return NONE;
-  return { kind: 'frames', sheetId: sheet.id, frames: sheet.frames, anchor: FRAME_ANCHORS[id] ?? 'feet' };
+  return { kind: 'frames', sheetId: sheet.id, frames: sheet.frames, frameH: sheet.frameH, anchor: FRAME_ANCHORS[id] ?? 'feet' };
 }
 
 /**

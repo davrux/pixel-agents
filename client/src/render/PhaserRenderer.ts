@@ -672,9 +672,12 @@ export class PhaserRenderer {
         img.setScale(1);
         img.setPosition(ch.x, ch.y + sit - h / 2);
       } else {
+        // Scaled by HEIGHT and uniformly, never stretched to the figure's box: the flame's sheet
+        // happens to share a 16x32 figure's aspect and the smoke puff's does not, so stretching
+        // squashed one of the two. A 64x64 figure gets the same art at twice the size.
         img.setOrigin(0.5, 1);
         img.setPosition(ch.x, ch.y + sit);
-        img.setDisplaySize(w * 1.5, h);
+        img.setScale(h / overlay.frameH);
       }
       img.setVisible(true);
       return;
