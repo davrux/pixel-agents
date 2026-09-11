@@ -31,9 +31,24 @@ import type {
 
 /** Everything the renderer reads — backed by synced state on the client and by
  *  OfficeState on the server-side authoring path. */
+/** A kart as the renderer reads it. Not `Kart` from the model: the client has no velocity, no
+ *  input and no fall timer — a body, a heading and who is in it is the whole of what it draws. */
+export interface RenderKart {
+  id: number;
+  x?: number;
+  y?: number;
+  tx: number;
+  ty: number;
+  heading: number;
+  drawHeading?: number;
+  driverId: number;
+}
+
 export interface RenderSource {
   getCharacters(): Character[];
   getPets(): Pet[];
+  /** Empty in a zone with no track, which is every zone but the raceway. */
+  getKarts?(): RenderKart[];
   furniture: FurnitureInstance[];
   getLayout(): OfficeLayout;
   tileMap: GroundMap;
@@ -54,6 +69,8 @@ import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
 import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
 import { effectSheetId } from '../art/effects';
+import { vehicleSheetId } from '../art/vehicles';
+import { KART_SHEET, vehicleFrame } from '@pixel/shared/office/race/kartArt.js';
 import { sheetCellFrame, sheetColumns, sheetFrameSize } from '../art/sheetStore';
 import {
   spriteTexture,
@@ -173,6 +190,7 @@ export class PhaserRenderer {
   private lastFurnitureRef: unknown = null;
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
+  private readonly karts = new Map<number, Phaser.GameObjects.Image>();
   /** The tiled rain over a materialising character, one per character while the effect lasts. */
   private readonly matrixRain = new Map<number, Phaser.GameObjects.TileSprite>();
   /** One overlay image per character mid-warp, for the styles that play FRAMES rather than
@@ -457,8 +475,51 @@ export class PhaserRenderer {
   update(): void {
     this.syncFurniture();
     this.syncFurnitureAnimation();
+    this.syncKarts();
     this.syncCharacters();
     this.syncPets();
+  }
+
+  /**
+   * Karts, drawn from the sixteen-heading strip.
+   *
+   * Before the characters, deliberately — not for the draw order (that is the depth sort) but
+   * because a driver's body is positioned BY the kart on the server, so the two are at the same
+   * spot and the depth below is what decides who is on top. The kart sorts a hair lower than a
+   * character at the same y, which puts the driver in the seat rather than under the floor.
+   */
+  private syncKarts(): void {
+    const karts = this.state.getKarts?.() ?? [];
+    const seen = new Set<number>();
+    for (const kart of karts) {
+      seen.add(kart.id);
+      let img = this.karts.get(kart.id);
+      if (!img) {
+        img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
+        this.karts.set(kart.id, img);
+      }
+      const frame = vehicleFrame(KART_SHEET, kart.drawHeading ?? kart.heading);
+      // A vehicle strip is ONE row of headings, not four rows of facings, so the sheet store's
+      // direction is always its first row — the heading is the column.
+      const tex = sheetCellFrame(this.scene, vehicleSheetId(KART_SHEET.id), Direction.DOWN, frame, false);
+      if (!tex) {
+        img.setVisible(false);
+        continue;
+      }
+      img.setTexture(tex.key, tex.frame);
+      // Origin at the CENTRE, unlike a character: the model's x/y is the kart's middle, which is
+      // also what it collides and bumps on, so anchoring it anywhere else would draw a kart that
+      // hits things beside itself.
+      img.setPosition(kart.x ?? kart.tx, kart.y ?? kart.ty);
+      img.setDepth((kart.y ?? kart.ty) + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET - 1);
+      img.setVisible(true);
+    }
+    for (const [id, img] of this.karts) {
+      if (!seen.has(id)) {
+        img.destroy();
+        this.karts.delete(id);
+      }
+    }
   }
 
   private syncCharacters(): void {

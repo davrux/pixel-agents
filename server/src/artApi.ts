@@ -35,6 +35,7 @@ import { join } from 'node:path';
 import type { Express, Request, Response } from 'express';
 
 import { EFFECT_SHEETS } from '@pixel/shared/office/effects';
+import { VEHICLE_SHEETS } from '@pixel/shared/office/race/kartArt';
 
 import { appStore } from './appStore.js';
 import { ASSETS_ROOT } from './assets.js';
@@ -170,6 +171,32 @@ function effectSource(id: string): ArtSource | null {
   return { entry: { png }, png };
 }
 
+/**
+ * A vehicle sheet — the kart today (see shared/office/race/kartArt.ts).
+ *
+ * Same shape as an effect and for the same reason (a file that ships with the build, no bundle
+ * entry, no override, no write path), but a separate kind because a kart is a PAWN: calling a body
+ * an effect is the kind of vocabulary drift AGENTS.md spends a section preventing. The two rules
+ * that keep a file-backed source safe are the effect ones — the id is looked up in a table and
+ * never used as a path component, and the bytes are cached by id.
+ */
+const vehicleBytes = new Map<string, Buffer>();
+
+function vehicleSource(id: string): ArtSource | null {
+  const sheet = VEHICLE_SHEETS.find((v) => v.id === id);
+  if (!sheet) return null;
+  let png = vehicleBytes.get(sheet.id);
+  if (!png) {
+    try {
+      png = readFileSync(join(ASSETS_ROOT, 'assets', 'vehicles', `${sheet.id}.png`));
+    } catch {
+      return null; // missing art is a 404, never a crash on a request
+    }
+    vehicleBytes.set(sheet.id, png);
+  }
+  return { entry: { png }, png };
+}
+
 function sourceFor(kind: string, id: string): ArtSource | null {
   return kind === 'pet'
     ? petSource(id)
@@ -177,7 +204,9 @@ function sourceFor(kind: string, id: string): ArtSource | null {
       ? characterSource(id)
       : kind === 'effect'
         ? effectSource(id)
-        : null;
+        : kind === 'vehicle'
+          ? vehicleSource(id)
+          : null;
 }
 
 /** Encoded sheets by `kind/id/hash`. Bounded: the roster is small and an entry is

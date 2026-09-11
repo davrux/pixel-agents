@@ -26,6 +26,7 @@ import {
 } from '@pixel/shared/office/effects.js';
 
 import { loadEffectSheets } from '../art/effects.js';
+import { loadVehicleSheets } from '../art/vehicles.js';
 import {
   CharacterState,
   ControllerKind,
@@ -120,6 +121,22 @@ type RenderChar = Partial<Character> & {
   voiceChannel?: string;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
+/** A kart as the renderer needs it: the synced target, the interpolated position, and the
+ *  heading in RADIANS (the wire carries hundredths, unsigned — see KartSync). */
+type RenderKart = {
+  id: number;
+  tx: number;
+  ty: number;
+  x?: number;
+  y?: number;
+  heading: number;
+  /** The interpolated one, turned the short way round so a kart crossing north does not spin. */
+  drawHeading?: number;
+  driverId: number;
+  lap: number;
+  gate: number;
+  finished: boolean;
+};
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
  *  furniture addressed by its anchor tile (a talking object saying the hour —
@@ -208,6 +225,7 @@ export class OfficeScene extends Phaser.Scene {
   private room?: Room;
   private readonly characters = new Map<number, RenderChar>();
   private readonly pets = new Map<number, RenderPet>();
+  private readonly karts = new Map<number, RenderKart>();
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
   /** This zone's placements with the on-state applied — the map's own objects, not a decoded
@@ -631,6 +649,9 @@ export class OfficeScene extends Phaser.Scene {
       // The effect sheets (today: the scuffle cloud) — 655 bytes, constant ids, no message needed.
       // Started here so it overlaps the world wait, awaited below so the first frame has it.
       const effectsPromise = loadEffectSheets();
+      // The vehicle sheets, on the same terms: constant ids, 5 KB, no message. A zone with no
+      // track never draws one, and fetching it anyway is cheaper than a per-zone decision.
+      const vehiclesPromise = loadVehicleSheets();
 
       loading.say('waiting for the world');
       const waited = await Promise.race([
@@ -647,6 +668,7 @@ export class OfficeScene extends Phaser.Scene {
       const atlas = await atlasPromise;
       if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
       await effectsPromise;
+      await vehiclesPromise;
       // Sheets AFTER the map, because the map says which are needed: a ground or wall
       // cell can only name a set the layout lists. Everything else it draws comes from
       // the atlas or its own ref image.
@@ -719,6 +741,7 @@ export class OfficeScene extends Phaser.Scene {
       },
       getCharacters: () => [...scene.characters.values()] as unknown as Character[],
       getPets: () => [...scene.pets.values()] as unknown as Pet[],
+      getKarts: () => [...scene.karts.values()],
     };
   }
 
@@ -964,6 +987,7 @@ export class OfficeScene extends Phaser.Scene {
     const state = room.state as unknown as {
       characters: MapSchema<Record<string, unknown>>;
       pets: MapSchema<Record<string, unknown>>;
+      karts: MapSchema<Record<string, unknown>>;
       furnitureOn: ArraySchema<string>;
     };
 
@@ -997,6 +1021,27 @@ export class OfficeScene extends Phaser.Scene {
       $(ps).onChange(() => this.applyPet(rp, ps));
     });
     $(state).pets.onRemove((_ps: unknown, key: string) => this.pets.delete(Number(key)));
+
+    // Karts. A zone with no track has none, and this costs nothing there.
+    $(state).karts.onAdd((ks: Record<string, unknown>, key: string) => {
+      const rk: RenderKart = {
+        id: Number(key),
+        tx: ks.x as number,
+        ty: ks.y as number,
+        heading: 0,
+        driverId: 0,
+        lap: 0,
+        gate: 0,
+        finished: false,
+      };
+      this.applyKart(rk, ks);
+      rk.x = rk.tx;
+      rk.y = rk.ty;
+      rk.drawHeading = rk.heading;
+      this.karts.set(rk.id, rk);
+      $(ks).onChange(() => this.applyKart(rk, ks));
+    });
+    $(state).karts.onRemove((_ks: unknown, key: string) => this.karts.delete(Number(key)));
 
     // Which pieces are switched on is the only furniture fact that arrives per patch (see
     // RoomState.furnitureOn); the placements came with the map and the frames are local.
@@ -1050,6 +1095,19 @@ export class OfficeScene extends Phaser.Scene {
     rc.inputTokens = cs.inputTokens as number;
     rc.outputTokens = cs.outputTokens as number;
     rc.activity = (cs.activity as string) ?? '';
+  }
+
+  /** The wire carries a heading as hundredths of a radian in a uint16 — unsigned, so the model
+   *  wraps it before it is written (race/track.ts, wrapAngle) and this is the only place that
+   *  turns it back into an angle. */
+  private applyKart(rk: RenderKart, ks: Record<string, unknown>): void {
+    rk.tx = ks.x as number;
+    rk.ty = ks.y as number;
+    rk.heading = ((ks.heading as number) ?? 0) / 100;
+    rk.driverId = (ks.driverId as number) ?? 0;
+    rk.lap = (ks.lap as number) ?? 0;
+    rk.gate = (ks.gate as number) ?? 0;
+    rk.finished = !!ks.finished;
   }
 
   private applyPet(rp: RenderPet, ps: Record<string, unknown>): void {
@@ -1913,7 +1971,39 @@ export class OfficeScene extends Phaser.Scene {
       );
     };
 
+    /** The kart this viewer is driving, or null. Read from synced state, never remembered: the
+     *  server decides who is in a seat, and a bump, a fall or another viewer's action can empty
+     *  one without this client having pressed anything. */
+    const myKart = (): RenderKart | null => {
+      if (this.myPlayerId === null) return null;
+      for (const kt of this.karts.values()) if (kt.driverId === this.myPlayerId) return kt;
+      return null;
+    };
+    let sentThrottle: number | null = null;
+    let sentSteer: number | null = null;
+
+    /**
+     * The same eight keys, read two ways.
+     *
+     * Driving is not walking with extra steps — W is throttle rather than north — so the keys are
+     * reinterpreted rather than duplicated onto a second set nobody would find. Which one applies
+     * comes from the world (am I in a seat?), so getting in changes what the keys do and getting
+     * out changes it back, with nothing to toggle and nothing to get stuck in.
+     */
     const flush = (): void => {
+      if (myKart()) {
+        const down = new Set(held);
+        const throttle = down.has('KeyW') || down.has('ArrowUp') ? 1 : down.has('KeyS') || down.has('ArrowDown') ? -1 : 0;
+        const steer = down.has('KeyD') || down.has('ArrowRight') ? 1 : down.has('KeyA') || down.has('ArrowLeft') ? -1 : 0;
+        if (throttle === sentThrottle && steer === sentSteer) return;
+        sentThrottle = throttle;
+        sentSteer = steer;
+        sent = null; // so stepping out re-sends the walk direction even if it has not changed
+        this.room?.send('kartInput', { throttle, steer });
+        return;
+      }
+      sentThrottle = null;
+      sentSteer = null;
       const dir = held.length ? KEY_DIR[held[held.length - 1]] : null;
       if (dir === sent) return;
       sent = dir;
@@ -1939,6 +2029,17 @@ export class OfficeScene extends Phaser.Scene {
         held.length = 0;
         flush();
       }
+    });
+    // Get in or out of a kart (E). A request and nothing more: the server decides whether there
+    // is a free one within reach, so this key does nothing at all in a zone with no track.
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyE' || e.repeat || blocked(e)) return;
+      e.preventDefault();
+      this.room?.send('kartBoard', {});
+      // Whatever was held meant something else a moment ago; make the next flush say so.
+      sent = null;
+      sentThrottle = null;
+      sentSteer = null;
     });
     // Sit toggle (C): rest in place; moving stands the avatar back up (server-side).
     window.addEventListener('keydown', (e) => {
@@ -2093,6 +2194,17 @@ export class OfficeScene extends Phaser.Scene {
       p.x = (p.x ?? p.tx) + (p.tx - (p.x ?? p.tx)) * k;
       p.y = (p.y ?? p.ty) + (p.ty - (p.y ?? p.ty)) * k;
     }
+    for (const kt of this.karts.values()) {
+      kt.x = (kt.x ?? kt.tx) + (kt.tx - (kt.x ?? kt.tx)) * k;
+      kt.y = (kt.y ?? kt.ty) + (kt.ty - (kt.y ?? kt.ty)) * k;
+      // The angle goes the SHORT way round, or a kart passing due north unwinds a whole turn on
+      // screen while the world has it pointing steadily ahead.
+      const from = kt.drawHeading ?? kt.heading;
+      let d = kt.heading - from;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      kt.drawHeading = from + d * k;
+    }
     this.view.update();
     // DOM overlays (labels/bubbles/tooltip) don't need 60 Hz — cap to ~20 Hz, but
     // always run once when movement just stopped so labels settle at their final
@@ -2125,6 +2237,11 @@ export class OfficeScene extends Phaser.Scene {
     }
     for (const p of this.pets.values()) {
       if (Math.abs((p.x ?? p.tx) - p.tx) > 0.4 || Math.abs((p.y ?? p.ty) - p.ty) > 0.4) return true;
+    }
+    for (const kt of this.karts.values()) {
+      if (Math.abs((kt.x ?? kt.tx) - kt.tx) > 0.4 || Math.abs((kt.y ?? kt.ty) - kt.ty) > 0.4) return true;
+      // A kart that is only TURNING is still motion, and the position test would sleep through it.
+      if (Math.abs((kt.drawHeading ?? kt.heading) - kt.heading) > 0.02) return true;
     }
     return false;
   }
@@ -2686,10 +2803,11 @@ export class OfficeScene extends Phaser.Scene {
       {
         title: 'Move & camera',
         rows: [
-          ['W A S D / Arrows', 'Move'],
+          ['W A S D / Arrows', 'Move — or throttle, brake and steer while driving'],
           ['Left-click floor', 'Walk there'],
           ['Left-click chair / bench', 'Sit down'],
           ['C', 'Sit / stand (in place)'],
+          ['E', 'Get in or out of a kart (on a race track)'],
           ['Click an avatar', 'Select it (tooltip) — hover works too'],
           ['Mouse wheel', 'Zoom'],
           ['Drag (empty space)', 'Pan the camera'],
