@@ -46,8 +46,19 @@ const EMBER = [0xff, 0xd0, 0x6a] as const;
 
 /** How tall the flame stands in each frame, as a fraction of the frame height. */
 const HEIGHT = [0.55, 0.85, 1, 1, 0.78, 0.45];
-/** Half-width at the base, in pixels — 9 of 12 leaves a margin the wobble can use. */
-const BASE_HALF = 9;
+/** Half-width at the base, in pixels. Thin on purpose: at 9 the flame read as a cone sitting on
+ *  the figure rather than as fire licking up it, which is what it looked like in the first world
+ *  test. A tongue is narrow at the base and narrower above. */
+const BASE_HALF = 5.5;
+/**
+ * The width profile: `1 - u^KNEE` for u = 0 at the feet to 1 at the tip.
+ *
+ * Two shapes were wrong before this one. A straight `1 - u` is a triangle, which reads as a cone
+ * sitting on the figure; and `(1 - u)^1.45` narrows immediately and then crawls, so the flame grew
+ * a one-pixel antenna to the top of the frame. A knee above 1 keeps the body FULL for the lower
+ * half and then drops away quickly — fat where the fuel is, gone at the tip.
+ */
+const KNEE = 2.1;
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -81,14 +92,21 @@ for (let f = 0; f < FRAMES; f++) {
     if (t > amp) continue;
     tip = Math.min(tip, y);
     // Narrows towards the tip, with a wobble that differs per frame so the fire moves.
-    const taper = 1 - t / amp;
-    const wobble = Math.sin(y * 0.7 + f * 1.9) * 1.6 + Math.sin(y * 0.31 + f * 2.7) * 0.9;
-    const half = Math.max(0.6, taper * BASE_HALF + wobble * taper);
-    for (let dx = -Math.ceil(half); dx <= Math.ceil(half); dx++) {
-      const d = Math.abs(dx) / half;
+    const u = t / amp;
+    const taper = 1 - Math.pow(u, KNEE);
+    const wobble = Math.sin(y * 0.7 + f * 1.9) * 0.9 + Math.sin(y * 0.31 + f * 2.7) * 0.5;
+    // A flame leans, and the lean grows with height — without it the silhouette is symmetric and
+    // reads as a shape rather than as fire.
+    const lean = Math.sin(u * 2.6 + f * 1.3) * 2.2 * u;
+    // No forced minimum: with one, the taper draws a 1px line all the way to the frame's top and
+    // the flame grows an antenna. The tongue has to END where it gets thinner than a pixel.
+    const half = taper * BASE_HALF + wobble * taper;
+    if (half < 0.55) continue;
+    for (let dx = Math.floor(lean - half); dx <= Math.ceil(lean + half); dx++) {
+      const d = Math.abs(dx - lean) / half;
       if (d > 1) continue;
       // The colour ORDER is what makes this a flame; a single-colour silhouette is a leaf.
-      const rgb = d < 0.34 ? CORE : d < 0.72 ? BODY : EDGE;
+      const rgb = d < 0.3 ? CORE : d < 0.68 ? BODY : EDGE;
       // The very tip thins out rather than ending in a flat line.
       const alpha = t > amp * 0.88 ? 0.55 : 1;
       put(centre + dx, y, rgb, alpha);
@@ -98,7 +116,7 @@ for (let f = 0; f < FRAMES; f++) {
   const embers = f < 2 ? 2 : f < 4 ? 5 : 7;
   for (let i = 0; i < embers; i++) {
     const y = Math.max(0, tip - 1 - Math.floor(rand() * 5));
-    const x = centre + Math.floor((rand() * 2 - 1) * (BASE_HALF - 3));
+    const x = centre + Math.floor((rand() * 2 - 1) * (BASE_HALF - 1.5));
     put(x, y, EMBER, 0.5 + rand() * 0.5);
   }
 }
