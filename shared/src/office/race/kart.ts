@@ -30,26 +30,23 @@
  *    client has something to draw, and the respawn puts it at the last gate facing the next.
  */
 import {
-  KART_ACCEL_PX_PER_SEC2,
-  KART_GRIP_PX_PER_SEC2,
   KART_POWER_GRIP_SHARE,
+  KART_SLIDE_ANGLE_RAD,
   KART_SLIDE_ALIGN_PER_SEC,
-  KART_BRAKE_PX_PER_SEC2,
   KART_BUMP_GAIN,
   KART_BUMP_MIN_PX_PER_SEC,
   KART_BUMP_TRANSFER,
   KART_DRAG_PER_SEC,
   KART_FALL_SEC,
   KART_MAX_REVERSE_PX_PER_SEC,
-  KART_MAX_SPEED_PX_PER_SEC,
   KART_RADIUS_PX,
   KART_STEER_AT_REST,
   KART_STEER_RAD_PER_SEC,
-  KART_TURN_RADIUS_PX,
 } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
+import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
 import { gateAt, headingFrom, nextGate, wrapAngle, type RaceTrack } from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
@@ -81,8 +78,20 @@ export interface Kart {
   lap: number;
   /** Counts down while falling. */
   fallTimer: number;
-  /** Set once the kart has crossed the finish for the last lap. */
+  /** Set once the kart has crossed the finish for the last lap. Owned by the RACE, never by the
+   *  model: without a race running there is no finish, because there is no lap limit. */
   finished: boolean;
+  /** Which `KartSpec` this one is built to. An unknown id drives as the default. */
+  spec: string;
+  /**
+   * Is it sliding right now — the tyres past their limit, the kart pointing somewhere other than
+   * where it is going?
+   *
+   * A DECISION and not presentation, so it is synced rather than re-derived on each client: the
+   * client has no velocity vector to derive it from (the wire carries a pose, not a state), and
+   * two viewers guessing from successive positions would disagree about where the marks go.
+   */
+  sliding: boolean;
 }
 
 export interface KartWorld {
@@ -109,6 +118,8 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     lap: 0,
     fallTimer: 0,
     finished: false,
+    spec: DEFAULT_KART_SPEC.id,
+    sliding: false,
   };
 }
 
@@ -172,6 +183,9 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   }
 
   const input = kart.driverId === null || kart.finished ? NEUTRAL_INPUT : kart.input;
+  // Every number the handling reads comes from the spec, so a second kind of kart is a row in a
+  // table rather than a branch in here (see kartSpec.ts).
+  const spec = kartSpec(kart.spec);
   const fx = Math.cos(kart.heading);
   const fy = Math.sin(kart.heading);
 
@@ -186,7 +200,7 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     const speed = Math.abs(along);
     const yaw = Math.max(
       KART_STEER_RAD_PER_SEC * KART_STEER_AT_REST,
-      Math.min(KART_STEER_RAD_PER_SEC, speed / KART_TURN_RADIUS_PX),
+      Math.min(KART_STEER_RAD_PER_SEC, speed / spec.turnRadius),
     );
     const sign = along < 0 ? -1 : 1; // reversing steers the other way round, like a real vehicle
     kart.heading = wrapAngle(kart.heading + input.steer * sign * yaw * dt);
@@ -204,14 +218,14 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // has ONE budget for going and for turning (the friction circle), so this is subtracted from
   // what is left for the corner — which is the whole of "too much gas in a corner throws you off".
   const power = input.throttle !== 0 ? KART_POWER_GRIP_SHARE : 0;
-  if (input.throttle > 0) along += KART_ACCEL_PX_PER_SEC2 * dt;
-  else if (input.throttle < 0) along -= KART_BRAKE_PX_PER_SEC2 * dt;
+  if (input.throttle > 0) along += spec.accel * dt;
+  else if (input.throttle < 0) along -= spec.brake * dt;
   along -= along * Math.min(1, KART_DRAG_PER_SEC * dt);
-  along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(KART_MAX_SPEED_PX_PER_SEC, along));
+  along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(spec.maxSpeed, along));
 
   // The tyres kill at most this much sideways speed this tick — a LIMIT, not a fraction. Beyond
   // it the kart slides, and that is the drift.
-  const lateral = KART_GRIP_PX_PER_SEC2 * Math.sqrt(Math.max(0, 1 - power * power));
+  const lateral = spec.grip * Math.sqrt(Math.max(0, 1 - power * power));
   const bite = lateral * dt;
   side -= Math.sign(side) * Math.min(Math.abs(side), bite);
 
@@ -230,7 +244,10 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   if (side !== 0 && Math.abs(along) > 1) {
     const slip = Math.atan2(side, Math.abs(along));
     kart.heading = wrapAngle(kart.heading + slip * Math.min(1, KART_SLIDE_ALIGN_PER_SEC * dt));
-  }
+    // Far enough past the tyres' limit that a viewer would call it sliding. The threshold is the
+    // renderer's cue for skid marks, so it is a world fact and not a drawing detail.
+    kart.sliding = Math.abs(slip) > KART_SLIDE_ANGLE_RAD && Math.abs(along) > 40;
+  } else kart.sliding = false;
 
   kart.state = kart.driverId === null ? 'idle' : 'drive';
 
@@ -261,7 +278,9 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     kart.gate = here.index;
     if (here.index === 0) {
       kart.lap++;
-      if (kart.lap >= world.track.laps) kart.finished = true;
+      // What a completed lap MEANS — a finish, a time, a place — belongs to the race and not to
+      // the model: with no race running there is no lap limit at all, and driving round the ring
+      // for as long as you like is the normal state of a track.
       return { lapped: true, fell: false };
     }
   }

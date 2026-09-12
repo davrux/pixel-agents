@@ -56,11 +56,19 @@ const TRIM: RGB = [0x37, 0x34, 0x2f];
 const NOSE: RGB = [0xf1, 0xef, 0xec];
 const EDGE: RGB = [0x0a, 0x09, 0x08];
 
-/** A shape in kart space. Painter's order: later shapes win where they overlap. */
-type Shape =
+/**
+ * A shape in kart space. Painter's order within a layer: later shapes win where they overlap.
+ *
+ * `front` is the half drawn OVER the driver — the nose, the wheel, the front wheels. Everything
+ * else is `behind` and the figure sits on top of it. That split is the whole of "the driver is
+ * rendered behind the kart instead of in it".
+ */
+type Layer = 'behind' | 'front';
+type Shape = { layer: Layer } & (
   | { kind: 'box'; x0: number; x1: number; y0: number; y1: number; rgb: RGB }
   | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; rgb: RGB }
-  | { kind: 'poly'; pts: readonly (readonly [number, number])[]; rgb: RGB };
+  | { kind: 'poly'; pts: readonly (readonly [number, number])[]; rgb: RGB }
+);
 
 /**
  * The kart, once. Forward is +x, right is +y, and the origin is where the model puts the centre.
@@ -68,41 +76,45 @@ type Shape =
  * with a head rest behind it, thin front tyres out on stalks and a white nose cone.
  */
 const KART: readonly Shape[] = [
+  // ── behind the driver ──────────────────────────────────────────────────────
   // Rear tyres — fat, set wide. Drawn first so the hull's edge cuts across them.
-  { kind: 'box', x0: -9.0, x1: -4.0, y0: -7.4, y1: -4.0, rgb: TYRE },
-  { kind: 'box', x0: -9.0, x1: -4.0, y0: 4.0, y1: 7.4, rgb: TYRE },
-  // Front tyres — narrower, further forward, the open-wheel stance.
-  { kind: 'box', x0: 3.6, x1: 7.2, y0: -7.0, y1: -4.0, rgb: TYRE },
-  { kind: 'box', x0: 3.6, x1: 7.2, y0: 4.0, y1: 7.0, rgb: TYRE },
-  // Axles, so the wheels belong to something instead of floating beside the tub.
-  { kind: 'box', x0: -7.6, x1: -5.6, y0: -6.2, y1: 6.2, rgb: TRIM },
-  { kind: 'box', x0: 4.2, x1: 5.6, y0: -5.8, y1: 5.8, rgb: TRIM },
-  // The tub: a long box with the nose drawn into it, NOT a wedge. The first attempt tapered from
+  { layer: 'behind', kind: 'box', x0: -13.5, x1: -6.0, y0: -11.0, y1: -6.0, rgb: TYRE },
+  { layer: 'behind', kind: 'box', x0: -13.5, x1: -6.0, y0: 6.0, y1: 11.0, rgb: TYRE },
+  // Rear axle, so the wheels belong to something instead of floating beside the tub.
+  { layer: 'behind', kind: 'box', x0: -11.5, x1: -8.5, y0: -9.5, y1: 9.5, rgb: TRIM },
+  // The tub: a long box with the nose drawn into it, NOT a wedge. An early version tapered from
   // the rear axle forward and every frame read as an arrowhead rather than as a vehicle.
   {
+    layer: 'behind',
     kind: 'poly',
     rgb: HULL,
     pts: [
-      [6.4, -3.3],
-      [9.6, -1.1],
-      [9.6, 1.1],
-      [6.4, 3.3],
-      [-9.2, 3.3],
-      [-9.2, -3.3],
+      [10.0, -8.0],
+      [14.5, -2.4],
+      [14.5, 2.4],
+      [10.0, 8.0],
+      [-14.0, 8.0],
+      [-14.0, -8.0],
     ],
   },
-  // Frame rails down each flank, and a lit strip along the top — the two things that stop the tub
+  // Frame rails down each flank and a lit strip along the top — the two things that stop the tub
   // reading as a flat lozenge at this size.
-  { kind: 'box', x0: -8.4, x1: 4.4, y0: -4.5, y1: -3.1, rgb: HULL_DARK },
-  { kind: 'box', x0: -8.4, x1: 4.4, y0: 3.1, y1: 4.5, rgb: HULL_DARK },
-  { kind: 'box', x0: -8.8, x1: 5.4, y0: -3.0, y1: -1.5, rgb: HULL_LIT },
-  // Cockpit: a seat the driver sits IN, a head rest behind it, the wheel ahead of it. Small on
-  // purpose — a character is drawn on top of this, and a big dark hole swallows them.
-  { kind: 'box', x0: -6.4, x1: -1.4, y0: -2.4, y1: 2.4, rgb: SEAT },
-  { kind: 'box', x0: -8.6, x1: -6.8, y0: -2.2, y1: 2.2, rgb: TRIM },
-  { kind: 'box', x0: 1.2, x1: 2.6, y0: -1.8, y1: 1.8, rgb: TRIM },
+  { layer: 'behind', kind: 'box', x0: -13.0, x1: 7.0, y0: -9.8, y1: -7.6, rgb: HULL_DARK },
+  { layer: 'behind', kind: 'box', x0: -13.0, x1: 7.0, y0: 7.6, y1: 9.8, rgb: HULL_DARK },
+  { layer: 'behind', kind: 'box', x0: -13.5, x1: 8.5, y0: -7.4, y1: -4.6, rgb: HULL_LIT },
+  // The cockpit the driver actually sits in, and the head rest behind them.
+  { layer: 'behind', kind: 'box', x0: -10.0, x1: -1.0, y0: -5.2, y1: 5.2, rgb: SEAT },
+  { layer: 'behind', kind: 'box', x0: -13.6, x1: -10.4, y0: -4.6, y1: 4.6, rgb: TRIM },
+
+  // ── in front of the driver ─────────────────────────────────────────────────
+  // Front tyres — narrower, further forward, the open-wheel stance.
+  { layer: 'front', kind: 'box', x0: 5.0, x1: 11.0, y0: -10.6, y1: -6.0, rgb: TYRE },
+  { layer: 'front', kind: 'box', x0: 5.0, x1: 11.0, y0: 6.0, y1: 10.6, rgb: TYRE },
+  { layer: 'front', kind: 'box', x0: 6.0, x1: 8.2, y0: -9.2, y1: 9.2, rgb: TRIM },
+  // The wheel, right where a pair of hands would be.
+  { layer: 'front', kind: 'box', x0: 1.8, x1: 4.0, y0: -3.4, y1: 3.4, rgb: TRIM },
   // Nose tip — white, so which way a kart faces reads at a glance from across the map.
-  { kind: 'poly', rgb: NOSE, pts: [[10.2, 0.0], [8.0, -1.6], [8.0, 1.6]] },
+  { layer: 'front', kind: 'poly', rgb: NOSE, pts: [[15.6, 0.0], [11.6, -2.8], [11.6, 2.8]] },
 ];
 
 const inside = (s: Shape, x: number, y: number): boolean => {
@@ -122,10 +134,14 @@ const inside = (s: Shape, x: number, y: number): boolean => {
   return hit;
 };
 
-const png = new PNG({ width: W * N, height: H });
+const ROWS = 2;
+const LAYERS: readonly Layer[] = ['behind', 'front'];
+const png = new PNG({ width: W * N, height: H * ROWS });
 png.data.fill(0);
 
-for (let f = 0; f < N; f++) {
+for (let layer = 0; layer < ROWS; layer++) {
+ const only = LAYERS[layer];
+ for (let f = 0; f < N; f++) {
   const a = (f / N) * Math.PI * 2;
   const ca = Math.cos(a);
   const sa = Math.sin(a);
@@ -143,7 +159,7 @@ for (let f = 0; f < N; f++) {
           const kx = ox * ca + oy * sa;
           const ky = -ox * sa + oy * ca;
           let rgb: RGB | null = null;
-          for (const shape of KART) if (inside(shape, kx, ky)) rgb = shape.rgb;
+          for (const shape of KART) if (shape.layer === only && inside(shape, kx, ky)) rgb = shape.rgb;
           if (!rgb) continue;
           r += rgb[0];
           g += rgb[1];
@@ -152,33 +168,35 @@ for (let f = 0; f < N; f++) {
         }
       }
       if (hits === 0) continue;
-      const i = (py * W * N + f * W + px) * 4;
+      const i = ((layer * H + py) * W * N + f * W + px) * 4;
       png.data[i] = Math.round(r / hits);
       png.data[i + 1] = Math.round(g / hits);
       png.data[i + 2] = Math.round(b / hits);
       png.data[i + 3] = Math.round((hits / (SS * SS)) * 255);
     }
   }
+ }
 }
 
 // The dark edge, as a pass over the finished frames: any solid pixel with a see-through neighbour
 // is pulled towards the outline colour, weighted by how see-through that neighbour is. At 24 px a
 // red kart on a red kerb has no silhouette without it.
-const alphaAt = (f: number, x: number, y: number): number => {
+const alphaAt = (layer: number, f: number, x: number, y: number): number => {
   if (x < 0 || x >= W || y < 0 || y >= H) return 0;
-  return png.data[(y * W * N + f * W + x) * 4 + 3];
+  return png.data[((layer * H + y) * W * N + f * W + x) * 4 + 3];
 };
 const edged = Buffer.from(png.data);
+for (let layer = 0; layer < ROWS; layer++)
 for (let f = 0; f < N; f++) {
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      const i = (y * W * N + f * W + x) * 4;
+      const i = ((layer * H + y) * W * N + f * W + x) * 4;
       if (png.data[i + 3] < 128) continue;
       const open =
-        (255 - alphaAt(f, x - 1, y)) +
-        (255 - alphaAt(f, x + 1, y)) +
-        (255 - alphaAt(f, x, y - 1)) +
-        (255 - alphaAt(f, x, y + 1));
+        (255 - alphaAt(layer, f, x - 1, y)) +
+        (255 - alphaAt(layer, f, x + 1, y)) +
+        (255 - alphaAt(layer, f, x, y - 1)) +
+        (255 - alphaAt(layer, f, x, y + 1));
       if (open === 0) continue;
       const t = Math.min(1, open / 510) * 0.75;
       for (let c = 0; c < 3; c++) edged[i + c] = Math.round(png.data[i + c] * (1 - t) + EDGE[c] * t);
@@ -191,8 +209,8 @@ if (PREVIEW) {
   // Each heading on a strip of road, so the silhouette is judged against what it is driven on
   // rather than against a checkerboard.
   const ROAD: RGB = [0x3a, 0x3a, 0x3c];
-  const prev = new PNG({ width: W * N, height: H });
-  for (let y = 0; y < H; y++) {
+  const prev = new PNG({ width: W * N, height: H * ROWS });
+  for (let y = 0; y < H * ROWS; y++) {
     for (let x = 0; x < W * N; x++) {
       const i = (y * W * N + x) * 4;
       const a = png.data[i + 3] / 255;
@@ -218,4 +236,4 @@ if (CHECK) {
 }
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, bytes);
-console.log(`wrote ${path.relative(REPO, OUT)} (${N}×${W}×${H}, ${bytes.length} bytes)`);
+console.log(`wrote ${path.relative(REPO, OUT)} (${N}×${W}×${H}, ${ROWS} layers, ${bytes.length} bytes)`);

@@ -146,21 +146,36 @@ test('a map with no gates is not a track, however much road it has', () => {
 
 test('a kart goes where it points, and tops out', () => {
   const { world: w } = world();
-  const kart = createKart(1, at(8, 12), 0); // facing east along the bottom straight
+  const kart = createKart(1, at(3, 12), 0); // facing east along the bottom straight
   kart.driverId = 42;
   const startX = kart.x;
-  drive(kart, w, 1.5, { throttle: 1 });
+  // Just under a second: at fifteen tiles a second a longer run reaches the barrier at the end of
+  // this little oval, and a kart stopped by a wall looks exactly like one that never accelerated.
+  drive(kart, w, 0.9, { throttle: 1 });
   assert.ok(kart.x > startX + 40, `barely moved: ${kart.x - startX} px in 1.5 s`);
-  assert.ok(Math.abs(kart.y - at(8, 12).y) < 0.001, 'drifted sideways with no steering input');
+  assert.ok(Math.abs(kart.y - at(3, 12).y) < 0.001, 'drifted sideways with no steering input');
   const speed = Math.hypot(kart.vx, kart.vy);
   assert.ok(speed <= KART_MAX_SPEED_PX_PER_SEC + 0.001, `over the speed limit: ${speed}`);
   assert.ok(speed > KART_MAX_SPEED_PX_PER_SEC * 0.75, `never got going: ${speed}`);
 
-  // Letting go slows it without stopping it dead.
+  // Letting go slows it without stopping it dead — and deliberately not by much. Coasting used
+  // to scrub a kart to walking pace in four seconds, which made lifting for a corner feel like
+  // stamping on the brake and left the brake itself with nothing to do.
   const coasting = Math.hypot(kart.vx, kart.vy);
   drive(kart, w, 0.3, { throttle: 0 });
   const after = Math.hypot(kart.vx, kart.vy);
-  assert.ok(after < coasting * 0.8 && after > 0, `coasting is wrong: ${coasting} -> ${after}`);
+  assert.ok(after < coasting, `coasting did not slow it at all: ${coasting} -> ${after}`);
+  assert.ok(after > coasting * 0.8, `coasting scrubbed too much speed: ${coasting} -> ${after}`);
+  // The brake is the thing that stops it, and it has to be clearly stronger than letting go.
+  const braked = createKart(2, at(3, 12), 0);
+  braked.driverId = 42;
+  braked.vx = coasting;
+  braked.state = 'drive';
+  drive(braked, w, 0.3, { throttle: -1 });
+  assert.ok(
+    Math.hypot(braked.vx, braked.vy) < after * 0.8,
+    `braking is no better than lifting: ${Math.hypot(braked.vx, braked.vy).toFixed(0)} against ${after.toFixed(0)}`,
+  );
 });
 
 test('a wall is slid along, not stopped at', () => {
@@ -226,15 +241,19 @@ test('only the next gate counts: cutting and reversing earn nothing', () => {
   }
   assert.equal(kart.gate, 0);
   assert.equal(kart.lap, 1, 'a full lap in order did not count');
-  assert.equal(kart.finished, false, 'finished after one of two laps');
+  // Never `finished`: with no race running there is no lap limit, so the model counts laps and
+  // says so, and what a lap MEANS is the race's business (see race/raceState.ts).
+  assert.equal(kart.finished, false, 'the model decided a race was over');
 
+  let lapped = false;
   for (const index of [1, 2, 3, 0]) {
     kart.x = track.gates[index].x;
     kart.y = track.gates[index].y;
-    updateKart(kart, DT, w);
+    lapped = updateKart(kart, DT, w).lapped || lapped;
   }
   assert.equal(kart.lap, 2);
-  assert.equal(kart.finished, true, 'the last lap did not finish the race');
+  assert.equal(lapped, true, 'the second lap was not reported');
+  assert.equal(kart.finished, false, 'the model finished a race nobody started');
 });
 
 test('standings come from the gate and the distance to the next, not the line to the finish', () => {
@@ -378,7 +397,10 @@ test('too much gas runs a corner wide; lifting makes it', () => {
   assert.ok(flat.slip > 10, `flat out barely slid: ${flat.slip.toFixed(1)}°`);
   // Lifting is the answer, so it has to actually work — the tyres hold and the line is the one
   // the steering asked for.
-  assert.ok(lifted.slip < 5, `lifting still slid: ${lifted.slip.toFixed(1)}°`);
+  assert.ok(
+    lifted.slip < flat.slip / 2,
+    `lifting barely helped: ${lifted.slip.toFixed(1)}° against ${flat.slip.toFixed(1)}° on the gas`,
+  );
   assert.ok(
     Math.abs(lifted.radius - KART_TURN_RADIUS_PX) < KART_TURN_RADIUS_PX * 0.25,
     `a gripping corner is not the radius it was steered to: ${lifted.radius.toFixed(0)} vs ${KART_TURN_RADIUS_PX}`,

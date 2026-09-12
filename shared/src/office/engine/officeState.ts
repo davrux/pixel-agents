@@ -42,7 +42,16 @@ import {
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart } from '../race/kart.js';
-import { headingFrom, raceTrack, type RaceTrack } from '../race/track.js';
+import {
+  completeLap,
+  createRace,
+  standings,
+  startRace,
+  stopRace,
+  tickRace,
+  type Race,
+} from '../race/raceState.js';
+import { headingFrom, raceProgress, raceTrack, type RaceTrack } from '../race/track.js';
 import { canStep, DIRS_4, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
 import {
@@ -222,6 +231,9 @@ export class OfficeState {
    */
   karts: Map<number, Kart> = new Map();
   private track: RaceTrack | null = null;
+  /** The running race, or the idle one. A track is drivable whenever it exists; a RACE is a
+   *  bounded episode somebody starts inside it (see race/raceState.ts). */
+  private race: Race = createRace();
   private nextKartId = 3_000_000;
 
   // ── Pets ──────────────────────────────────────────────────
@@ -1097,10 +1109,77 @@ export class OfficeState {
    * two karts cannot take it in turns to shove each other within one tick. With eight karts the
    * pairwise pass is 28 comparisons.
    */
+  /** The race as it stands — read by the room to sync it, and by tests. */
+  raceInfo(): Race {
+    return this.race;
+  }
+
+  /**
+   * Put the lights on for everyone currently in a seat.
+   *
+   * Anyone in the zone may start one, deliberately: this is a game in a room, not an event with
+   * an organiser, and the only thing that could go wrong — starting one on top of another — is
+   * refused rather than arbitrated. Karts are gathered onto the grid in the order they happen to
+   * be in, which is as fair as anything else and does not need a qualifying session.
+   */
+  startRace(): boolean {
+    if (!this.track) return false;
+    const driven = [...this.karts.values()].filter((k) => k.driverId !== null);
+    if (!startRace(this.race, this.track, driven.map((k) => k.id))) return false;
+    const heading = headingFrom(this.track, this.track.gates[0]);
+    driven.forEach((kart, i) => {
+      const slot = this.track!.grid[i % this.track!.grid.length];
+      kart.x = slot.x;
+      kart.y = slot.y;
+      kart.heading = heading;
+      kart.vx = 0;
+      kart.vy = 0;
+      kart.lap = 0;
+      kart.gate = 0;
+      kart.finished = false;
+      kart.sliding = false;
+      kart.state = 'drive';
+      kart.input = { throttle: 0, steer: 0 };
+    });
+    return true;
+  }
+
+  /** Abandon a race and hand the track back to whoever wants to drive round it. */
+  abandonRace(): void {
+    stopRace(this.race);
+    for (const kart of this.karts.values()) kart.finished = false;
+  }
+
   private updateKarts(dt: number): void {
     if (!this.track || this.karts.size === 0) return;
     const world = { tileMap: this.tileMap, blockedTiles: this.blockedTiles, walls: this.walls, track: this.track };
-    for (const kart of this.karts.values()) updateKart(kart, dt, world);
+
+    const { ended } = tickRace(this.race, dt * 1000);
+    if (ended) for (const kart of this.karts.values()) kart.input = { throttle: 0, steer: 0 };
+    // Held on the grid until the lights go out. Not a refusal of input — the throttle is simply
+    // not connected yet — so a driver leaning on it is already going when it is.
+    const held = this.race.phase === 'countdown';
+
+    for (const kart of this.karts.values()) {
+      if (held) {
+        kart.vx = 0;
+        kart.vy = 0;
+        kart.sliding = false;
+        continue;
+      }
+      const { lapped } = updateKart(kart, dt, world);
+      // A lap always counts on the ring — it is how a kart knows where it is, and a free-roam
+      // lap tally is pleasant. What a lap MEANS is the race's business, and with none running it
+      // means nothing at all, which is the whole of "drive as long as you like".
+      if (lapped && completeLap(this.race, kart.id, kart.lap)) kart.finished = true;
+    }
+    if (this.race.phase === 'racing') {
+      const track = this.track;
+      standings(this.race, (id) => {
+        const k = this.karts.get(id);
+        return k ? raceProgress(track, k.lap, k.gate, k.x, k.y) : 0;
+      });
+    }
     const list = [...this.karts.values()];
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) bumpKarts(list[i], list[j]);
@@ -2520,6 +2599,9 @@ export class OfficeState {
    */
   private buildTrack(): void {
     this.track = raceTrack(this.layout);
+    // A pushed map replaces the track under a running race, and its gates are not the ones the
+    // entries were racing through. Ending it is the only honest answer.
+    stopRace(this.race);
     this.karts.clear();
     if (!this.track) return;
     for (const slot of this.track.grid) {

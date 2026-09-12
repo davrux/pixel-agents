@@ -42,6 +42,8 @@ export interface RenderKart {
   heading: number;
   drawHeading?: number;
   driverId: number;
+  /** Past the tyres' limit — the cue for skid marks. Decided by the server (see Kart.sliding). */
+  sliding?: boolean;
 }
 
 export interface RenderSource {
@@ -73,8 +75,17 @@ import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData
 import { effectSheetId } from '../art/effects';
 import { vehicleSheetId } from '../art/vehicles';
 import { cameraUpHeading, facingAngle, screenFacing } from './driveCamera';
-import { KART_SHEET, vehicleFrame } from '@pixel/shared/office/race/kartArt.js';
-import { sheetCellFrame, sheetColumns, sheetFrameSize } from '../art/sheetStore';
+import { KART_SHEET, VEHICLE_LAYER, vehicleFrame } from '@pixel/shared/office/race/kartArt.js';
+
+/** Skid marks: how many exist at once, how often one is laid, how long it lasts. A ring of 96 at
+ *  one every 55 ms is about five seconds of sliding on screen, which is longer than any corner. */
+const SKID_MARKS = 96;
+const SKID_INTERVAL_MS = 55;
+const SKID_FADE_MS = 2600;
+const SKID_LENGTH_PX = 9;
+const SKID_WIDTH_PX = 3;
+const SKID_ALPHA = 0.4;
+import { sheetCellFrame, sheetColumns, sheetFrameSize, sheetRowFrame } from '../art/sheetStore';
 import {
   spriteTexture,
   spriteTextureFor,
@@ -197,6 +208,12 @@ export class PhaserRenderer {
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
   private readonly karts = new Map<number, Phaser.GameObjects.Image>();
+  /** The half of a kart drawn OVER its driver — nose, wheel, front wheels. */
+  private readonly kartFronts = new Map<number, Phaser.GameObjects.Image>();
+  /** A fixed ring of skid marks, recycled oldest-first so a long race allocates nothing. */
+  private readonly skids: Array<{ img: Phaser.GameObjects.Image; born: number } | undefined> = new Array(SKID_MARKS);
+  private skidNext = 0;
+  private lastSkidAt = 0;
   /** Who is driving, and which way their kart points — rebuilt every frame in syncKarts and read
    *  by syncCharacters, which runs after it, to sit those bodies in a seat and to turn them the
    *  way the kart goes. Cleared rather than deleted from, so it is bounded by the karts on the
@@ -527,33 +544,97 @@ export class PhaserRenderer {
     const seen = new Set<number>();
     for (const kart of karts) {
       seen.add(kart.id);
-      let img = this.karts.get(kart.id);
-      if (!img) {
-        img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
-        this.karts.set(kart.id, img);
-      }
       if (kart.driverId) this.drivers.set(kart.driverId, kart.drawHeading ?? kart.heading);
       const frame = vehicleFrame(KART_SHEET, kart.drawHeading ?? kart.heading);
-      // A vehicle strip is ONE row of headings, not four rows of facings, so the sheet store's
-      // direction is always its first row — the heading is the column.
-      const tex = sheetCellFrame(this.scene, vehicleSheetId(KART_SHEET.id), Direction.DOWN, frame, false);
-      if (!tex) {
-        img.setVisible(false);
-        continue;
-      }
-      img.setTexture(tex.key, tex.frame);
-      // Origin at the CENTRE, unlike a character: the model's x/y is the kart's middle, which is
-      // also what it collides and bumps on, so anchoring it anywhere else would draw a kart that
-      // hits things beside itself.
-      img.setPosition(kart.x ?? kart.tx, kart.y ?? kart.ty);
-      img.setDepth((kart.y ?? kart.ty) + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET - 1);
-      img.setVisible(true);
+      const x = kart.x ?? kart.tx;
+      const y = kart.y ?? kart.ty;
+      // Three draws, not one, and the middle one is somebody else's: what is BEHIND the driver,
+      // then the driver (syncCharacters, which runs next), then what is IN FRONT of them. With a
+      // single layer the figure sat on the bodywork instead of in it.
+      const depth = y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
+      this.kartLayer(this.karts, kart.id, VEHICLE_LAYER.BEHIND, frame, x, y, depth - 0.2);
+      this.kartLayer(this.kartFronts, kart.id, VEHICLE_LAYER.FRONT, frame, x, y, depth + 0.2);
+      if (kart.sliding) this.dropSkidMark(x, y, kart.drawHeading ?? kart.heading);
     }
     for (const [id, img] of this.karts) {
       if (!seen.has(id)) {
         img.destroy();
         this.karts.delete(id);
       }
+    }
+    for (const [id, img] of this.kartFronts) {
+      if (!seen.has(id)) {
+        img.destroy();
+        this.kartFronts.delete(id);
+      }
+    }
+    this.fadeSkidMarks();
+  }
+
+  /** One layer of one kart. Origin at the CENTRE, unlike a character: the model's x/y is the
+   *  kart's middle, which is also what it collides and bumps on. */
+  private kartLayer(
+    into: Map<number, Phaser.GameObjects.Image>,
+    id: number,
+    layer: number,
+    frame: number,
+    x: number,
+    y: number,
+    depth: number,
+  ): void {
+    let img = into.get(id);
+    if (!img) {
+      img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
+      into.set(id, img);
+    }
+    const tex = sheetRowFrame(this.scene, vehicleSheetId(KART_SHEET.id), layer, frame);
+    if (!tex) {
+      img.setVisible(false);
+      return;
+    }
+    img.setTexture(tex.key, tex.frame);
+    img.setPosition(x, y);
+    img.setDepth(depth);
+    img.setVisible(true);
+  }
+
+  /**
+   * Lay a skid mark where a kart is sliding.
+   *
+   * Presentation timing, so it lives entirely on the client (invariant 2) — but WHETHER a kart is
+   * sliding is not: that is the tyre model's answer and arrives synced, or two viewers would mark
+   * different corners. The marks are a fixed-size ring: the oldest is recycled rather than a new
+   * object allocated, so a long race cannot grow the scene.
+   */
+  private dropSkidMark(x: number, y: number, heading: number): void {
+    const now = this.scene.time.now;
+    if (now - this.lastSkidAt < SKID_INTERVAL_MS) return;
+    this.lastSkidAt = now;
+    let mark = this.skids[this.skidNext];
+    if (!mark) {
+      mark = { img: this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5), born: 0 };
+      this.skids[this.skidNext] = mark;
+    }
+    this.skidNext = (this.skidNext + 1) % SKID_MARKS;
+    mark.born = now;
+    mark.img
+      .setPosition(x, y)
+      .setRotation(heading)
+      .setDisplaySize(SKID_LENGTH_PX, SKID_WIDTH_PX)
+      .setTint(0x0a0908)
+      .setDepth(FLOOR_DEPTH + 0.5)
+      .setAlpha(SKID_ALPHA)
+      .setVisible(true);
+  }
+
+  /** Fade every mark towards nothing and hide the spent ones. */
+  private fadeSkidMarks(): void {
+    const now = this.scene.time.now;
+    for (const mark of this.skids) {
+      if (!mark || !mark.img.visible) continue;
+      const age = (now - mark.born) / SKID_FADE_MS;
+      if (age >= 1) mark.img.setVisible(false);
+      else mark.img.setAlpha(SKID_ALPHA * (1 - age));
     }
   }
 

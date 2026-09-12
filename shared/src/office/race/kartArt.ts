@@ -21,9 +21,31 @@ export interface VehicleSheet {
   frameH: number;
   /** How many headings the strip carries. */
   headings: number;
+  /** Rows in the sheet — see `VEHICLE_LAYER`. */
+  rows: number;
 }
 
-export const KART_SHEET: VehicleSheet = { id: 'kart', frameW: 24, frameH: 24, headings: 16 };
+/**
+ * The sheet's two rows, and the reason a kart is drawn twice.
+ *
+ * A driver is a separate sprite standing at the kart's seat, so with one layer they are simply
+ * ON the bodywork — reported as "die Figur sitzt nicht wirklich drin, sondern wird dahinter
+ * gerendert". Splitting the art at the seat fixes it with no new concept: what is BEHIND the
+ * driver is drawn first, the body goes on top of that, and what is IN FRONT of them — the nose,
+ * the steering wheel, the front wheels — is drawn last, over their legs. Three draws per kart,
+ * and the figure is inside the tub instead of on it.
+ */
+export const VEHICLE_LAYER = { BEHIND: 0, FRONT: 1 } as const;
+
+/**
+ * 40 px, not 24: at a tile and a half the kart was narrower than the 16 px figure sitting in it,
+ * which is what "die Carts sind zu klein" measured. The tub is 16 wide now and the track 22, so
+ * the driver fits inside it.
+ *
+ * The frame is set by the DIAGONAL, not by the kart: every heading is the same body turned, so a
+ * 30×22 kart sweeps a 37 px circle and anything smaller clips its own corners at 45°.
+ */
+export const KART_SHEET: VehicleSheet = { id: 'kart', frameW: 40, frameH: 40, headings: 16, rows: 2 };
 
 /** Every sheet the art route will answer for. An id not in here can only 404. */
 export const VEHICLE_SHEETS: readonly VehicleSheet[] = [KART_SHEET];

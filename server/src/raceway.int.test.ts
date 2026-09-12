@@ -54,7 +54,7 @@ test('the committed map imports as a track: four gates, a grid, its lap count', 
   assert.ok(track, 'raceway.tmj is not recognised as a race track');
   assert.equal(track.gates.length, 4, `gates: ${track.gates.length}`);
   assert.equal(track.laps, 3, 'the laps property did not survive the import');
-  assert.equal(track.grid.length, 4, `grid slots: ${track.grid.length}`);
+  assert.equal(track.grid.length, 8, `grid slots: ${track.grid.length}`);
   // Each gate is a LINE across the road, or a kart drives past it.
   for (const gate of track.gates) {
     assert.ok(gate.tiles.size >= 4, `gate ${gate.index} is only ${gate.tiles.size} tiles wide`);
@@ -72,7 +72,7 @@ test('the map survives the save path: a stored track is still a track', () => {
   const track = raceTrack(stored);
   assert.ok(track, 'the stored map is no longer a race track');
   assert.equal(track.gates.length, 4, `gates after a save: ${track.gates.length}`);
-  assert.equal(track.grid.length, 4, `grid slots after a save: ${track.grid.length}`);
+  assert.equal(track.grid.length, 8, `grid slots after a save: ${track.grid.length}`);
   assert.equal(track.laps, 3, 'the lap count did not survive a save');
 });
 
@@ -105,6 +105,9 @@ test('an autopilot drives three laps without falling off', () => {
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true, 'could not board the kart on the grid');
+  // Without a race there is no finish, because there is no lap limit — that is the whole of
+  // "drive around as long as you like". So the autopilot starts one, and sits out the lights.
+  assert.equal(os.startRace(), true, 'a race would not start with a kart on the grid');
 
   const dt = 1 / RACE_TICK_HZ;
   let falls = 0;
@@ -142,6 +145,12 @@ test('an autopilot drives three laps without falling off', () => {
   for (let deg = 10; deg <= 120; deg += 10) OFFSETS.push((deg * Math.PI) / 180, (-deg * Math.PI) / 180);
 
   while (!kart.finished && ticks < maxTicks) {
+    if (os.raceInfo().phase === 'countdown') {
+      // Held on the grid: the throttle is simply not connected yet.
+      os.update(dt);
+      ticks++;
+      continue;
+    }
     const target = track.gates[(kart.gate + 1) % track.gates.length];
     const toGate = Math.atan2(target.y - kart.y, target.x - kart.x);
     // Widen the line until the road holds. Tried smallest correction first, both ways round, so
@@ -175,11 +184,48 @@ test('an autopilot drives three laps without falling off', () => {
 
   assert.equal(kart.finished, true, `never finished: lap ${kart.lap}, gate ${kart.gate}, ${ticks} ticks`);
   assert.equal(kart.lap, 3, `finished on lap ${kart.lap}`);
+  assert.equal(os.raceInfo().entries.get(kart.id)?.place, 1, 'the only finisher did not come first');
   assert.equal(falls, 0, `fell off ${falls} time(s) while following the racing line`);
   // A lap of this oval is about 150 tiles of road; three of them at the speed limit cannot be
   // done in under twenty seconds, and taking three minutes would mean it was crawling.
   const seconds = ticks * dt;
-  assert.ok(seconds > 15 && seconds < 170, `three laps took ${seconds.toFixed(1)} s`);
+  assert.ok(seconds > 20 && seconds < 170, `three laps took ${seconds.toFixed(1)} s`);
+});
+
+test('a driver who never lifts does not get round', () => {
+  // The complaint this track was rebuilt for: "ich kann problemlos mit Vollgas fahren". The
+  // handling model was never the problem — a nine-tile road round a small infield has no corner
+  // tight enough to ask anything of it. Five tiles does, and this is how that is checked: the
+  // SAME autopilot, with the throttle pinned, must fail where the one that lifts succeeds.
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Flatout', undefined, 'flatout');
+  const ch = os.characters.get(driver);
+  assert.ok(ch);
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  assert.equal(os.startRace(), true);
+
+  const dt = 1 / RACE_TICK_HZ;
+  let falls = 0;
+  let lastState: Kart['state'] = kart.state;
+  for (let i = 0; i < Math.round(45 / dt); i++) {
+    if (os.raceInfo().phase !== 'countdown') {
+      const target = track.gates[(kart.gate + 1) % track.gates.length];
+      let diff = Math.atan2(target.y - kart.y, target.x - kart.x) - kart.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      kart.input = { throttle: 1, steer: diff > 0.05 ? 1 : diff < -0.05 ? -1 : 0 };
+    }
+    os.update(dt);
+    if (kart.state === 'fall' && lastState !== 'fall') falls++;
+    lastState = kart.state;
+  }
+  assert.ok(falls > 0, 'forty-five seconds of full throttle cost nothing at all');
+  assert.equal(kart.finished, false, 'a driver who never lifted still finished the race');
 });
 
 test('a kart cannot leave the map, barrier or no barrier', () => {

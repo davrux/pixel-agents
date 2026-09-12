@@ -29,6 +29,8 @@ import {
 
 import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
+import { RaceHud, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
+import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
 import {
   CAMERA_TURN_RAD_PER_SEC,
   type ViewCamera,
@@ -146,6 +148,11 @@ type RenderKart = {
   lap: number;
   gate: number;
   finished: boolean;
+  sliding: boolean;
+  place: number;
+  lastLapMs: number;
+  bestLapMs: number;
+  totalMs: number;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -239,6 +246,7 @@ export class OfficeScene extends Phaser.Scene {
   /** The "press E" hint over a kart you could get into. One element, hidden when there is
    *  nothing to prompt for, so nothing accumulates per kart. */
   private kartPrompt: HTMLDivElement | null = null;
+  private raceHud: RaceHud | null = null;
   /** Where the view is turned to right now, eased towards where the kart points. Also read by
    *  the renderer, through `cameraUpHeading`, to decide which body row each figure shows. */
   private driveRotation = 0;
@@ -1055,6 +1063,11 @@ export class OfficeScene extends Phaser.Scene {
         lap: 0,
         gate: 0,
         finished: false,
+        sliding: false,
+        place: 0,
+        lastLapMs: 0,
+        bestLapMs: 0,
+        totalMs: 0,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1130,6 +1143,59 @@ export class OfficeScene extends Phaser.Scene {
     rk.lap = (ks.lap as number) ?? 0;
     rk.gate = (ks.gate as number) ?? 0;
     rk.finished = !!ks.finished;
+    rk.sliding = !!ks.sliding;
+    rk.place = (ks.place as number) ?? 0;
+    rk.lastLapMs = (ks.lastLapMs as number) ?? 0;
+    rk.bestLapMs = (ks.bestLapMs as number) ?? 0;
+    rk.totalMs = (ks.totalMs as number) ?? 0;
+  }
+
+  /**
+   * What the race overlay draws, assembled from synced state.
+   *
+   * Null in a zone with no track and in one where nobody has started anything, which is the
+   * normal state — the HUD then draws nothing at all rather than a row of zeroes.
+   */
+  /** The synced race phase as its wire index — 0 (idle) when there is no track or no race. */
+  private racePhaseIndex(): number {
+    const race = (this.room?.state as { race?: { phase?: number } } | undefined)?.race;
+    return race?.phase ?? 0;
+  }
+
+  private raceModel(): RaceHudModel | null {
+    const race = (this.room?.state as { race?: Record<string, unknown> } | undefined)?.race;
+    if (!race) return null;
+    const phase = racePhaseOf((race.phase as number) ?? 0);
+    if (phase === 'idle') return null;
+    const timerMs = (race.timerMs as number) ?? 0;
+    // The lamps are read off the same clock the engine releases the karts on, so the light and
+    // the launch are one instant rather than two that nearly agree.
+    const secs = Math.ceil((timerMs - RACE_GREEN_MS) / 1000);
+    const mine = this.myKart();
+    return {
+      phase,
+      timerMs,
+      laps: (race.laps as number) ?? 0,
+      entries: (race.entries as number) ?? 0,
+      lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
+      go: phase === 'countdown' && secs <= 0,
+      own: mine ? { lap: mine.lap, place: mine.place, lastLapMs: mine.lastLapMs, bestLapMs: mine.bestLapMs } : null,
+      drivers: [...this.karts.values()]
+        .filter((k) => k.driverId !== 0)
+        .map((k) => {
+          // A driver whose character has not arrived yet (or has just left) still has a row on
+          // the board — with no name rather than no row, which is what a crash here would cost.
+          const who = this.characters.get(k.driverId);
+          return {
+          name: (who ? this.characterLabel(who as never) : '') || 'driver',
+          place: k.place,
+          lap: k.lap,
+          finishedMs: k.totalMs,
+          bestLapMs: k.bestLapMs,
+          me: k.driverId === this.myPlayerId,
+          };
+        }),
+    };
   }
 
   private applyPet(rp: RenderPet, ps: Record<string, unknown>): void {
@@ -2167,6 +2233,10 @@ export class OfficeScene extends Phaser.Scene {
     // Idle throttle: when nothing is moving/animating, skip the per-frame entity
     // sync + DOM overlays (the bulk of the CPU) and, after a short grace, sleep the
     // whole render loop — woken again by input, state patches, voice or tab focus.
+    // Before the idle gate, because what it answers can be true while NOTHING is moving: you
+    // arrive standing next to a parked kart, and the hint that tells you the key exists would
+    // otherwise wait for you to walk somewhere first. Eight karts and a distance each.
+    this.updateKartPrompt();
     const busy = this.sceneBusy(_time) || furnitureRebuilt;
     if (busy) this.idleFrames = 0;
     else this.idleFrames++;
@@ -2223,7 +2293,11 @@ export class OfficeScene extends Phaser.Scene {
       this.lastOverlayAt = _time;
       this.updateTooltip();
       this.updateNameLabels();
-      this.updateKartPrompt();
+      // Built the first time a race is actually shown: most zones have no track at all, and an
+      // overlay nobody will see is still three elements in the document.
+      const race = this.raceModel();
+      if (race && !this.raceHud) this.raceHud = new RaceHud(document.getElementById('game') ?? document.body);
+      this.raceHud?.update(race);
       this.updateChatBubbles();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
@@ -2249,6 +2323,10 @@ export class OfficeScene extends Phaser.Scene {
     for (const p of this.pets.values()) {
       if (Math.abs((p.x ?? p.tx) - p.tx) > 0.4 || Math.abs((p.y ?? p.ty) - p.ty) > 0.4) return true;
     }
+    // A race is motion on screen even for a viewer standing still: the lamps come on one at a
+    // time, the clock runs, the board appears. Without this the idle throttle freezes the
+    // countdown for anybody not driving — seen live, with the lights stuck on one lamp.
+    if (this.racePhaseIndex() !== 0) return true;
     for (const kt of this.karts.values()) {
       if (Math.abs((kt.x ?? kt.tx) - kt.tx) > 0.4 || Math.abs((kt.y ?? kt.ty) - kt.ty) > 0.4) return true;
       // A kart that is only TURNING is still motion, and the position test would sleep through it.

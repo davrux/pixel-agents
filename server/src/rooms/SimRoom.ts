@@ -24,6 +24,7 @@ import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteDat
 import { CharacterSync, KartSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
+import { RACE_PHASES } from '@pixel/shared/office/race/raceState.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
@@ -649,7 +650,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // and the chair or appliance they were holding. Entering a zone on purpose
     // deliberately forgets it: you asked to arrive, not to come back.
     const resume = !options?.arrive && userId ? appStore.getPlayerSpot(userId, this.zone.id) : null;
-    const spawnAt = options?.arrive ? this.zone.arrive : (resume ?? undefined);
+    // …and somebody with NO stored spot lands at the arrival tile too, rather than on a random
+    // free tile. That fallback was invisible on an office-sized map and is not on a race track:
+    // measured on the raceway, a first join put a player half a lap from the nearest kart, with
+    // the grid — the one place the zone is about — off screen.
+    const spawnAt = options?.arrive ? this.zone.arrive : (resume ?? this.zone.arrive ?? undefined);
     // The avatar's name is always the player's display name (username or userId).
     const displayName = username || userId || undefined;
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined, userId);
@@ -1753,6 +1758,24 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const args = argStr.trim() ? argStr.trim().split(/\s+/) : [];
     const me = authOf(client);
 
+    if (spec.name === 'race') {
+      // Anyone in the zone may start one: this is a game in a room, not an event with an
+      // organiser. The only thing that could clash — a second race on top of a running one — is
+      // refused here rather than arbitrated, and the refusal says which case it was.
+      if (!this.os.raceTrack()) return void sys('There is no race track in this zone.');
+      if (args[0] === 'stop') {
+        this.os.abandonRace();
+        this.broadcast('m', { type: 'system', text: `${me.username} called the race off.` });
+        return;
+      }
+      if (this.os.raceInfo().phase !== 'idle') return void sys('A race is already under way.');
+      if (!this.os.startRace()) return void sys('Nobody is in a kart — get in one first (E).');
+      this.broadcast('m', {
+        type: 'system',
+        text: `${me.username} started a race — ${this.os.raceInfo().laps} laps!`,
+      });
+      return;
+    }
     if (spec.name === 'afk') {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
@@ -1925,6 +1948,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.syncCharacters();
     this.syncPets();
     this.syncKarts();
+    this.syncRace();
     this.syncFurnitureOn();
     this.recordScuffleResults();
     this.checkpointSpots(dt);
@@ -2162,6 +2186,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * sixteen times per turn and two bytes beat eight, twenty times a second, per kart.
    */
   private syncKarts(): void {
+    const race = this.os.raceInfo();
     const live = new Set<string>();
     for (const kart of this.os.karts.values()) {
       const key = String(kart.id);
@@ -2184,10 +2209,28 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.lap = Math.min(255, kart.lap);
       ks.gate = Math.min(255, kart.gate);
       ks.finished = kart.finished;
+      ks.sliding = kart.sliding;
+      const entry = race.entries.get(kart.id);
+      ks.place = Math.min(255, entry?.place ?? 0);
+      ks.lastLapMs = Math.max(0, Math.round(entry?.lastLapMs ?? 0));
+      ks.bestLapMs = Math.max(0, Math.round(entry?.bestLapMs ?? 0));
+      ks.totalMs = Math.max(0, Math.round(entry?.finishedMs ?? 0));
     }
     for (const key of [...this.state.karts.keys()]) {
       if (!live.has(key)) this.state.karts.delete(key);
     }
+  }
+
+  /** The race itself — four numbers every viewer needs the same answers to. */
+  private syncRace(): void {
+    const race = this.os.raceInfo();
+    const r = this.state.race;
+    r.phase = RACE_PHASES.indexOf(race.phase);
+    // Clamped where it enters a typed field, as every value fed from the simulation is: a uint32
+    // of milliseconds is 49 days, but a NaN would pass quietly and a negative would wrap.
+    r.timerMs = Math.max(0, Math.min(0xffffffff, Math.round(race.timerMs) || 0));
+    r.laps = Math.min(255, race.laps);
+    r.entries = Math.min(255, race.entries.size);
   }
 
   /**

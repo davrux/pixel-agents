@@ -137,6 +137,38 @@ export class KartSync extends PawnSync {
   /** Last gate passed, as an index into the track's gates. */
   @type('uint8') gate = 0;
   @type('boolean') finished = false;
+  /**
+   * Is it sliding — tyres past their limit, pointing somewhere other than where it is going?
+   *
+   * Synced rather than derived per client: the wire carries a pose and not a velocity, so a
+   * viewer has nothing to derive it FROM, and two viewers guessing from successive positions
+   * would lay their skid marks in different places.
+   */
+  @type('boolean') sliding = false;
+  /** 1-based place while a race runs, 0 otherwise. */
+  @type('uint8') place = 0;
+  /** Lap times in milliseconds, 0 until a lap is complete. */
+  @type('uint32') lastLapMs = 0;
+  @type('uint32') bestLapMs = 0;
+  /** Total race time when it crossed the line for the last lap, 0 while still running. */
+  @type('uint32') totalMs = 0;
+}
+
+/**
+ * The race, or the absence of one.
+ *
+ * One record on the room rather than a field per kart, because every viewer asks the same three
+ * questions — are we counting down, how long, how many laps — and the answers are the same for
+ * all of them. A zone with no track leaves it at `phase = 0`, which costs four bytes once.
+ */
+export class RaceSync extends Schema {
+  /** 0 idle, 1 countdown, 2 racing, 3 results. */
+  @type('uint8') phase = 0;
+  /** Counts DOWN in a countdown and in the results, UP while racing. Milliseconds. */
+  @type('uint32') timerMs = 0;
+  @type('uint8') laps = 0;
+  /** How many karts are in it — the denominator for "P2 of 4". */
+  @type('uint8') entries = 0;
 }
 
 /**
@@ -163,6 +195,7 @@ export class RoomState extends Schema {
   @type(collection({ map: PetSync })) pets = new MapSchema<PetSync>();
   /** The karts on this zone's track; empty in every zone whose map is not one (see `raceTrack`). */
   @type(collection({ map: KartSync })) karts = new MapSchema<KartSync>();
+  @type(RaceSync) race = new RaceSync();
   /**
    * Which placed furniture is currently switched ON, by `PlacedFurniture.uid`.
    *

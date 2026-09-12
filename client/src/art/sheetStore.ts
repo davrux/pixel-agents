@@ -107,6 +107,27 @@ export function sheetCellFrame(scene: Phaser.Scene, id: string, dir: Direction, 
 }
 
 /**
+ * The atlas frame for one cell, addressed by ROW rather than by a facing.
+ *
+ * The one legitimate caller is a sheet whose rows are not directions at all — a vehicle's are
+ * LAYERS (what is drawn behind the driver, what in front). Passing `Direction.UP` for "row 1"
+ * would work and would be exactly the pun AGENTS.md warns about, so it gets its own door instead;
+ * the cache key is prefixed so a layer and a facing can never collide in it.
+ */
+export function sheetRowFrame(scene: Phaser.Scene, id: string, row: number, col: number): SpriteTex | null {
+  const s = sheets.get(id);
+  if (!s) return null;
+  const c = Math.max(0, Math.min(col, s.cols - 1));
+  const r = Math.max(0, Math.min(row, s.rows - 1));
+  const key = `r${r}:${c}`;
+  const hit = s.frames.get(key);
+  if (hit && scene.textures.exists(hit.key)) return hit;
+  const tex = atlasFromImage(scene, s.bitmap, { x: c * s.frameW, y: r * s.frameH, w: s.frameW, h: s.frameH }, {});
+  s.frames.set(key, tex);
+  return tex;
+}
+
+/**
  * One cell as SpriteData. For the Matrix effect (which rebuilds its own pixels every
  * frame) and the editor; the drawing path never needs this. The decode happens once per
  * sheet and is cached — `getImageData` of a whole sheet is one call.

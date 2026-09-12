@@ -303,13 +303,15 @@ export const DECAL_DEPTH = -99998.5;
  * 45 and a pet walks at 40), so a kart at 110 is about two and a half times a walking figure —
  * fast enough to feel like driving on a 16 px grid without crossing a tile per tick.
  */
-/** Twelve tiles a second. The first pass ran at 110 (seven tiles) and was reported as simply too
- *  slow — a long straight has to feel like one. */
-export const KART_MAX_SPEED_PX_PER_SEC = 190;
+/** Fifteen tiles a second. 110 (seven tiles) and then 190 (twelve) were both reported as too
+ *  slow — a long straight has to feel like one. Every derived number below is set against this,
+ *  so raising it is not a free knob: a corner demands `v² / radius`, which grows with the SQUARE.
+ *  At 240 a full-lock corner asks 823 px/s² of tyres that have 600. */
+export const KART_MAX_SPEED_PX_PER_SEC = 240;
 /** Reverse is deliberately slow: it is for getting off a wall, not for racing backwards. */
 export const KART_MAX_REVERSE_PX_PER_SEC = 55;
-export const KART_ACCEL_PX_PER_SEC2 = 260;
-export const KART_BRAKE_PX_PER_SEC2 = 420;
+export const KART_ACCEL_PX_PER_SEC2 = 320;
+export const KART_BRAKE_PX_PER_SEC2 = 500;
 /**
  * Coasting loss per second, as a fraction — a kart slows when you let go, but does not stop dead.
  *
@@ -357,6 +359,10 @@ export const KART_POWER_GRIP_SHARE = 0.7;
  * drift angle instead of spinning: the equilibrium is the feel.
  */
 export const KART_SLIDE_ALIGN_PER_SEC = 1.6;
+/** Past this slip angle a kart counts as SLIDING — the cue for skid marks, and a world fact
+ *  rather than a drawing detail, so every viewer marks the same corner. About eleven degrees:
+ *  below that the line just looks wide. */
+export const KART_SLIDE_ANGLE_RAD = 0.2;
 /**
  * The most a kart can yaw, in radians per second, and the share of that available at a standstill.
  * Not zero at rest, because a kart that cannot be aimed while parked is infuriating; not one
@@ -419,3 +425,22 @@ export const KART_FALL_SEC = 1.2;
  *  three times as many of them, and the PATCH rate stays 20 Hz either way — this buys input
  *  latency, not bandwidth. */
 export const RACE_TICK_HZ = 60;
+
+// ── A race, as opposed to a track ─────────────────────────────────────────────
+/**
+ * The lights, in milliseconds: three lamps a second apart and then a beat of green.
+ *
+ * Long enough to be a moment — everybody looks up, the karts are held still — and short enough
+ * that starting another race is not a chore. Nothing is drivable until it runs out.
+ */
+export const RACE_COUNTDOWN_MS = 3700;
+/**
+ * The longest a race may run before it is called, in ms.
+ *
+ * Not a rule about racing: it is what stops one driver who parks in the pit from holding a zone
+ * in `racing` forever, with nobody able to start the next one. Generous enough that a slow but
+ * genuine three laps is never cut off — the autopilot needs about 40 s.
+ */
+export const RACE_MAX_MS = 6 * 60 * 1000;
+/** How long the result board stays up before the track is free again. */
+export const RACE_RESULTS_MS = 9000;

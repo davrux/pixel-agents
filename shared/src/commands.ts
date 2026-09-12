@@ -37,6 +37,12 @@ export const COMMANDS: CommandSpec[] = [
     summary: 'List available commands, or show help for one command.',
   },
   {
+    name: 'race',
+    group: 'user',
+    usage: '/race [stop]',
+    summary: 'Start a race for everyone in a kart, on a track. Without one, drive around as long as you like.',
+  },
+  {
     name: 'afk',
     group: 'user',
     usage: '/afk',
