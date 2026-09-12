@@ -350,6 +350,16 @@ export const KART_BUMP_GAIN = 1.8;
 export const KART_BUMP_MIN_PX_PER_SEC = 25;
 /** How long a kart is out of the race after leaving the ground, before it reappears at its last
  *  gate. Long enough to read as a punishment, short enough not to end the race for them. */
+/**
+ * How close a body must be to a kart's CENTRE to get in.
+ *
+ * Three tiles rather than two, and the difference is not taste: the art is a tile and a half wide,
+ * so two tiles from the centre leaves barely a quarter-tile of standing room around the bodywork —
+ * reported as "I can't get in", with nothing on screen saying why. Generous is the right side to
+ * err on for a key that does nothing when it misses.
+ */
+export const KART_BOARD_REACH_TILES = 3;
+
 export const KART_FALL_SEC = 1.2;
 /** Simulation rate for a zone whose map is a race track. Steering at 20 Hz feels like posting
  *  letters; the tick costs 19 µs (measured on uponu with 300 agents), so a race room can afford

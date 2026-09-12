@@ -11,6 +11,7 @@ import {
   FUEL_COLOR_DANGER,
   FUEL_COLOR_OK,
   FUEL_COLOR_WARN,
+  KART_BOARD_REACH_TILES,
   MAX_CONTEXT_TOKENS,
   TOKEN_CRITICAL_THRESHOLD,
   TOKEN_DANGER_THRESHOLD,
@@ -226,6 +227,9 @@ export class OfficeScene extends Phaser.Scene {
   private readonly characters = new Map<number, RenderChar>();
   private readonly pets = new Map<number, RenderPet>();
   private readonly karts = new Map<number, RenderKart>();
+  /** The "press E" hint over a kart you could get into. One element, hidden when there is
+   *  nothing to prompt for, so nothing accumulates per kart. */
+  private kartPrompt: HTMLDivElement | null = null;
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
   /** This zone's placements with the on-state applied — the map's own objects, not a decoded
@@ -2213,6 +2217,7 @@ export class OfficeScene extends Phaser.Scene {
       this.lastOverlayAt = _time;
       this.updateTooltip();
       this.updateNameLabels();
+      this.updateKartPrompt();
       this.updateChatBubbles();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
@@ -4743,6 +4748,55 @@ export class OfficeScene extends Phaser.Scene {
   private refreshNameLabels(): void {
     this.clearNameLabels();
     this.updateNameLabels();
+  }
+
+  /**
+   * Say that a kart can be got into, and with which key.
+   *
+   * Without this the feature is invisible: E does nothing when it misses, and nothing on screen
+   * says karts are enterable at all or how close is close enough — which is exactly how it was
+   * reported ("I can't get in"). The hint hangs over the kart the server WOULD pick, so what the
+   * key does and what the prompt promises cannot disagree; the reach is the shared constant the
+   * server measures with, not a number guessed here.
+   */
+  private updateKartPrompt(): void {
+    const cam = this.cameras?.main;
+    const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
+    let target: RenderKart | null = null;
+    let best = TILE_SIZE * KART_BOARD_REACH_TILES;
+    if (cam && me) {
+      const driving = [...this.karts.values()].find((k) => k.driverId === this.myPlayerId);
+      // While driving, the same key gets you out — prompt on your own kart instead.
+      if (driving) target = driving;
+      else {
+        for (const kart of this.karts.values()) {
+          if (kart.driverId) continue;
+          const d = Math.hypot((kart.x ?? kart.tx) - (me.x ?? me.tx), (kart.y ?? kart.ty) - (me.y ?? me.ty));
+          if (d <= best) {
+            best = d;
+            target = kart;
+          }
+        }
+      }
+    }
+    if (!target || !cam) {
+      if (this.kartPrompt) this.kartPrompt.style.display = 'none';
+      return;
+    }
+    if (!this.kartPrompt) {
+      const el = document.createElement('div');
+      el.style.cssText =
+        "position:absolute;z-index:45;transform:translate(-50%,-100%);pointer-events:none;" +
+        "font:0.8rem 'FS Pixel Sans',monospace;color:#f1efec;background:#1c1a19;border:2px solid #0a0908;" +
+        "border-radius:0.35rem;padding:0.1rem 0.35rem;white-space:nowrap;";
+      (document.getElementById('game') ?? document.body).appendChild(el);
+      this.kartPrompt = el;
+    }
+    const wv = cam.worldView;
+    this.kartPrompt.textContent = target.driverId === this.myPlayerId ? 'E — get out' : 'E — get in';
+    this.kartPrompt.style.display = '';
+    this.kartPrompt.style.left = `${Math.round(((target.x ?? target.tx) - wv.x) * cam.zoom)}px`;
+    this.kartPrompt.style.top = `${Math.round(((target.y ?? target.ty) - TILE_SIZE - wv.y) * cam.zoom)}px`;
   }
 
   private updateNameLabels(): void {

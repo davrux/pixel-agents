@@ -12,6 +12,7 @@ import {
   DISMISS_BUBBLE_FAST_FADE_SEC,
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
+  KART_BOARD_REACH_TILES,
   PET_CHASE_RANGE_TILES,
   PET_EFFECT_DURATION_SEC,
   PET_FLEE_RANGE_TILES,
@@ -1042,7 +1043,7 @@ export class OfficeState {
    * close enough and free, and answers by doing it or not. Distance is checked against the
    * CHARACTER, so walking up to a kart is how you get in — there is no "kart list" to pick from.
    */
-  boardKart(characterId: number, reachPx = TILE_SIZE * 2): boolean {
+  boardKart(characterId: number, reachPx = TILE_SIZE * KART_BOARD_REACH_TILES): boolean {
     const ch = this.humanPawn(characterId);
     if (!ch) return false;
     const already = this.kartOf(characterId);
