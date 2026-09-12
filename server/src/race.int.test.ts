@@ -349,3 +349,43 @@ test('a computer driver gets round the circuit on its own', () => {
   assert.equal(new Set(places).size, places.length, `two opponents share a place: ${places}`);
   assert.ok(Math.min(...places) === 1, 'nobody came first');
 });
+
+test('a driver who leaves mid-race retires, so the race can still end', () => {
+  // Measured after a client disconnected during a race: the field circulated until the six-minute
+  // timeout, because `tickRace` waits for everyone to be home and a kart nobody is in never
+  // crosses a line. The computer drivers stayed on track for all of it — which is how a "ghost"
+  // is reported.
+  const os = world();
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Leaver', undefined, 'leaver');
+  const ch = os.characters.get(driver)!;
+  ch.x = kart.x;
+  ch.y = kart.y;
+  os.boardKart(driver);
+  assert.equal(os.startRace(), true);
+  const field = os.raceInfo().entries.size;
+  assert.ok(field > 1);
+
+  while (os.raceInfo().phase === 'countdown') os.update(DT);
+  os.removePlayer(driver);
+  os.update(DT);
+  assert.equal(os.raceInfo().entries.has(kart.id), false, 'the empty kart is still in the race');
+  assert.equal(os.raceInfo().entries.size, field - 1);
+  assert.equal(kart.driverId, null, 'the kart was not handed back');
+
+  // And the race finishes on the opponents alone, in well under the timeout.
+  let ticks = 0;
+  const cap = Math.round(180 / DT);
+  while (os.raceInfo().phase === 'racing' && ticks < cap) {
+    os.update(DT);
+    ticks++;
+  }
+  assert.ok(ticks < cap, 'the race never ended after its only human left');
+  // …and then the track is empty again rather than full of parked opponents.
+  while (os.raceInfo().phase !== 'idle') os.update(DT);
+  assert.equal(
+    [...os.characters.values()].filter((c) => c.controller === ControllerKind.RACER).length,
+    0,
+    'the computer drivers outlived the race',
+  );
+});

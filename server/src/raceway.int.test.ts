@@ -246,9 +246,14 @@ test('the bridge has no barrier: a shove there puts you in the air', () => {
   const bridge = track.gates[2];
   const bridgeRow = Math.floor(bridge.y / TILE);
   const bridgeCol = Math.floor(bridge.x / TILE);
-  // Above the bridge is open air, and nothing blocks the way into it.
-  assert.equal(inner.tileMap[bridgeRow - 2]?.[bridgeCol], -1, 'there is still ground beside the bridge');
-  assert.equal(inner.blockedTiles.has(`${bridgeCol},${bridgeRow - 2}`), false, 'the bridge has a barrier');
+  // Above the bridge is open air within a few tiles, and nothing blocks the way into it. Scanned
+  // rather than written down, so widening the bridge does not silently make this test about a
+  // different row.
+  let edge = bridgeRow;
+  while (edge > 0 && inner.tileMap[edge]?.[bridgeCol] !== -1) edge--;
+  assert.ok(bridgeRow - edge <= 5, `no drop within five tiles above the bridge (found row ${edge})`);
+  assert.equal(inner.tileMap[edge]?.[bridgeCol], -1, 'there is still ground beside the bridge');
+  assert.equal(inner.blockedTiles.has(`${bridgeCol},${edge}`), false, 'the bridge has a barrier');
 
   // Sideways speed is killed by the tyres at KART_GRIP_PX_PER_SEC2, so a shove carries about
   // `v² / (2·grip)` pixels — 170 px/s is barely a tile and would prove nothing.

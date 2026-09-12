@@ -152,6 +152,9 @@ export class KartSync extends PawnSync {
   @type('uint32') bestLapMs = 0;
   /** Total race time when it crossed the line for the last lap, 0 while still running. */
   @type('uint32') totalMs = 0;
+  /** Which car it looks like — an index into VEHICLE_ART. A decision, not a local choice: two
+   *  viewers must not see the same kart in different colours. */
+  @type('uint8') art = 0;
 }
 
 /**

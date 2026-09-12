@@ -44,6 +44,8 @@ export interface RenderKart {
   driverId: number;
   /** Past the tyres' limit — the cue for skid marks. Decided by the server (see Kart.sliding). */
   sliding?: boolean;
+  /** Which car it looks like — an index into VEHICLE_ART. */
+  art?: number;
 }
 
 export interface RenderSource {
@@ -75,7 +77,7 @@ import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData
 import { effectSheetId } from '../art/effects';
 import { vehicleSheetId } from '../art/vehicles';
 import { cameraUpHeading, facingAngle, screenFacing } from './driveCamera';
-import { KART_SHEET, VEHICLE_LAYER, vehicleFrame } from '@pixel/shared/office/race/kartArt.js';
+import { vehicleArt } from '@pixel/shared/office/race/kartArt.js';
 
 /** Skid marks: how many exist at once, how often one is laid, how long it lasts. A ring of 96 at
  *  one every 55 ms is about five seconds of sliding on screen, which is longer than any corner. */
@@ -182,9 +184,6 @@ interface CharGObjects {
  * speech bubbles. Static layers (floor, walls, furniture) are built once per
  * layout; characters/pets/bubbles are pooled and updated every frame.
  */
-/** How far down its own height a driver's body is pushed to sit in the seat. */
-const DRIVER_SEAT_FRACTION = 0.34;
-
 const NO_OVERLAY: WarpOverlay = { kind: 'none' };
 
 export class PhaserRenderer {
@@ -208,16 +207,13 @@ export class PhaserRenderer {
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
   private readonly karts = new Map<number, Phaser.GameObjects.Image>();
-  /** The half of a kart drawn OVER its driver — nose, wheel, front wheels. */
-  private readonly kartFronts = new Map<number, Phaser.GameObjects.Image>();
   /** A fixed ring of skid marks, recycled oldest-first so a long race allocates nothing. */
   private readonly skids: Array<{ img: Phaser.GameObjects.Image; born: number } | undefined> = new Array(SKID_MARKS);
   private skidNext = 0;
   private lastSkidAt = 0;
   /** Who is driving, and which way their kart points — rebuilt every frame in syncKarts and read
-   *  by syncCharacters, which runs after it, to sit those bodies in a seat and to turn them the
-   *  way the kart goes. Cleared rather than deleted from, so it is bounded by the karts on the
-   *  map. */
+   *  by syncCharacters, which runs after it. A driver is NOT DRAWN at all: once you are in, you
+   *  are the car. It keeps the heading because the camera still needs to know what to turn to. */
   private readonly drivers = new Map<number, number>();
   /** How far the view is turned this frame, in radians. Read once in `update` so every helper
    *  below sees one value, and zero in every zone where nobody is driving. */
@@ -545,15 +541,30 @@ export class PhaserRenderer {
     for (const kart of karts) {
       seen.add(kart.id);
       if (kart.driverId) this.drivers.set(kart.driverId, kart.drawHeading ?? kart.heading);
-      const frame = vehicleFrame(KART_SHEET, kart.drawHeading ?? kart.heading);
       const x = kart.x ?? kart.tx;
       const y = kart.y ?? kart.ty;
-      // Three draws, not one, and the middle one is somebody else's: what is BEHIND the driver,
-      // then the driver (syncCharacters, which runs next), then what is IN FRONT of them. With a
-      // single layer the figure sat on the bodywork instead of in it.
-      const depth = y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
-      this.kartLayer(this.karts, kart.id, VEHICLE_LAYER.BEHIND, frame, x, y, depth - 0.2);
-      this.kartLayer(this.kartFronts, kart.id, VEHICLE_LAYER.FRONT, frame, x, y, depth + 0.2);
+      let img = this.karts.get(kart.id);
+      if (!img) {
+        img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
+        this.karts.set(kart.id, img);
+      }
+      const art = vehicleArt(kart.art ?? 0);
+      const tex = sheetRowFrame(this.scene, vehicleSheetId(art.id), 0, 0);
+      if (!tex) {
+        img.setVisible(false);
+        continue;
+      }
+      img.setTexture(tex.key, tex.frame);
+      // ONE image, turned. The art points east at heading 0, so its own rotation IS the heading —
+      // and because the camera turns the world with it, a driver's own car comes out pointing up
+      // the screen with no second sum. Smoother than a strip of sixteen frames, and a fraction of
+      // the art: that is why the hand-drawn kart sheet is gone.
+      img.setRotation(kart.drawHeading ?? kart.heading);
+      // Origin at the CENTRE, unlike a character: the model's x/y is the car's middle, which is
+      // also what it collides and bumps on.
+      img.setPosition(x, y);
+      img.setDepth(y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
+      img.setVisible(true);
       if (kart.sliding) this.dropSkidMark(x, y, kart.drawHeading ?? kart.heading);
     }
     for (const [id, img] of this.karts) {
@@ -562,40 +573,7 @@ export class PhaserRenderer {
         this.karts.delete(id);
       }
     }
-    for (const [id, img] of this.kartFronts) {
-      if (!seen.has(id)) {
-        img.destroy();
-        this.kartFronts.delete(id);
-      }
-    }
     this.fadeSkidMarks();
-  }
-
-  /** One layer of one kart. Origin at the CENTRE, unlike a character: the model's x/y is the
-   *  kart's middle, which is also what it collides and bumps on. */
-  private kartLayer(
-    into: Map<number, Phaser.GameObjects.Image>,
-    id: number,
-    layer: number,
-    frame: number,
-    x: number,
-    y: number,
-    depth: number,
-  ): void {
-    let img = into.get(id);
-    if (!img) {
-      img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
-      into.set(id, img);
-    }
-    const tex = sheetRowFrame(this.scene, vehicleSheetId(KART_SHEET.id), layer, frame);
-    if (!tex) {
-      img.setVisible(false);
-      return;
-    }
-    img.setTexture(tex.key, tex.frame);
-    img.setPosition(x, y);
-    img.setDepth(depth);
-    img.setVisible(true);
   }
 
   /**
@@ -683,19 +661,24 @@ export class PhaserRenderer {
     // trick and a bigger number. The kart's x/y is its MIDDLE while a character is anchored at
     // the feet, so with no offset the figure stands on the bodywork and the kart reads as a
     // skateboard. A third of the frame's height puts the torso over the seat at any figure size.
-    const kartHeading = this.drivers.get(ch.id);
-    const sit =
-      kartHeading !== undefined
-        ? Math.round(frameH * DRIVER_SEAT_FRACTION)
-        : ch.state === CharacterState.TYPE
-          ? CHARACTER_SITTING_OFFSET_PX
-          : 0;
+    // In a car you ARE the car: the body is not drawn at all. Perching a 16×32 figure on a
+    // top-down vehicle only ever reads as somebody lying on the roof, which is how it was
+    // reported — and the alternative, cutting the art into layers to sit them inside, is a lot of
+    // machinery for a figure two tiles of car would hide anyway.
+    if (this.drivers.has(ch.id)) {
+      g.body.setVisible(false);
+      g.bubble.setVisible(false);
+      for (const m of g.markers) m.setVisible(false);
+      this.removeWarpArt(ch.id);
+      return;
+    }
+    const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
     // While the driving view is turned, a body stays UPRIGHT on screen and changes which picture
-    // it shows instead — that is what makes the driver read as seen from behind without a single
-    // new frame, since a sheet's `up` row already IS the back view. At rotation 0 both lines are
-    // the identity, so every other zone is untouched (driveCamera.int.test.ts pins that).
+    // it shows instead — so a bystander on the track still faces where they are facing rather
+    // than lying over with the world. At rotation 0 both lines are the identity, so every other
+    // zone is untouched (driveCamera.int.test.ts pins that).
     const up = cameraUpHeading(this.turn);
-    const facing = screenFacing(kartHeading ?? facingAngle(ch.dir), up);
+    const facing = screenFacing(facingAngle(ch.dir), up);
 
     // Mid-warp the body is the ordinary atlas sprite with a style applied to it — faded, squeezed,
     // and (for the sweep styles) an overlay tiled over it. Two draws whatever the figure's size;

@@ -89,14 +89,14 @@ const START_LINE_COL = 40;
  * Asked for at the very start — "Brücken über Abgründen, da könnte man dann jemanden von der
  * Brücke bumpen" — and it needs no new concept at all, which is the point: only GROUND makes a
  * cell drivable, so a bridge is a piece of road with the barrier left off and the ground beside
- * it removed. Narrower than the rest of the lap (three tiles against five) so that a shove has
+ * it removed. Narrower than the rest of the lap (four tiles against five) so that a shove has
  * somewhere to send you, and on the FAR side of the circuit rather than at the start, because a
  * hazard on the run to the first corner punishes the grid rather than the driving.
  *
  * It is not a shortcut and cannot become one: the gates are a ring walked in order, so leaving
  * the road never advances a lap.
  */
-const BRIDGE = { from: 26, to: 46, top: INNER.top - 3, bottom: INNER.top - 1 };
+const BRIDGE = { from: 26, to: 46, top: INNER.top - 4, bottom: INNER.top - 1 };
 const onBridge = (col: number, row: number): boolean =>
   col >= BRIDGE.from && col <= BRIDGE.to && row >= BRIDGE.top && row <= BRIDGE.bottom;
 const overBridgeSpan = (col: number): boolean => col >= BRIDGE.from && col <= BRIDGE.to;

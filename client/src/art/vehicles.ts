@@ -9,7 +9,7 @@
  * A failure is deliberately not fatal: without the sheet the renderer draws the driver walking
  * along at the kart's position, which is wrong-looking but still shows where everybody is.
  */
-import { VEHICLE_SHEETS } from '@pixel/shared/office/race/kartArt.js';
+import { VEHICLE_ART } from '@pixel/shared/office/race/kartArt.js';
 
 import { fetchSheetBitmap } from './sheet.js';
 import { registerSheet } from './sheetStore.js';
@@ -23,12 +23,12 @@ export function vehicleSheetId(id: string): string {
 export async function loadVehicleSheets(): Promise<number> {
   let loaded = 0;
   await Promise.all(
-    VEHICLE_SHEETS.map(async (sheet) => {
+    VEHICLE_ART.map(async (sheet) => {
       try {
         // A path, not a full URL: serverFetch inside fetchSheetBitmap resolves it against the
         // server, which is what makes this work from the desktop app's `app://` origin too.
         const bitmap = await fetchSheetBitmap(`/art/vehicle/${sheet.id}`);
-        registerSheet(vehicleSheetId(sheet.id), bitmap, sheet.frameW, sheet.frameH);
+        registerSheet(vehicleSheetId(sheet.id), bitmap, sheet.w, sheet.h);
         loaded++;
       } catch (err) {
         console.warn(`[vehicles] could not load ${sheet.id}:`, err instanceof Error ? err.message : err);

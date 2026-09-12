@@ -2210,6 +2210,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.gate = Math.min(255, kart.gate);
       ks.finished = kart.finished;
       ks.sliding = kart.sliding;
+      ks.art = Math.min(255, Math.max(0, kart.art | 0));
       const entry = race.entries.get(kart.id);
       ks.place = Math.min(255, entry?.place ?? 0);
       ks.lastLapMs = Math.max(0, Math.round(entry?.lastLapMs ?? 0));

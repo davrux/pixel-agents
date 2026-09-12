@@ -30,6 +30,8 @@ import { nextGate } from './track.js';
 
 /** How far ahead a perfect driver looks, in tiles. Scaled by skill. */
 const LOOK_TILES = 9;
+/** Below this much road to the left and right combined, a stretch counts as tight. */
+const TIGHT_TILES = 3.2;
 /** Candidate steering offsets, smallest correction first, both ways round. */
 const OFFSETS: readonly number[] = (() => {
   const out = [0];
@@ -88,11 +90,18 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   const speed = Math.hypot(kart.vx, kart.vy);
   const course = speed > 5 ? Math.atan2(kart.vy, kart.vx) : kart.heading;
   const ahead = room(kart, world, course, look + 1);
+  // How much road there is BESIDE it. A clear view forward says nothing about a narrow bridge:
+  // measured, the quickest driver crossed one flat out, drifted a tile and fell — forty-five
+  // times in three minutes, respawning at the gate on the bridge and doing it again. Somewhere
+  // this tight is taken at a pace a slide can be caught at.
+  const beside = room(kart, world, course + Math.PI / 2, 3) + room(kart, world, course - Math.PI / 2, 3);
+  const tight = beside < TIGHT_TILES;
   // Lift early or late by skill, and keep a floor so a slow driver still gets moving at all. The
   // brake comes out only when the road is genuinely about to run out.
   const lift = (look * 0.62) * (1.25 - 0.45 * level);
   const crawl = KART_MAX_SPEED_PX_PER_SEC * (0.2 + 0.14 * level);
-  const throttle = ahead >= lift || speed < crawl ? 1 : ahead < look * 0.22 ? -1 : 0;
+  const limit = tight ? KART_MAX_SPEED_PX_PER_SEC * (0.42 + 0.16 * level) : Infinity;
+  const throttle = (ahead >= lift && speed < limit) || speed < crawl ? 1 : ahead < look * 0.22 || speed > limit * 1.25 ? -1 : 0;
 
   return { throttle, steer: diff > 0.05 ? 1 : diff < -0.05 ? -1 : 0 };
 }

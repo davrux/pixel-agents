@@ -35,7 +35,7 @@ import { join } from 'node:path';
 import type { Express, Request, Response } from 'express';
 
 import { EFFECT_SHEETS } from '@pixel/shared/office/effects';
-import { VEHICLE_SHEETS } from '@pixel/shared/office/race/kartArt';
+import { VEHICLE_ART } from '@pixel/shared/office/race/kartArt';
 
 import { appStore } from './appStore.js';
 import { ASSETS_ROOT } from './assets.js';
@@ -183,7 +183,7 @@ function effectSource(id: string): ArtSource | null {
 const vehicleBytes = new Map<string, Buffer>();
 
 function vehicleSource(id: string): ArtSource | null {
-  const sheet = VEHICLE_SHEETS.find((v) => v.id === id);
+  const sheet = VEHICLE_ART.find((v) => v.id === id);
   if (!sheet) return null;
   let png = vehicleBytes.get(sheet.id);
   if (!png) {

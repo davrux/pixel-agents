@@ -42,11 +42,13 @@ import {
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart } from '../race/kart.js';
+import { VEHICLE_ART } from '../race/kartArt.js';
 import { racerInput } from '../race/racerDriver.js';
 import { RACER_NAMES, RACER_SKILLS } from '../race/racerNames.js';
 import {
   completeLap,
   createRace,
+  retireKart,
   standings,
   startRace,
   stopRace,
@@ -1258,8 +1260,13 @@ export class OfficeState {
       if (kart.driverId === null) continue;
       const ch = this.characters.get(kart.driverId);
       if (!ch) {
-        kart.driverId = null; // the driver left the zone; the kart is free again
+        // The driver left the zone; the kart is free again — and out of the race, or the race
+        // waits for a kart nobody is in to cross a line it never will.
+        retireKart(this.race, kart.id);
+        this.racers.delete(kart.driverId);
+        kart.driverId = null;
         kart.state = 'idle';
+        kart.finished = false;
         continue;
       }
       ch.x = kart.x;
@@ -2674,14 +2681,20 @@ export class OfficeState {
   private buildTrack(): void {
     this.track = raceTrack(this.layout);
     // A pushed map replaces the track under a running race, and its gates are not the ones the
-    // entries were racing through. Ending it is the only honest answer.
+    // entries were racing through. Ending it is the only honest answer — and the computer drivers
+    // have to GO with it: `stopRace` alone left their pawns in the world with no kart and no race,
+    // standing on the new map for ever, which is exactly the ghost that was reported.
     stopRace(this.race);
+    this.clearRacers();
     this.karts.clear();
     if (!this.track) return;
-    for (const slot of this.track.grid) {
+    this.track.grid.forEach((slot, i) => {
       const id = this.nextKartId++;
-      this.karts.set(id, createKart(id, slot, headingFrom(this.track, this.track.gates[0])));
-    }
+      const kart = createKart(id, slot, headingFrom(this.track!, this.track!.gates[0]));
+      // One colour per grid slot: on a screen full of identical cars nobody can follow their own.
+      kart.art = i % VEHICLE_ART.length;
+      this.karts.set(id, kart);
+    });
   }
 
   /** The track, for the room (standings, the finish) — null in a zone that is not one. */

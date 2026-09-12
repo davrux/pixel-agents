@@ -167,6 +167,22 @@ export function completeLap(race: Race, kartId: number, lap: number): boolean {
 }
 
 /**
+ * Take a kart out of the running race — its driver left the zone.
+ *
+ * Without this a race cannot END: `tickRace` waits for everyone to be home, and a kart nobody is
+ * in never crosses the line, so the field would circulate until the six-minute timeout with the
+ * computer drivers still on track. Measured after a test client disconnected mid-race.
+ *
+ * The places already earned are untouched: somebody who finished third stays third whether or not
+ * the driver behind them walked away.
+ */
+export function retireKart(race: Race, kartId: number): void {
+  const entry = race.entries.get(kartId);
+  if (!entry || entry.finishedMs !== null) return;
+  race.entries.delete(kartId);
+}
+
+/**
  * Live positions, for everyone who has not finished yet.
  *
  * `progress` comes from the caller (`raceProgress` needs the track and the kart's position, which

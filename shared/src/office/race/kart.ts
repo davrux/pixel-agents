@@ -83,6 +83,9 @@ export interface Kart {
   finished: boolean;
   /** Which `KartSpec` this one is built to. An unknown id drives as the default. */
   spec: string;
+  /** Which car it looks like — an index into VEHICLE_ART, taken from its grid slot so a field of
+   *  eight tells itself apart. Presentation, but a shared DECISION: every viewer must agree. */
+  art: number;
   /**
    * Is it sliding right now — the tyres past their limit, the kart pointing somewhere other than
    * where it is going?
@@ -119,6 +122,7 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     fallTimer: 0,
     finished: false,
     spec: DEFAULT_KART_SPEC.id,
+    art: 0,
     sliding: false,
   };
 }

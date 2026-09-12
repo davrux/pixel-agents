@@ -153,6 +153,7 @@ type RenderKart = {
   lastLapMs: number;
   bestLapMs: number;
   totalMs: number;
+  art: number;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -1068,6 +1069,7 @@ export class OfficeScene extends Phaser.Scene {
         lastLapMs: 0,
         bestLapMs: 0,
         totalMs: 0,
+        art: 0,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1148,6 +1150,7 @@ export class OfficeScene extends Phaser.Scene {
     rk.lastLapMs = (ks.lastLapMs as number) ?? 0;
     rk.bestLapMs = (ks.bestLapMs as number) ?? 0;
     rk.totalMs = (ks.totalMs as number) ?? 0;
+    rk.art = (ks.art as number) ?? 0;
   }
 
   /**
