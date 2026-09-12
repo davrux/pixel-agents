@@ -4919,6 +4919,9 @@ export class OfficeScene extends Phaser.Scene {
    *  server (`folderName`, the feed's user). */
   private characterLabel(ch: RenderChar): string {
     if (ch.controller === ControllerKind.HUMAN) return ch.folderName || ch.agentName || '';
+    // A computer driver has a name of its own rather than an owner's — "Rocket-Agent" on a result
+    // board says the wrong thing twice, since nobody owns it and it is not mirroring anything.
+    if (ch.controller === ControllerKind.RACER) return ch.folderName || '';
     const owner = ch.folderName || ch.agentName || '';
     return owner ? `${owner}-Agent` : '';
   }

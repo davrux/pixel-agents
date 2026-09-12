@@ -42,6 +42,8 @@ import {
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart } from '../race/kart.js';
+import { racerInput } from '../race/racerDriver.js';
+import { RACER_NAMES, RACER_SKILLS } from '../race/racerNames.js';
 import {
   completeLap,
   createRace,
@@ -234,6 +236,10 @@ export class OfficeState {
   /** The running race, or the idle one. A track is drivable whenever it exists; a RACE is a
    *  bounded episode somebody starts inside it (see race/raceState.ts). */
   private race: Race = createRace();
+  /** Ids of the computer drivers in the running race. Emptied with the race, which is the only
+   *  thing that keeps it bounded — see clearRacers. */
+  private racers = new Set<number>();
+  private nextRacerName = 0;
   private nextKartId = 3_000_000;
 
   // ── Pets ──────────────────────────────────────────────────
@@ -1125,6 +1131,18 @@ export class OfficeState {
   startRace(): boolean {
     if (!this.track) return false;
     const driven = [...this.karts.values()].filter((k) => k.driverId !== null);
+    if (driven.length === 0) return false;
+    // Fill the rest of the grid with computer drivers. A race with nobody in it is not a race:
+    // bumping has nothing to bump, a position is a number with no one behind it, and a lap time
+    // is a stopwatch. They exist only while the race does — see `clearRacers`.
+    for (const kart of this.karts.values()) {
+      if (kart.driverId !== null) continue;
+      const id = this.addRacer();
+      if (id === null) break;
+      kart.driverId = id;
+      kart.state = 'drive';
+      driven.push(kart);
+    }
     if (!startRace(this.race, this.track, driven.map((k) => k.id))) return false;
     const heading = headingFrom(this.track, this.track.gates[0]);
     driven.forEach((kart, i) => {
@@ -1148,6 +1166,47 @@ export class OfficeState {
   abandonRace(): void {
     stopRace(this.race);
     for (const kart of this.karts.values()) kart.finished = false;
+    this.clearRacers();
+  }
+
+  /**
+   * One computer driver: a character pawn nobody controls from outside, with a skill of its own.
+   *
+   * A real pawn rather than a driverless kart, because the whole point is that it looks like
+   * somebody is racing you — and because everything downstream (the seat, the back view, the
+   * name on the board) already works for a character and would need a special case otherwise.
+   */
+  private addRacer(): number | null {
+    const name = RACER_NAMES[this.nextRacerName++ % RACER_NAMES.length];
+    const id = this.nextPlayerId++;
+    const ch = createCharacter(id, this.pickDiverseSkin(), null, null);
+    ch.controller = ControllerKind.RACER;
+    ch.heldDir = null;
+    ch.isActive = false;
+    ch.state = CharacterState.IDLE;
+    ch.folderName = name;
+    // Spread over the field so the grid is a range of pace rather than a train: the first one out
+    // is the quick one, and there is always somebody a beginner can beat.
+    ch.racerSkill = RACER_SKILLS[this.racers.size % RACER_SKILLS.length];
+    this.characters.set(id, ch);
+    this.racers.add(id);
+    return id;
+  }
+
+  /** Take every computer driver off the track. Called wherever a race ends, so they cannot
+   *  outlive one — a pawn nobody removes is a pawn every client decodes for ever. */
+  private clearRacers(): void {
+    for (const id of this.racers) {
+      for (const kart of this.karts.values()) {
+        if (kart.driverId === id) {
+          kart.driverId = null;
+          kart.state = 'idle';
+          kart.input = { throttle: 0, steer: 0 };
+        }
+      }
+      this.characters.delete(id);
+    }
+    this.racers.clear();
   }
 
   private updateKarts(dt: number): void {
@@ -1156,6 +1215,9 @@ export class OfficeState {
 
     const { ended } = tickRace(this.race, dt * 1000);
     if (ended) for (const kart of this.karts.values()) kart.input = { throttle: 0, steer: 0 };
+    // The results board is up for a while and then the track is free again — which is also when
+    // the computer drivers leave, so an idle raceway is empty rather than full of parked bots.
+    if (this.race.phase === 'idle' && this.racers.size > 0) this.clearRacers();
     // Held on the grid until the lights go out. Not a refusal of input — the throttle is simply
     // not connected yet — so a driver leaning on it is already going when it is.
     const held = this.race.phase === 'countdown';
@@ -1166,6 +1228,12 @@ export class OfficeState {
         kart.vy = 0;
         kart.sliding = false;
         continue;
+      }
+      // A computer driver decides here, once per tick, from the track and nothing else — no
+      // knowledge of where anybody else is, so it can be bumped, blocked and out-braked.
+      if (kart.driverId !== null && this.racers.has(kart.driverId) && !kart.finished) {
+        const ch = this.characters.get(kart.driverId);
+        kart.input = racerInput(kart, world, { level: ch?.racerSkill ?? 0.6 });
       }
       const { lapped } = updateKart(kart, dt, world);
       // A lap always counts on the ring — it is how a kart knows where it is, and a free-roam
@@ -2400,6 +2468,12 @@ export class OfficeState {
       if (ch.controller === ControllerKind.HUMAN) {
         // Viewer-driven: no FSM, just advance along whatever path the input commanded.
         this.updatePlayerMovement(ch, dt);
+        continue;
+      }
+      if (ch.controller === ControllerKind.RACER) {
+        // Its body is carried by the kart it is strapped into (see updateKarts), and its
+        // decisions are made there too — so there is nothing to do for it here. Named anyway,
+        // because the alternative is falling through to the unclaimed-pawn warning.
         continue;
       }
       if (ch.controller !== ControllerKind.AGENT) {

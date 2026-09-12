@@ -55,9 +55,10 @@ test('the committed map imports as a track: four gates, a grid, its lap count', 
   assert.equal(track.gates.length, 4, `gates: ${track.gates.length}`);
   assert.equal(track.laps, 3, 'the laps property did not survive the import');
   assert.equal(track.grid.length, 8, `grid slots: ${track.grid.length}`);
-  // Each gate is a LINE across the road, or a kart drives past it.
+  // Each gate is a LINE across the road, or a kart drives past it — and it has to span whatever
+  // the road IS at that column. Gate 2 sits on the bridge, which is three tiles rather than five.
   for (const gate of track.gates) {
-    assert.ok(gate.tiles.size >= 4, `gate ${gate.index} is only ${gate.tiles.size} tiles wide`);
+    assert.ok(gate.tiles.size >= 3, `gate ${gate.index} is only ${gate.tiles.size} tiles wide`);
   }
 });
 
@@ -96,6 +97,10 @@ test('an autopilot drives three laps without falling off', () => {
   const track = os.raceTrack();
   assert.ok(track);
   const kart = [...os.karts.values()][0];
+  // Alone on the track: what is under test is the MAP — whether this circuit can be driven — and
+  // a grid full of opponents would mix their bumping into the answer. Racing them has its own
+  // test (race.int.test.ts).
+  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
   // A real driver, boarded the real way. Setting `driverId` by hand does not work and the reason
   // is a safety rule rather than an accident: `updateKarts` frees a kart whose driver is not in
   // the zone, so a made-up id empties the seat on the very next tick.
@@ -226,6 +231,60 @@ test('a driver who never lifts does not get round', () => {
   }
   assert.ok(falls > 0, 'forty-five seconds of full throttle cost nothing at all');
   assert.equal(kart.finished, false, 'a driver who never lifted still finished the race');
+});
+
+test('the bridge has no barrier: a shove there puts you in the air', () => {
+  // The first thing asked of this whole feature — "Brücken über Abgründen, da könnte man dann
+  // jemanden von der Brücke bumpen" — and it needs no new concept: only ground makes a cell
+  // drivable, so a bridge is road with the barrier left off. What this pins is the DIFFERENCE:
+  // the same shove is survivable on the ordinary straight and is not on the bridge.
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string> };
+  // Gate 2 sits on the bridge; the straight beside the start line is ordinary road.
+  const bridge = track.gates[2];
+  const bridgeRow = Math.floor(bridge.y / TILE);
+  const bridgeCol = Math.floor(bridge.x / TILE);
+  // Above the bridge is open air, and nothing blocks the way into it.
+  assert.equal(inner.tileMap[bridgeRow - 2]?.[bridgeCol], -1, 'there is still ground beside the bridge');
+  assert.equal(inner.blockedTiles.has(`${bridgeCol},${bridgeRow - 2}`), false, 'the bridge has a barrier');
+
+  // Sideways speed is killed by the tyres at KART_GRIP_PX_PER_SEC2, so a shove carries about
+  // `v² / (2·grip)` pixels — 170 px/s is barely a tile and would prove nothing.
+  const SHOVE = 420;
+  const shoved = (col: number, row: number, dir: -1 | 1): boolean => {
+    const kart = [...os.karts.values()][0];
+    const driver = os.characters.size > 1 ? null : os.addPlayer('char_0', 'Victim', undefined, 'victim');
+    if (driver !== null) {
+      const ch = os.characters.get(driver)!;
+      ch.x = kart.x;
+      ch.y = kart.y;
+      os.boardKart(driver);
+    }
+    kart.x = col * TILE + TILE / 2;
+    kart.y = row * TILE + TILE / 2;
+    kart.heading = 0;
+    kart.vx = 0;
+    kart.vy = SHOVE * dir; // straight at the outside of the circuit
+    kart.state = 'drive';
+    kart.fallTimer = 0;
+    for (let i = 0; i < Math.round(1.2 / (1 / RACE_TICK_HZ)); i++) {
+      kart.input = { throttle: 0, steer: 0 };
+      os.update(1 / RACE_TICK_HZ);
+      if ((kart.state as string) === 'fall') return true;
+    }
+    return false;
+  };
+
+  // Up from the bridge is open air.
+  assert.equal(shoved(bridgeCol, bridgeRow, -1), true, 'a kart shoved off the bridge stayed on it');
+  // The same shove towards the OUTSIDE of the ordinary start-finish straight is caught by the
+  // barrier. Outwards is downwards there — the inside of that straight is the infield, which is a
+  // pit too, so shoving the other way would prove nothing about the barrier.
+  const safeCol = Math.floor(track.gates[0].x / TILE);
+  const safeRow = Math.floor(track.gates[0].y / TILE);
+  assert.equal(shoved(safeCol, safeRow, 1), false, 'the barrier let a kart through on the normal straight');
 });
 
 test('a kart cannot leave the map, barrier or no barrier', () => {

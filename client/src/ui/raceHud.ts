@@ -64,6 +64,9 @@ const CSS = `
   box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;}
 .pa-race-hud b{color:#e7da00;font-weight:normal;}
 .pa-race-hud .dim{color:#adb0b2;}
+.pa-race-hud hr{border:0;border-top:2px solid #0a0908;margin:0.35rem 0;}
+.pa-race-hud .row{display:flex;justify-content:space-between;gap:1rem;padding:0.05rem 0;}
+.pa-race-hud .row.me{color:#e7da00;}
 .pa-race-board{position:absolute;left:50%;top:22%;transform:translateX(-50%);z-index:49;pointer-events:none;
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.7rem 1rem;min-width:16rem;
   box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
@@ -143,17 +146,29 @@ export class RaceHud {
 
   private renderHud(m: RaceHudModel): void {
     this.hud = this.el(this.hud, 'pa-race-hud');
-    if (m.phase !== 'racing' || !m.own) {
+    if (m.phase !== 'racing') {
       this.hud.style.display = 'none';
       return;
     }
     this.hud.style.display = '';
-    const lap = Math.min(m.own.lap + 1, m.laps);
+    // The order matters more than the clock: a race you cannot see yourself losing is a time
+    // trial with extra karts on it. Everybody, because eight is the most a grid holds.
+    const order = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
+    const own = m.own
+      ? `<div>Lap <b>${Math.min(m.own.lap + 1, m.laps)}/${m.laps}</b>` +
+        ` &nbsp; <b>${raceTime(m.timerMs)}</b></div>` +
+        `<div class="dim">last ${raceTime(m.own.lastLapMs)} · best ${raceTime(m.own.bestLapMs)}</div>` +
+        '<hr>'
+      : `<div><b>${raceTime(m.timerMs)}</b></div><hr>`;
     this.hud.innerHTML =
-      `<div>Lap <b>${lap}/${m.laps}</b> &nbsp; P<b>${m.own.place || '–'}</b>` +
-      `<span class="dim">/${m.entries}</span></div>` +
-      `<div><b>${raceTime(m.timerMs)}</b></div>` +
-      `<div class="dim">last ${raceTime(m.own.lastLapMs)} · best ${raceTime(m.own.bestLapMs)}</div>`;
+      own +
+      order
+        .map(
+          (d) =>
+            `<div class="row ${d.me ? 'me' : ''}"><span>${d.place || '–'}. ${escapeHtml(d.name)}</span>` +
+            `<span class="dim">${d.finishedMs ? raceTime(d.finishedMs) : `L${Math.min(d.lap + 1, m.laps)}`}</span></div>`,
+        )
+        .join('');
   }
 
   private renderBoard(m: RaceHudModel): void {

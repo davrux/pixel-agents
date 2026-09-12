@@ -30,7 +30,7 @@ import {
   tickRace,
 } from '@pixel/shared/office/race/raceState.js';
 import { raceTrack } from '@pixel/shared/office/race/track.js';
-import type { OfficeLayout } from '@pixel/shared/office/types';
+import { ControllerKind, type OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
 import { importTmjToLayout } from './tiled/mapBridge.js';
@@ -209,7 +209,9 @@ test('starting a race gathers every driven kart onto the grid and holds it there
 
   assert.equal(os.startRace(), true);
   assert.equal(os.raceInfo().phase, 'countdown');
-  assert.equal(os.raceInfo().entries.size, 3, 'the field is not the three karts with drivers');
+  // Three humans, and the rest of the grid filled with computer drivers — a race with nobody in
+  // it is not a race.
+  assert.equal(os.raceInfo().entries.size, track.grid.length, 'the grid was not filled out');
   for (const kart of karts.slice(0, 3)) {
     assert.equal(kart.lap, 0, 'a kart brought its old lap count into the race');
     assert.ok(
@@ -280,4 +282,70 @@ test('stopRace is safe from any phase', () => {
   stopRace(race);
   assert.equal(race.phase, 'idle');
   assert.equal(race.finished, 0);
+});
+
+test('the grid is filled with computer drivers, and they leave with the race', () => {
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Human', undefined, 'human');
+  const ch = os.characters.get(driver)!;
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  const before = os.characters.size;
+
+  assert.equal(os.startRace(), true);
+  const field = [...os.karts.values()].filter((k) => k.driverId !== null);
+  assert.equal(field.length, track.grid.length, 'the grid is not full');
+  assert.equal(os.characters.size, before + track.grid.length - 1, 'the opponents were not spawned');
+  for (const k of field) {
+    const who = os.characters.get(k.driverId!)!;
+    assert.ok(who, 'a kart has a driver that does not exist');
+    if (k.driverId === driver) continue;
+    assert.equal(who.controller, ControllerKind.RACER, 'an opponent is not driven by a racer');
+    assert.ok((who.racerSkill ?? 0) > 0, 'an opponent has no skill at all');
+  }
+  // Skills differ, or the grid is a train rather than a field.
+  const skills = new Set(field.map((k) => os.characters.get(k.driverId!)!.racerSkill).filter((v) => v !== undefined));
+  assert.ok(skills.size > 1, 'every opponent is exactly as quick as the others');
+
+  os.abandonRace();
+  assert.equal(os.characters.size, before, 'the opponents outlived the race');
+  assert.equal(
+    [...os.karts.values()].filter((k) => k.driverId !== null).length,
+    1,
+    'an abandoned race left computer drivers in their karts',
+  );
+});
+
+test('a computer driver gets round the circuit on its own', () => {
+  // The autopilot the track's test drives is the racer's brain now, so this is the claim that
+  // matters: an opponent is somebody to race, not a kart that parks in the first corner.
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Human', undefined, 'human');
+  const ch = os.characters.get(driver)!;
+  ch.x = kart.x;
+  ch.y = kart.y;
+  os.boardKart(driver);
+  assert.equal(os.startRace(), true);
+
+  // The human sits still; everybody else drives themselves.
+  const bots = [...os.karts.values()].filter((k) => k.driverId !== null && k.driverId !== driver);
+  assert.ok(bots.length >= 4, `only ${bots.length} opponents`);
+  for (let i = 0; i < Math.round(200 / DT); i++) {
+    kart.input = { throttle: 0, steer: 0 };
+    os.update(DT);
+    if (bots.every((b) => b.finished)) break;
+  }
+  const home = bots.filter((b) => b.finished);
+  assert.ok(home.length >= Math.ceil(bots.length / 2), `only ${home.length} of ${bots.length} opponents finished`);
+  // …and the places they earned are a ranking, not all the same number.
+  const places = home.map((b) => os.raceInfo().entries.get(b.id)!.place);
+  assert.equal(new Set(places).size, places.length, `two opponents share a place: ${places}`);
+  assert.ok(Math.min(...places) === 1, 'nobody came first');
 });

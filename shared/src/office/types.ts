@@ -141,6 +141,13 @@ export const ControllerKind = {
   HUMAN: 1,
   AGENT: 2,
   PET: 3,
+  /**
+   * A computer driver in a race — the fourth cell of the table, and the first one the world
+   * INVENTS rather than mirrors. It drives a character pawn (which is why it has a case in
+   * `officeState.update`'s dispatch), it exists only while a race runs, and its decisions come
+   * from `race/racerDriver.ts` rather than from any feed.
+   */
+  RACER: 4,
 } as const;
 export type ControllerKind = (typeof ControllerKind)[keyof typeof ControllerKind];
 
@@ -1195,6 +1202,9 @@ export interface Character {
    * not the one I tested with.
    */
   ownerId?: string;
+  /** How quick a computer driver is, 0…1 — see race/racerNames.ts. Only a RACER has one, and
+   *  it is engine state: nothing about it reaches a client, which only ever sees where it went. */
+  racerSkill?: number;
 
   // -- Agent Teams --
   /** Team name this agent belongs to */

@@ -35,26 +35,37 @@ const CHECK = process.argv.includes('--check');
 const COLS = 76;
 const ROWS = 44;
 /**
- * The four tiles this track is painted with, all of them already in the tileset table copied
- * below. No new art: what makes a ring read as a CIRCUIT rather than as a grey donut is which
- * existing tiles go where.
+ * The track's own tileset, appended after everything uponu carries.
  *
- *  - `ROAD` is plain asphalt out of the imported road sheet (decal-roads, local 100).
- *  - `KERB_RED`/`KERB_WHITE` are two solid colours out of the palette-baked floor set, laid in
- *    alternating pairs. A red-and-white kerb is what a circuit actually has, so the edge of the
- *    pit is legible from any distance — the first version painted a single flat blue and read as
- *    a bug rather than as a boundary.
- *  - `LINE_DARK` is the other half of the chequered start-finish band.
+ * A tileset of our own rather than palette colours: the first circuit was painted with two solid
+ * floor tiles and read as a diagram of a track rather than as one. The gids are resolved at
+ * generation time from the tileset table this map copies, so appending a set to that table cannot
+ * silently shift what the road is painted with — see AGENTS.md on gid ranges (append only, never
+ * insert, never renumber).
  */
-const ROAD_GID = 8864 + 100;
-const KERB_RED_GID = 1171 + 62;
-const KERB_WHITE_GID = 1171 + 24;
-const LINE_DARK_GID = 1171 + 2;
+const TRACK_TILES = ['asphalt', 'asphaltB', 'kerbRed', 'kerbPale', 'chequerA', 'chequerB', 'edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight'] as const;
+type TrackTile = (typeof TRACK_TILES)[number];
 const COLLISION_GID = 7021;
 
-/** Alternating pairs, along whichever axis the stripe runs. */
+const src = JSON.parse(fs.readFileSync(SRC, 'utf8')) as Record<string, unknown>;
+/**
+ * Where the track tileset starts: after the LAST set uponu carries, which is found rather than
+ * written down. A hardcoded number here would be wrong the first time anybody appends art.
+ */
+const srcSets = (src.tilesets as Array<{ firstgid: number; source: string }>).slice();
+const last = srcSets.reduce((a, b) => (b.firstgid > a.firstgid ? b : a));
+const lastCount = (JSON.parse(
+  fs.readFileSync(path.join(REPO, 'assets', 'tiled', path.basename(last.source)), 'utf8'),
+) as { tilecount: number }).tilecount;
+const TRACK_FIRSTGID = last.firstgid + lastCount;
+const gidOf = (name: TrackTile): number => TRACK_FIRSTGID + TRACK_TILES.indexOf(name);
+
+/** Alternating pairs, along whichever axis the stripe runs — a real kerb, red and white. */
 const kerbAt = (col: number, row: number): number =>
-  Math.floor((col + row) / 2) % 2 === 0 ? KERB_RED_GID : KERB_WHITE_GID;
+  Math.floor((col + row) / 2) % 2 === 0 ? gidOf('kerbRed') : gidOf('kerbPale');
+/** Two asphalt tiles in a coarse patchwork, so a long straight is not one flat grey field. */
+const roadAt = (col: number, row: number): number =>
+  (Math.floor(col / 3) + Math.floor(row / 3)) % 2 === 0 ? gidOf('asphalt') : gidOf('asphaltB');
 
 /**
  * The ring: a road FIVE tiles wide, and that number is the whole difficulty of the track.
@@ -72,10 +83,32 @@ const INNER = { left: 7, right: COLS - 8, top: 7, bottom: ROWS - 8 };
  *  picture and the gate cannot drift apart. */
 const START_LINE_COL = 40;
 
+/**
+ * The bridge: a stretch of the far straight with nothing beside it.
+ *
+ * Asked for at the very start — "Brücken über Abgründen, da könnte man dann jemanden von der
+ * Brücke bumpen" — and it needs no new concept at all, which is the point: only GROUND makes a
+ * cell drivable, so a bridge is a piece of road with the barrier left off and the ground beside
+ * it removed. Narrower than the rest of the lap (three tiles against five) so that a shove has
+ * somewhere to send you, and on the FAR side of the circuit rather than at the start, because a
+ * hazard on the run to the first corner punishes the grid rather than the driving.
+ *
+ * It is not a shortcut and cannot become one: the gates are a ring walked in order, so leaving
+ * the road never advances a lap.
+ */
+const BRIDGE = { from: 26, to: 46, top: INNER.top - 3, bottom: INNER.top - 1 };
+const onBridge = (col: number, row: number): boolean =>
+  col >= BRIDGE.from && col <= BRIDGE.to && row >= BRIDGE.top && row <= BRIDGE.bottom;
+const overBridgeSpan = (col: number): boolean => col >= BRIDGE.from && col <= BRIDGE.to;
+
 const onRing = (col: number, row: number): boolean => {
   const inOuter = col >= OUTER.left && col <= OUTER.right && row >= OUTER.top && row <= OUTER.bottom;
   const inInfield = col >= INNER.left && col <= INNER.right && row >= INNER.top && row <= INNER.bottom;
-  return inOuter && !inInfield;
+  if (!(inOuter && !inInfield)) return false;
+  // Along the bridge the top straight is only the three tiles of the bridge itself; the rest of
+  // that stretch is open air.
+  if (overBridgeSpan(col) && row < INNER.top) return onBridge(col, row);
+  return true;
 };
 /** The barrier ring, one tile outside the road. */
 const onBarrier = (col: number, row: number): boolean => {
@@ -86,8 +119,10 @@ const onBarrier = (col: number, row: number): boolean => {
     [col, row + 1],
     [col, row - 1],
   ].some(([c, r]) => onRing(c, r));
-  // Only the OUTSIDE gets a barrier; the infield stays a pit, which is the whole point.
+  // Only the OUTSIDE gets a barrier; the infield stays a pit, which is the whole point. And the
+  // bridge gets none at all — a barrier there would be a wall to bounce off instead of a drop.
   const inInfield = col >= INNER.left && col <= INNER.right && row >= INNER.top && row <= INNER.bottom;
+  if (overBridgeSpan(col) && row < INNER.top) return false;
   return touching && !inInfield;
 };
 
@@ -107,11 +142,11 @@ for (let row = 0; row < ROWS; row++) {
       const onStartLine = col === START_LINE_COL && row >= INNER.bottom + 1 && row <= OUTER.bottom;
       ground[i] = onStartLine
         ? row % 2 === 0
-          ? KERB_WHITE_GID
-          : LINE_DARK_GID
+          ? gidOf('chequerA')
+          : gidOf('chequerB')
         : inner || innerSide
           ? kerbAt(col, row)
-          : ROAD_GID;
+          : roadAt(col, row);
     } else if (onBarrier(col, row)) {
       // Ground under the barrier as well: it is a wall, not a hole.
       ground[i] = kerbAt(col, row);
@@ -156,7 +191,10 @@ for (let row = bottomRow.from; row <= bottomRow.to; row++) objects.push(gate(STA
 const midRow = Math.round((OUTER.top + OUTER.bottom) / 2);
 const midCol = Math.round((OUTER.left + OUTER.right) / 2);
 for (let col = INNER.right + 1; col <= OUTER.right; col++) objects.push(gate(col, midRow, 1));
-for (let row = OUTER.top; row <= INNER.top - 1; row++) objects.push(gate(midCol, row, 2));
+// Gate 2 spans whatever the top straight IS at that column — which is the bridge, if the bridge
+// reaches it. A gate off the road is a lap nobody can complete.
+const gate2Top = overBridgeSpan(midCol) ? BRIDGE.top : OUTER.top;
+for (let row = gate2Top; row <= INNER.top - 1; row++) objects.push(gate(midCol, row, 2));
 for (let col = OUTER.left; col <= INNER.left - 1; col++) objects.push(gate(col, midRow, 3));
 /** The grid: four rows of two behind the line, on the long start-finish straight. */
 let slot = 0;
@@ -171,7 +209,6 @@ for (const col of [START_LINE_COL - 6, START_LINE_COL - 9, START_LINE_COL - 12, 
 const gridCols = [START_LINE_COL - 15, START_LINE_COL - 12, START_LINE_COL - 9, START_LINE_COL - 6];
 for (const col of gridCols) objects.push(spawn(col, INNER.bottom + 3));
 
-const src = JSON.parse(fs.readFileSync(SRC, 'utf8')) as Record<string, unknown>;
 const tileLayer = (id: number, name: string, cls: string, data: number[]) => ({
   data,
   height: ROWS,
@@ -215,7 +252,7 @@ const map = {
   renderorder: 'right-down',
   tiledversion: (src.tiledversion as string) ?? '1.11.0',
   tileheight: TILE,
-  tilesets: src.tilesets,
+  tilesets: [...srcSets, { firstgid: TRACK_FIRSTGID, source: '../track.tsj' }],
   tilewidth: TILE,
   type: 'map',
   version: (src.version as string) ?? '1.10',

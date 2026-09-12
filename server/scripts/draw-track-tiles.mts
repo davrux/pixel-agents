@@ -1,0 +1,199 @@
+#!/usr/bin/env -S node --import tsx
+/**
+ * The race track's own ground: asphalt, kerbs, a chequered line and painted edges.
+ *
+ * Until this existed the circuit was painted with flat palette colours — a grey ring with red and
+ * white blocks round it — which reads as a diagram rather than as a track. These eight tiles are
+ * what makes it look like somewhere you drive.
+ *
+ * Generated rather than drawn, for the reason every art script here is: it is committed, so a
+ * second run must produce the same bytes or `--check` means nothing. The speckle in the asphalt
+ * comes from a seeded LCG keyed per tile, so the two asphalt variants differ from each other and
+ * are stable across runs.
+ *
+ * Layout follows the house tileset convention — 16 px tiles, 1 px margin, 2 px spacing, with each
+ * tile EXTRUDED one pixel into the gap. Without that a camera at a fractional zoom samples the
+ * neighbouring tile along a seam and every cell gets a bright edge.
+ *
+ * Run: scripts/draw-track-tiles.sh [--check]
+ */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { PNG } from 'pngjs';
+
+const WRITE_OPTIONS = { filterType: 0, deflateLevel: 9, deflateStrategy: 0 } as const;
+const REPO = path.join(import.meta.dirname, '..', '..');
+const OUT = path.join(REPO, 'assets', 'tiled', 'png', 'src', 'track.png');
+const TSJ = path.join(REPO, 'assets', 'tiled', 'track.tsj');
+const CHECK = process.argv.includes('--check');
+
+const TW = 16;
+const MARGIN = 1;
+const SPACING = 2;
+
+type RGB = readonly [number, number, number];
+const ASPHALT: RGB = [0x3c, 0x3c, 0x40];
+const ASPHALT_DARK: RGB = [0x33, 0x33, 0x37];
+const ASPHALT_LIGHT: RGB = [0x46, 0x46, 0x4a];
+const KERB_RED: RGB = [0xc5, 0x1a, 0x1b];
+const KERB_RED_LIT: RGB = [0xe2, 0x58, 0x5a];
+const KERB_RED_DARK: RGB = [0x5c, 0x0f, 0x10];
+const KERB_PALE: RGB = [0xf1, 0xef, 0xec];
+const KERB_PALE_LIT: RGB = [0xff, 0xff, 0xff];
+const KERB_PALE_DARK: RGB = [0x9a, 0x94, 0x8c];
+const LINE: RGB = [0xe8, 0xe4, 0xdc];
+const DARK: RGB = [0x14, 0x13, 0x12];
+
+function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/** One tile as a 16×16 grid of colours. */
+type Tile = RGB[][];
+const fill = (rgb: RGB): Tile => Array.from({ length: TW }, () => Array.from({ length: TW }, () => rgb));
+
+/** Asphalt with a little grain — flat grey at this size reads as a floor, not a road surface. */
+function asphalt(seed: number): Tile {
+  const t = fill(ASPHALT);
+  const rnd = lcg(seed);
+  for (let y = 0; y < TW; y++) {
+    for (let x = 0; x < TW; x++) {
+      const r = rnd();
+      if (r < 0.1) t[y][x] = ASPHALT_DARK;
+      else if (r < 0.17) t[y][x] = ASPHALT_LIGHT;
+    }
+  }
+  return t;
+}
+
+/** A kerb block: lit along the top, shadowed along the bottom, so it reads as raised. */
+function kerb(base: RGB, lit: RGB, dark: RGB): Tile {
+  const t = fill(base);
+  for (let x = 0; x < TW; x++) {
+    t[0][x] = lit;
+    t[1][x] = lit;
+    t[TW - 2][x] = dark;
+    t[TW - 1][x] = dark;
+  }
+  for (let y = 0; y < TW; y++) {
+    t[y][0] = dark;
+    t[y][TW - 1] = dark;
+  }
+  return t;
+}
+
+/** Half the chequered band: four squares, so two of these alternating make the pattern. */
+function chequer(flip: boolean): Tile {
+  const t = fill(DARK);
+  const half = TW / 2;
+  for (let y = 0; y < TW; y++) {
+    for (let x = 0; x < TW; x++) {
+      const cell = (x < half ? 0 : 1) ^ (y < half ? 0 : 1);
+      t[y][x] = (cell === 1) === flip ? KERB_PALE : DARK;
+    }
+  }
+  return t;
+}
+
+/** Asphalt with a painted line along one edge. */
+function edgeLine(seed: number, side: 'top' | 'bottom' | 'left' | 'right'): Tile {
+  const t = asphalt(seed);
+  for (let i = 0; i < TW; i++) {
+    if (side === 'top') t[0][i] = t[1][i] = LINE;
+    else if (side === 'bottom') t[TW - 1][i] = t[TW - 2][i] = LINE;
+    else if (side === 'left') t[i][0] = t[i][1] = LINE;
+    else t[i][TW - 1] = t[i][TW - 2] = LINE;
+  }
+  return t;
+}
+
+/** Index order IS the tile id, so this list is append-only — see AGENTS.md on tilesets. */
+const TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
+  { name: 'asphalt', tile: asphalt(0x5eed01) },
+  { name: 'asphalt-b', tile: asphalt(0x5eed02) },
+  { name: 'kerb-red', tile: kerb(KERB_RED, KERB_RED_LIT, KERB_RED_DARK) },
+  { name: 'kerb-pale', tile: kerb(KERB_PALE, KERB_PALE_LIT, KERB_PALE_DARK) },
+  { name: 'chequer-a', tile: chequer(false) },
+  { name: 'chequer-b', tile: chequer(true) },
+  { name: 'edge-top', tile: edgeLine(0x5eed03, 'top') },
+  { name: 'edge-bottom', tile: edgeLine(0x5eed04, 'bottom') },
+  { name: 'edge-left', tile: edgeLine(0x5eed05, 'left') },
+  { name: 'edge-right', tile: edgeLine(0x5eed06, 'right') },
+];
+
+const COLUMNS = TILES.length;
+const WIDTH = MARGIN * 2 + COLUMNS * TW + (COLUMNS - 1) * SPACING;
+const HEIGHT = MARGIN * 2 + TW;
+const png = new PNG({ width: WIDTH, height: HEIGHT });
+png.data.fill(0);
+
+const put = (x: number, y: number, rgb: RGB): void => {
+  if (x < 0 || y < 0 || x >= WIDTH || y >= HEIGHT) return;
+  const i = (y * WIDTH + x) * 4;
+  png.data[i] = rgb[0];
+  png.data[i + 1] = rgb[1];
+  png.data[i + 2] = rgb[2];
+  png.data[i + 3] = 255;
+};
+
+TILES.forEach(({ tile }, k) => {
+  const ox = MARGIN + k * (TW + SPACING);
+  const oy = MARGIN;
+  for (let y = 0; y < TW; y++) for (let x = 0; x < TW; x++) put(ox + x, oy + y, tile[y][x]);
+  // Extrude one pixel all round, into the margin/spacing, so a fractional zoom cannot sample the
+  // neighbour across the seam.
+  for (let y = 0; y < TW; y++) {
+    put(ox - 1, oy + y, tile[y][0]);
+    put(ox + TW, oy + y, tile[y][TW - 1]);
+  }
+  for (let x = 0; x < TW; x++) {
+    put(ox + x, oy - 1, tile[0][x]);
+    put(ox + x, oy + TW, tile[TW - 1][x]);
+  }
+  put(ox - 1, oy - 1, tile[0][0]);
+  put(ox + TW, oy - 1, tile[0][TW - 1]);
+  put(ox - 1, oy + TW, tile[TW - 1][0]);
+  put(ox + TW, oy + TW, tile[TW - 1][TW - 1]);
+});
+
+const bytes = PNG.sync.write(png, WRITE_OPTIONS);
+const tsj =
+  JSON.stringify(
+    {
+      columns: COLUMNS,
+      image: 'png/src/track.png',
+      imageheight: HEIGHT,
+      imagewidth: WIDTH,
+      margin: MARGIN,
+      name: 'track',
+      spacing: SPACING,
+      tilecount: COLUMNS,
+      tiledversion: '1.11.0',
+      tileheight: TW,
+      tilewidth: TW,
+      type: 'tileset',
+      version: '1.10',
+    },
+    null,
+    2,
+  ) + '\n';
+
+if (CHECK) {
+  const havePng = fs.existsSync(OUT) ? fs.readFileSync(OUT) : null;
+  const haveTsj = fs.existsSync(TSJ) ? fs.readFileSync(TSJ, 'utf8') : null;
+  if (havePng?.equals(bytes) && haveTsj === tsj) {
+    console.log(`✓ ${path.relative(REPO, OUT)} and its tileset are up to date`);
+    process.exit(0);
+  }
+  console.error(`✗ the track tileset differs — run scripts/draw-track-tiles.sh`);
+  process.exit(1);
+}
+fs.mkdirSync(path.dirname(OUT), { recursive: true });
+fs.writeFileSync(OUT, bytes);
+fs.writeFileSync(TSJ, tsj);
+console.log(`wrote ${path.relative(REPO, OUT)} (${COLUMNS} tiles, ${bytes.length} bytes) and track.tsj`);
