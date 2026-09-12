@@ -10,7 +10,7 @@
  * ALONG the heading, thrust and steering work fine, and then bumping cannot: a shove from the
  * side has nowhere to live, so it can only displace a kart by a pixel before being forgotten, and
  * pushing somebody off a bridge — the feature this whole thing is for — is impossible. A vector
- * with lateral grip (`KART_LATERAL_GRIP_PER_SEC`) gives thrust, drift and a shove one shared
+ * with a tyre limit (`KART_GRIP_PX_PER_SEC2`) gives thrust, drift and a shove one shared
  * representation, and it is not one line more of physics.
  *
  * Everything here is a pure function of (kart, dt, world), so the whole model runs headless and a
@@ -31,7 +31,9 @@
  */
 import {
   KART_ACCEL_PX_PER_SEC2,
-  KART_LATERAL_GRIP_PER_SEC,
+  KART_GRIP_PX_PER_SEC2,
+  KART_POWER_GRIP_SHARE,
+  KART_SLIDE_ALIGN_PER_SEC,
   KART_BRAKE_PX_PER_SEC2,
   KART_BUMP_GAIN,
   KART_BUMP_MIN_PX_PER_SEC,
@@ -43,6 +45,7 @@ import {
   KART_RADIUS_PX,
   KART_STEER_AT_REST,
   KART_STEER_RAD_PER_SEC,
+  KART_TURN_RADIUS_PX,
 } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
@@ -177,9 +180,16 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // pirouettes. Reversing steers the other way round, like a real vehicle.
   let along = kart.vx * fx + kart.vy * fy;
   if (input.steer !== 0) {
-    const grip = KART_STEER_AT_REST + (1 - KART_STEER_AT_REST) * Math.min(1, Math.abs(along) / KART_MAX_SPEED_PX_PER_SEC);
-    const sign = along < 0 ? -1 : 1;
-    kart.heading = wrapAngle(kart.heading + input.steer * sign * KART_STEER_RAD_PER_SEC * grip * dt);
+    // Yaw from a RADIUS, not a fixed rate: a kart on a circle of `KART_TURN_RADIUS_PX` turns at
+    // `speed / radius`, which is what makes a corner cost more grip the faster you take it. The
+    // floor keeps a parked kart aimable and the ceiling keeps a slow one from pirouetting.
+    const speed = Math.abs(along);
+    const yaw = Math.max(
+      KART_STEER_RAD_PER_SEC * KART_STEER_AT_REST,
+      Math.min(KART_STEER_RAD_PER_SEC, speed / KART_TURN_RADIUS_PX),
+    );
+    const sign = along < 0 ? -1 : 1; // reversing steers the other way round, like a real vehicle
+    kart.heading = wrapAngle(kart.heading + input.steer * sign * yaw * dt);
   }
 
   // ── thrust, drag and grip ─────────────────────────────────────────────────
@@ -190,15 +200,37 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // Sideways velocity: drift, and where a bump from the flank lives.
   let side = -kart.vx * hy + kart.vy * hx;
 
+  // What the engine or the brakes ask of the tyres, as a share of everything they have. A tyre
+  // has ONE budget for going and for turning (the friction circle), so this is subtracted from
+  // what is left for the corner — which is the whole of "too much gas in a corner throws you off".
+  const power = input.throttle !== 0 ? KART_POWER_GRIP_SHARE : 0;
   if (input.throttle > 0) along += KART_ACCEL_PX_PER_SEC2 * dt;
   else if (input.throttle < 0) along -= KART_BRAKE_PX_PER_SEC2 * dt;
   along -= along * Math.min(1, KART_DRAG_PER_SEC * dt);
-  side -= side * Math.min(1, KART_LATERAL_GRIP_PER_SEC * dt);
   along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(KART_MAX_SPEED_PX_PER_SEC, along));
+
+  // The tyres kill at most this much sideways speed this tick — a LIMIT, not a fraction. Beyond
+  // it the kart slides, and that is the drift.
+  const lateral = KART_GRIP_PX_PER_SEC2 * Math.sqrt(Math.max(0, 1 - power * power));
+  const bite = lateral * dt;
+  side -= Math.sign(side) * Math.min(Math.abs(side), bite);
+
   if (Math.abs(along) < 1 && input.throttle === 0) along = 0;
-  if (Math.abs(side) < 1) side = 0;
+  // The sideways deadzone has to be far below a pixel per second, and this is the line that made
+  // the whole tyre model invisible: a full-lock corner at top speed builds sideways speed at
+  // about 0.8 px/s per tick, so a threshold of 1 wiped the slide out on every single tick and the
+  // kart tracked its steering exactly. Measured after the fix, the same corner reaches 14°.
+  if (Math.abs(side) < 0.05) side = 0;
   kart.vx = hx * along - hy * side;
   kart.vy = hy * along + hx * side;
+
+  // The nose follows the slide. Without this a sliding kart crabs — pointing one way, travelling
+  // another, forever — which reads as a bug and not as a drift. Steering adds yaw, this takes it
+  // away, and holding a turn settles at a steady angle instead of spinning.
+  if (side !== 0 && Math.abs(along) > 1) {
+    const slip = Math.atan2(side, Math.abs(along));
+    kart.heading = wrapAngle(kart.heading + slip * Math.min(1, KART_SLIDE_ALIGN_PER_SEC * dt));
+  }
 
   kart.state = kart.driverId === null ? 'idle' : 'drive';
 

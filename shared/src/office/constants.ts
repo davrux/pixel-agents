@@ -303,31 +303,84 @@ export const DECAL_DEPTH = -99998.5;
  * 45 and a pet walks at 40), so a kart at 110 is about two and a half times a walking figure —
  * fast enough to feel like driving on a 16 px grid without crossing a tile per tick.
  */
-export const KART_MAX_SPEED_PX_PER_SEC = 110;
+/** Twelve tiles a second. The first pass ran at 110 (seven tiles) and was reported as simply too
+ *  slow — a long straight has to feel like one. */
+export const KART_MAX_SPEED_PX_PER_SEC = 190;
 /** Reverse is deliberately slow: it is for getting off a wall, not for racing backwards. */
-export const KART_MAX_REVERSE_PX_PER_SEC = 35;
-export const KART_ACCEL_PX_PER_SEC2 = 190;
-export const KART_BRAKE_PX_PER_SEC2 = 320;
-/** Coasting loss per second, as a fraction — a kart slows when you let go, but does not stop dead. */
-export const KART_DRAG_PER_SEC = 1.1;
+export const KART_MAX_REVERSE_PX_PER_SEC = 55;
+export const KART_ACCEL_PX_PER_SEC2 = 260;
+export const KART_BRAKE_PX_PER_SEC2 = 420;
 /**
- * How fast sideways motion bleeds away, per second.
+ * Coasting loss per second, as a fraction — a kart slows when you let go, but does not stop dead.
  *
- * This one number is the whole difference between a kart and a shopping trolley, and it is why
- * the model carries a velocity VECTOR rather than one speed along the heading. High grip and a
- * kart goes exactly where it points; low grip and it drifts through corners — and, the reason it
- * matters beyond feel, a shove from the side has somewhere to live. With a scalar speed a bump
- * could only displace a kart by a pixel and then be forgotten, so nobody could be pushed off a
- * bridge.
+ * 0.9 was "does stop dead": a time constant of about a second, so four seconds off the throttle
+ * took a kart from top speed to walking pace and lifting for a corner felt like stamping on the
+ * brake. At 0.35 the same coast keeps most of its speed, which is what leaves room for the brake
+ * to mean something. It does not set the top speed — the clamp does.
  */
-export const KART_LATERAL_GRIP_PER_SEC = 7;
+export const KART_DRAG_PER_SEC = 0.35;
 /**
- * Turn rate at full speed, in radians per second, and the share of it available when standing
- * still. Not zero at rest, because a kart that cannot be aimed while parked is infuriating; not
- * one either, because spinning on the spot is not driving.
+ * **The tyres have a limit**, and it is in px/s² because it is an acceleration: this is the most
+ * sideways speed the tyres can kill in a second, full stop, however hard the kart is sliding.
+ *
+ * That word — limit — is the whole difference from the first version, which bled sideways motion
+ * away as a FRACTION per second (`side -= side * grip * dt`). A fraction is an unbounded force:
+ * the harder you slide, the harder the tyres push back, so the kart always went exactly where it
+ * pointed, nothing ever drifted, and carrying too much speed into a corner cost nothing. Reported
+ * in those words — "es driftet nichts", "wer zu viel Gas gibt sollte rausfliegen".
+ *
+ * With a cap, a turn at speed generates sideways velocity faster than the tyres can shed it, and
+ * everything asked for falls out of that one change rather than out of special cases: the kart
+ * slides wide, the slide is a drift, and running wide on a track whose infield is a pit is
+ * exactly "flying off". It is also still no physics engine (AGENTS.md invariant 3) — one
+ * clamped subtraction per tick, deterministic and headless, not a solver.
+ */
+export const KART_GRIP_PX_PER_SEC2 = 600;
+/**
+ * How much of the tyres' grip is spent on GOING rather than turning, as a share of
+ * `KART_GRIP_PX_PER_SEC2` at full throttle.
+ *
+ * The friction circle, and the direct answer to "too much gas in a corner should throw you off":
+ * a tyre has one budget for both jobs, so what the engine asks of it is not available to the
+ * corner. At 1 the tyres would have nothing left while accelerating and every exit would be a
+ * spin; at 0 the throttle would not matter at all and the request would be unanswered. Braking
+ * spends it too — which is what makes braking BEFORE the corner the right line rather than a
+ * habit borrowed from other games.
+ */
+export const KART_POWER_GRIP_SHARE = 0.7;
+/**
+ * How quickly the nose follows a slide, per second.
+ *
+ * A self-aligning torque, and without it a sliding kart CRABS — it keeps pointing where you
+ * steered while travelling somewhere else, forever, which reads as a bug rather than as a drift.
+ * With it, steering adds yaw and sliding takes it away, so holding a turn settles at a steady
+ * drift angle instead of spinning: the equilibrium is the feel.
+ */
+export const KART_SLIDE_ALIGN_PER_SEC = 1.6;
+/**
+ * The most a kart can yaw, in radians per second, and the share of that available at a standstill.
+ * Not zero at rest, because a kart that cannot be aimed while parked is infuriating; not one
+ * either, because spinning on the spot is not driving.
  */
 export const KART_STEER_RAD_PER_SEC = 3.1;
 export const KART_STEER_AT_REST = 0.35;
+/**
+ * The tightest circle a kart can be steered round, in pixels — about four and a half tiles.
+ *
+ * A kart turns on a RADIUS, so its yaw rate is `speed / radius` and the cap above only bites when
+ * it is crawling. Writing it the other way round — a fixed yaw rate at every speed, which is what
+ * the first version did — demands `v² / r` from the tyres and therefore asks for 592 px/s² at top
+ * speed against the 560 they have, so every corner at speed was a spin and the slip angle ran to
+ * 60°.
+ *
+ * This number is where the handling is actually decided, and it is set against the tyres
+ * deliberately: at top speed a full-lock corner demands about 516 px/s², which is MORE than the
+ * 428 left while the throttle is down and LESS than the 600 available off it. So the corner is
+ * exactly the choice it should be — stay on the gas and run wide into the pit, or lift and make
+ * it. That is the whole of "wer zu viel Gas gibt, sollte rausfliegen", as one relation between
+ * three constants rather than as a rule about corners.
+ */
+export const KART_TURN_RADIUS_PX = 70;
 /** Collision radius in pixels — a kart is 16 px of art, and bodies that touch at 9 read as
  *  touching before they overlap. */
 export const KART_RADIUS_PX = 9;
@@ -338,9 +391,9 @@ export const KART_BUMP_TRANSFER = 0.7;
  * What the rammed kart RECEIVES, as a multiple of the closing speed — deliberately above 1, so a
  * bump is not momentum-conserving.
  *
- * This number was found by a test rather than chosen. Sideways velocity bleeds off at
- * `KART_LATERAL_GRIP_PER_SEC`, so a shove slides a kart about `shove / grip` pixels: at the
- * physical share (0.7 of a 60 px/s closing speed) that is six pixels — less than half a tile, and
+ * This number was found by a test rather than chosen. Sideways velocity bleeds off against
+ * `KART_GRIP_PX_PER_SEC2`, so a shove slides a kart about `shove² / (2 · grip)` pixels: at the
+ * physical share (0.7 of a 60 px/s closing speed) that is a couple of pixels — and
  * "push somebody off the bridge" is then impossible however hard you hit them. At 1.8 the same
  * contact slides them about fifteen, which is a lane. Arcade racers all cheat here for the same
  * reason; what matters is that the cheat is one named number and not a special case.

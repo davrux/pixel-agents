@@ -12,6 +12,7 @@ import {
   FUEL_COLOR_OK,
   FUEL_COLOR_WARN,
   KART_BOARD_REACH_TILES,
+  KART_MAX_SPEED_PX_PER_SEC,
   MAX_CONTEXT_TOKENS,
   TOKEN_CRITICAL_THRESHOLD,
   TOKEN_DANGER_THRESHOLD,
@@ -28,6 +29,14 @@ import {
 
 import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
+import {
+  CAMERA_TURN_RAD_PER_SEC,
+  type ViewCamera,
+  driveCameraRotation,
+  lookAheadPoint,
+  turnTowards,
+  worldToScreen,
+} from '../render/driveCamera.js';
 import {
   CharacterState,
   ControllerKind,
@@ -230,6 +239,14 @@ export class OfficeScene extends Phaser.Scene {
   /** The "press E" hint over a kart you could get into. One element, hidden when there is
    *  nothing to prompt for, so nothing accumulates per kart. */
   private kartPrompt: HTMLDivElement | null = null;
+  /** Where the view is turned to right now, eased towards where the kart points. Also read by
+   *  the renderer, through `cameraUpHeading`, to decide which body row each figure shows. */
+  private driveRotation = 0;
+  /** The driven kart's speed in px/s, differentiated from its position: the wire carries no
+   *  velocity (it is presentation, and one more synced field per kart per patch for a camera
+   *  offset would be a poor trade), so the look-ahead measures it here. */
+  private driveSpeed = 0;
+  private drivePrev: { x: number; y: number } | null = null;
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
   /** This zone's placements with the on-state applied — the map's own objects, not a decoded
@@ -746,6 +763,7 @@ export class OfficeScene extends Phaser.Scene {
       getCharacters: () => [...scene.characters.values()] as unknown as Character[],
       getPets: () => [...scene.pets.values()] as unknown as Pet[],
       getKarts: () => [...scene.karts.values()],
+      driveRotation: () => scene.driveRotation,
     };
   }
 
@@ -1975,14 +1993,6 @@ export class OfficeScene extends Phaser.Scene {
       );
     };
 
-    /** The kart this viewer is driving, or null. Read from synced state, never remembered: the
-     *  server decides who is in a seat, and a bump, a fall or another viewer's action can empty
-     *  one without this client having pressed anything. */
-    const myKart = (): RenderKart | null => {
-      if (this.myPlayerId === null) return null;
-      for (const kt of this.karts.values()) if (kt.driverId === this.myPlayerId) return kt;
-      return null;
-    };
     let sentThrottle: number | null = null;
     let sentSteer: number | null = null;
 
@@ -1995,7 +2005,7 @@ export class OfficeScene extends Phaser.Scene {
      * out changes it back, with nothing to toggle and nothing to get stuck in.
      */
     const flush = (): void => {
-      if (myKart()) {
+      if (this.myKart()) {
         const down = new Set(held);
         const throttle = down.has('KeyW') || down.has('ArrowUp') ? 1 : down.has('KeyS') || down.has('ArrowDown') ? -1 : 0;
         const steer = down.has('KeyD') || down.has('ArrowRight') ? 1 : down.has('KeyA') || down.has('ArrowLeft') ? -1 : 0;
@@ -2108,8 +2118,15 @@ export class OfficeScene extends Phaser.Scene {
     // player has since moved (any cause: walk, sit, portal) and re-engage the
     // moment they have. Not when the user turned it off in Settings (the
     // old, pre-follow feel).
+    // Karts BEFORE the camera that follows one, and that order is the fix for a judder that was
+    // reported as "hakelig": every other entity is interpolated further down, so the camera was
+    // centring on where the kart had been LAST frame while the renderer drew it where it is now.
+    // At walking pace that is half a pixel and invisible; at twelve tiles a second it is three,
+    // every frame, which the eye reads as the kart vibrating against a still screen.
+    this.interpolateKarts(1 - Math.exp(-18 * Math.min(delta / 1000, 0.1)));
+    this.updateDriveCamera(delta / 1000);
     if (this.cameraFollowEnabled) {
-      const pos = this.playerPosition(this.myPlayerId);
+      const pos = this.drivePose() ?? this.playerPosition(this.myPlayerId);
       if (pos) {
         if (this.cameraFollowDetached) {
           const at = this.cameraDetachAt;
@@ -2197,17 +2214,6 @@ export class OfficeScene extends Phaser.Scene {
     for (const p of this.pets.values()) {
       p.x = (p.x ?? p.tx) + (p.tx - (p.x ?? p.tx)) * k;
       p.y = (p.y ?? p.ty) + (p.ty - (p.y ?? p.ty)) * k;
-    }
-    for (const kt of this.karts.values()) {
-      kt.x = (kt.x ?? kt.tx) + (kt.tx - (kt.x ?? kt.tx)) * k;
-      kt.y = (kt.y ?? kt.ty) + (kt.ty - (kt.y ?? kt.ty)) * k;
-      // The angle goes the SHORT way round, or a kart passing due north unwinds a whole turn on
-      // screen while the world has it pointing steadily ahead.
-      const from = kt.drawHeading ?? kt.heading;
-      let d = kt.heading - from;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      kt.drawHeading = from + d * k;
     }
     this.view.update();
     // DOM overlays (labels/bubbles/tooltip) don't need 60 Hz — cap to ~20 Hz, but
@@ -3546,6 +3552,107 @@ export class OfficeScene extends Phaser.Scene {
   /** Server minted a LiveKit token (or reported it's unconfigured). Connect the
    *  media for the call we're currently in. */
   /** Interpolated pixel position of a player avatar, for proximity audio. */
+  /** The kart this viewer is driving, or null. Read from synced state every time rather than
+   *  remembered: a fall, a bump or another viewer can empty a seat with nothing pressed here. */
+  /**
+   * The camera as `driveCamera`'s maths wants it.
+   *
+   * Every DOM overlay used to place itself with `(x - worldView.x) * zoom`, which quietly assumes
+   * the camera is square with the world — true for every zone until the driving view turned it.
+   * `worldView` is the AABB of a rotated camera, so its LEFT EDGE moves as the view turns while
+   * its centre does not; the centre is therefore what the transform hangs off.
+   */
+  private viewCam(cam: Phaser.Cameras.Scene2D.Camera): ViewCamera {
+    return {
+      // `midPoint` rather than the world view's corner: the view is the AABB of a rotated
+      // camera, so its left edge moves as the view turns while its centre does not.
+      centreX: cam.midPoint.x,
+      centreY: cam.midPoint.y,
+      width: cam.width,
+      height: cam.height,
+      zoom: cam.zoom,
+      // Read from here, not from the camera: Phaser 4 offers `setRotation` but no readable
+      // `rotation`, and a field we own is the honest single source anyway.
+      rotation: this.driveRotation,
+    };
+  }
+
+  /** Ease every kart towards its last synced pose. Position lerps; the heading goes the SHORT
+   *  way round, or a kart crossing due north unwinds a whole turn on screen while the world has
+   *  it pointing steadily ahead. */
+  private interpolateKarts(k: number): void {
+    for (const kt of this.karts.values()) {
+      kt.x = (kt.x ?? kt.tx) + (kt.tx - (kt.x ?? kt.tx)) * k;
+      kt.y = (kt.y ?? kt.ty) + (kt.ty - (kt.y ?? kt.ty)) * k;
+      const from = kt.drawHeading ?? kt.heading;
+      let d = kt.heading - from;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      kt.drawHeading = from + d * k;
+    }
+  }
+
+  private myKart(): RenderKart | null {
+    if (this.myPlayerId === null) return null;
+    for (const kart of this.karts.values()) if (kart.driverId === this.myPlayerId) return kart;
+    return null;
+  }
+
+  /**
+   * Turn the view with the kart, and look ahead of it.
+   *
+   * Only while DRIVING, and it eases back to square the moment you step out — the rest of the
+   * world is drawn as upright 2.5D art (furniture, walls) that a turned camera would lay on its
+   * side, and a race zone has none of that. So this is not a mode anybody switches on: being in
+   * a seat is the condition, which means a zone with no karts can never reach it.
+   */
+  private updateDriveCamera(dt: number): void {
+    const cam = this.cameras?.main;
+    if (!cam) return;
+    const kart = this.myKart();
+    const step = CAMERA_TURN_RAD_PER_SEC * Math.max(0, Math.min(0.1, dt));
+    if (kart) {
+      const at = { x: kart.x ?? kart.tx, y: kart.y ?? kart.ty };
+      // Speed by differentiation. The interpolated position is what the eye sees, so the lead
+      // follows the drawn motion rather than the last patch — which is what stops the camera
+      // lurching twenty times a second.
+      if (this.drivePrev && dt > 0) {
+        const v = Math.hypot(at.x - this.drivePrev.x, at.y - this.drivePrev.y) / dt;
+        // Eased, because a single dropped frame otherwise reads as a stop.
+        this.driveSpeed += (v - this.driveSpeed) * Math.min(1, dt * 6);
+      }
+      this.drivePrev = at;
+      this.driveRotation = turnTowards(
+        this.driveRotation,
+        driveCameraRotation(kart.drawHeading ?? kart.heading),
+        step,
+      );
+    } else {
+      this.drivePrev = null;
+      this.driveSpeed = 0;
+      if (this.driveRotation === 0) return;
+      // Unwind to square the SHORT way: the rotation accumulates past a full turn, so easing
+      // towards 0 naively would spin the world back the way it came.
+      this.driveRotation = turnTowards(this.driveRotation, 0, step);
+      if (Math.abs(this.driveRotation) < 0.01) this.driveRotation = 0;
+    }
+    cam.setRotation(this.driveRotation);
+  }
+
+  /** Where the camera should sit while driving: ahead of the kart, by speed. Null when walking. */
+  private drivePose(): { x: number; y: number } | null {
+    const kart = this.myKart();
+    if (!kart) return null;
+    return lookAheadPoint(
+      kart.x ?? kart.tx,
+      kart.y ?? kart.ty,
+      kart.drawHeading ?? kart.heading,
+      this.driveSpeed,
+      KART_MAX_SPEED_PX_PER_SEC,
+      TILE_SIZE,
+    );
+  }
+
   private playerPosition(id: number | null): { x: number; y: number } | null {
     if (id === null) return null;
     const c = this.characters.get(id);
@@ -4764,18 +4871,17 @@ export class OfficeScene extends Phaser.Scene {
     const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
     let target: RenderKart | null = null;
     let best = TILE_SIZE * KART_BOARD_REACH_TILES;
-    if (cam && me) {
-      const driving = [...this.karts.values()].find((k) => k.driverId === this.myPlayerId);
-      // While driving, the same key gets you out — prompt on your own kart instead.
-      if (driving) target = driving;
-      else {
-        for (const kart of this.karts.values()) {
-          if (kart.driverId) continue;
-          const d = Math.hypot((kart.x ?? kart.tx) - (me.x ?? me.tx), (kart.y ?? kart.ty) - (me.y ?? me.ty));
-          if (d <= best) {
-            best = d;
-            target = kart;
-          }
+    // Nothing is prompted while DRIVING. It used to say "E — get out" the whole time you were in
+    // a seat, which is a label stuck to the middle of the screen for the length of a race — and
+    // the one moment you need a hint is before you are in, not after. Getting out is in the help
+    // panel, where a key you use once belongs.
+    if (cam && me && !this.myKart()) {
+      for (const kart of this.karts.values()) {
+        if (kart.driverId) continue;
+        const d = Math.hypot((kart.x ?? kart.tx) - (me.x ?? me.tx), (kart.y ?? kart.ty) - (me.y ?? me.ty));
+        if (d <= best) {
+          best = d;
+          target = kart;
         }
       }
     }
@@ -4792,18 +4898,18 @@ export class OfficeScene extends Phaser.Scene {
       (document.getElementById('game') ?? document.body).appendChild(el);
       this.kartPrompt = el;
     }
-    const wv = cam.worldView;
-    this.kartPrompt.textContent = target.driverId === this.myPlayerId ? 'E — get out' : 'E — get in';
+    this.kartPrompt.textContent = 'E — get in';
     this.kartPrompt.style.display = '';
-    this.kartPrompt.style.left = `${Math.round(((target.x ?? target.tx) - wv.x) * cam.zoom)}px`;
-    this.kartPrompt.style.top = `${Math.round(((target.y ?? target.ty) - TILE_SIZE - wv.y) * cam.zoom)}px`;
+    const at = worldToScreen(this.viewCam(cam), target.x ?? target.tx, (target.y ?? target.ty) - TILE_SIZE);
+    this.kartPrompt.style.left = `${Math.round(at.x)}px`;
+    this.kartPrompt.style.top = `${Math.round(at.y)}px`;
   }
 
   private updateNameLabels(): void {
     const cam = this.cameras?.main;
     if (!cam) return; // settings can arrive before the scene has a camera
 
-    const wv = cam.worldView;
+    const view = this.viewCam(cam);
     const host = document.getElementById('game') ?? document.body;
     const live = new Set<number>();
     for (const ch of this.characters.values()) {
@@ -4830,8 +4936,9 @@ export class OfficeScene extends Phaser.Scene {
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       // Lift the label above the head proportionally to the sprite height.
       const headOff = (20 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
-      el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
+      const at = worldToScreen(view, ch.x ?? ch.tx, (ch.y ?? ch.ty) + sit - headOff);
+      el.style.left = `${Math.round(at.x)}px`;
+      el.style.top = `${Math.round(at.y)}px`;
     }
     for (const [id, el] of this.nameLabels) {
       if (!live.has(id)) {
@@ -5010,7 +5117,7 @@ export class OfficeScene extends Phaser.Scene {
     if (this.chatBubbles.size === 0) return;
     const now = performance.now();
     const cam = this.cameras.main;
-    const wv = cam.worldView;
+    const view = this.viewCam(cam);
     for (const [key, b] of this.chatBubbles) {
       const at = now >= b.until ? null : this.bubbleAnchorPoint(b.anchor);
       if (!at) {
@@ -5018,8 +5125,9 @@ export class OfficeScene extends Phaser.Scene {
         this.chatBubbles.delete(key);
         continue;
       }
-      b.el.style.left = `${Math.round((at.x - wv.x) * cam.zoom)}px`;
-      b.el.style.top = `${Math.round((at.y - wv.y) * cam.zoom)}px`;
+      const to = worldToScreen(view, at.x, at.y);
+      b.el.style.left = `${Math.round(to.x)}px`;
+      b.el.style.top = `${Math.round(to.y)}px`;
     }
   }
 
@@ -5062,12 +5170,12 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     const cam = this.cameras.main;
-    const wv = cam.worldView;
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
     // Place the tooltip above the head, scaled to the character's sprite height.
     const tipOff = (TOOL_OVERLAY_VERTICAL_OFFSET * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
-    const sx = ((ch.x ?? ch.tx) - wv.x) * cam.zoom;
-    const sy = ((ch.y ?? ch.ty) + sit - tipOff - wv.y) * cam.zoom;
+    const tip = worldToScreen(this.viewCam(cam), ch.x ?? ch.tx, (ch.y ?? ch.ty) + sit - tipOff);
+    const sx = tip.x;
+    const sy = tip.y;
     this.tip.style.left = `${Math.round(sx)}px`;
     this.tip.style.top = `${Math.round(sy)}px`;
 

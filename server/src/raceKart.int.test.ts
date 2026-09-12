@@ -29,7 +29,11 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 
-import { KART_FALL_SEC, KART_MAX_SPEED_PX_PER_SEC } from '@pixel/shared/office/constants.js';
+import {
+  KART_FALL_SEC,
+  KART_MAX_SPEED_PX_PER_SEC,
+  KART_TURN_RADIUS_PX,
+} from '@pixel/shared/office/constants.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
 import { gateAt, headingFrom, raceProgress, raceTrack, type RaceTrack, wrapAngle } from '@pixel/shared/office/race/track.js';
 import { TILE_SIZE, TileType, type Action, type OfficeLayout } from '@pixel/shared/office/types';
@@ -324,4 +328,59 @@ test('a driver faces the way the kart points, in the four a body has art for', (
   assert.equal(deg(-30), 2, 'a negative heading is wrapped first');
   // Every heading answers, and only with a facing that exists.
   for (let d = 0; d < 720; d += 3) assert.ok([0, 1, 2, 3].includes(deg(d)), `heading ${d} gave nothing`);
+});
+
+test('too much gas runs a corner wide; lifting makes it', () => {
+  // The handling rule this whole model exists for, stated as the thing a driver feels: the tyres
+  // have ONE budget, so what the throttle takes is not there for the corner. Measured as the
+  // radius actually traced, because that is what "running wide" IS — a screenshot of a slip angle
+  // proves nothing.
+  const { track } = world();
+  // A big paved field, not the oval: what is measured is the HANDLING, and a five-tile circle
+  // does not fit inside a twenty-three-tile map — the first version of this test scraped the
+  // edge of the world and read the scrape as a drift.
+  const SIDE = 80;
+  const tileMap: number[][] = Array.from({ length: SIDE }, () => new Array<number>(SIDE).fill(0));
+  const w: KartWorld = { tileMap, blockedTiles: new Set<string>(), track };
+
+  const circle = (throttle: -1 | 0 | 1): { radius: number; slip: number } => {
+    const kart = createKart(1, at(SIDE / 2, SIDE / 2), 0);
+    kart.driverId = 42;
+    kart.vx = KART_MAX_SPEED_PX_PER_SEC;
+    kart.state = 'drive';
+    const xs: number[] = [];
+    const ys: number[] = [];
+    let slip = 0;
+    for (let i = 0; i < 120; i++) {
+      kart.input = { throttle, steer: 1 };
+      updateKart(kart, DT, w);
+      xs.push(kart.x);
+      ys.push(kart.y);
+      const hx = Math.cos(kart.heading);
+      const hy = Math.sin(kart.heading);
+      const along = kart.vx * hx + kart.vy * hy;
+      const side = -kart.vx * hy + kart.vy * hx;
+      if (Math.abs(along) > 20) slip = Math.max(slip, Math.abs(Math.atan2(side, Math.abs(along))));
+    }
+    // A traced arc's width and height average to its diameter over a long enough sweep.
+    const radius = (Math.max(...xs) - Math.min(...xs) + (Math.max(...ys) - Math.min(...ys))) / 4;
+    return { radius, slip: (slip * 180) / Math.PI };
+  };
+
+  const flat = circle(1);
+  const lifted = circle(0);
+  assert.ok(
+    flat.radius > lifted.radius * 1.15,
+    `flat out did not run wide: ${flat.radius.toFixed(0)} px against ${lifted.radius.toFixed(0)} lifted`,
+  );
+  // And it is a DRIFT, not just a wider line: the kart is visibly pointing somewhere other than
+  // where it is going. Below about ten degrees nobody would call it sliding.
+  assert.ok(flat.slip > 10, `flat out barely slid: ${flat.slip.toFixed(1)}°`);
+  // Lifting is the answer, so it has to actually work — the tyres hold and the line is the one
+  // the steering asked for.
+  assert.ok(lifted.slip < 5, `lifting still slid: ${lifted.slip.toFixed(1)}°`);
+  assert.ok(
+    Math.abs(lifted.radius - KART_TURN_RADIUS_PX) < KART_TURN_RADIUS_PX * 0.25,
+    `a gripping corner is not the radius it was steered to: ${lifted.radius.toFixed(0)} vs ${KART_TURN_RADIUS_PX}`,
+  );
 });

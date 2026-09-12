@@ -49,6 +49,8 @@ export interface RenderSource {
   getPets(): Pet[];
   /** Empty in a zone with no track, which is every zone but the raceway. */
   getKarts?(): RenderKart[];
+  /** How far the view is turned, in radians. Non-zero only while somebody drives. */
+  driveRotation?(): number;
   furniture: FurnitureInstance[];
   getLayout(): OfficeLayout;
   tileMap: GroundMap;
@@ -70,6 +72,7 @@ import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
 import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
 import { effectSheetId } from '../art/effects';
 import { vehicleSheetId } from '../art/vehicles';
+import { cameraUpHeading, facingAngle, screenFacing } from './driveCamera';
 import { KART_SHEET, vehicleFrame } from '@pixel/shared/office/race/kartArt.js';
 import { sheetCellFrame, sheetColumns, sheetFrameSize } from '../art/sheetStore';
 import {
@@ -194,10 +197,32 @@ export class PhaserRenderer {
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
   private readonly karts = new Map<number, Phaser.GameObjects.Image>();
-  /** Who is driving, rebuilt every frame in syncKarts — read by syncCharacters, which runs
-   *  after it, to sit those bodies in a seat. Cleared rather than deleted from, so it is
-   *  bounded by the karts on the map. */
-  private readonly drivers = new Set<number>();
+  /** Who is driving, and which way their kart points — rebuilt every frame in syncKarts and read
+   *  by syncCharacters, which runs after it, to sit those bodies in a seat and to turn them the
+   *  way the kart goes. Cleared rather than deleted from, so it is bounded by the karts on the
+   *  map. */
+  private readonly drivers = new Map<number, number>();
+  /** How far the view is turned this frame, in radians. Read once in `update` so every helper
+   *  below sees one value, and zero in every zone where nobody is driving. */
+  private turn = 0;
+
+  /**
+   * A screen-space offset as a world vector — `dx` to the right and `dy` DOWN ON SCREEN.
+   *
+   * Figures are drawn upright while the view turns, so every offset that means "lower than the
+   * feet" or "above the head" is a screen direction, not a world one. Without this a driver sat
+   * sideways out of the kart as soon as the camera swung round, and the markers over a head
+   * drifted off at the same angle. The identity while `turn` is 0, which is every zone but a race
+   * in progress.
+   */
+  private screenOffset(dx: number, dy: number): { x: number; y: number } {
+    if (this.turn === 0) return { x: dx, y: dy };
+    // The inverse of the camera's own turn: screen -> world is -rotation where world -> screen
+    // is +rotation (see driveCamera.ts, where that sign is established and explained).
+    const c = Math.cos(-this.turn);
+    const sn = Math.sin(-this.turn);
+    return { x: dx * c - dy * sn, y: dx * sn + dy * c };
+  }
   /** The tiled rain over a materialising character, one per character while the effect lasts. */
   private readonly matrixRain = new Map<number, Phaser.GameObjects.TileSprite>();
   /** One overlay image per character mid-warp, for the styles that play FRAMES rather than
@@ -480,6 +505,7 @@ export class PhaserRenderer {
 
   /** Per-frame sync of furniture (when changed), characters, pets and bubbles. */
   update(): void {
+    this.turn = this.state.driveRotation?.() ?? 0;
     this.syncFurniture();
     this.syncFurnitureAnimation();
     this.syncKarts();
@@ -506,7 +532,7 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
         this.karts.set(kart.id, img);
       }
-      if (kart.driverId) this.drivers.add(kart.driverId);
+      if (kart.driverId) this.drivers.set(kart.driverId, kart.drawHeading ?? kart.heading);
       const frame = vehicleFrame(KART_SHEET, kart.drawHeading ?? kart.heading);
       // A vehicle strip is ONE row of headings, not four rows of facings, so the sheet store's
       // direction is always its first row — the heading is the column.
@@ -576,18 +602,25 @@ export class PhaserRenderer {
     // trick and a bigger number. The kart's x/y is its MIDDLE while a character is anchored at
     // the feet, so with no offset the figure stands on the bodywork and the kart reads as a
     // skateboard. A third of the frame's height puts the torso over the seat at any figure size.
-    const driving = this.drivers.has(ch.id);
-    const sit = driving
-      ? Math.round(frameH * DRIVER_SEAT_FRACTION)
-      : ch.state === CharacterState.TYPE
-        ? CHARACTER_SITTING_OFFSET_PX
-        : 0;
+    const kartHeading = this.drivers.get(ch.id);
+    const sit =
+      kartHeading !== undefined
+        ? Math.round(frameH * DRIVER_SEAT_FRACTION)
+        : ch.state === CharacterState.TYPE
+          ? CHARACTER_SITTING_OFFSET_PX
+          : 0;
+    // While the driving view is turned, a body stays UPRIGHT on screen and changes which picture
+    // it shows instead — that is what makes the driver read as seen from behind without a single
+    // new frame, since a sheet's `up` row already IS the back view. At rotation 0 both lines are
+    // the identity, so every other zone is untouched (driveCamera.int.test.ts pins that).
+    const up = cameraUpHeading(this.turn);
+    const facing = screenFacing(kartHeading ?? facingAngle(ch.dir), up);
 
     // Mid-warp the body is the ordinary atlas sprite with a style applied to it — faded, squeezed,
     // and (for the sweep styles) an overlay tiled over it. Two draws whatever the figure's size;
     // see render/warpFx.ts for which style does what and why.
     const overlay = ch.matrixEffect ? warpOverlay(this.scene, warpStyle(ch.warpStyle).id) : NO_OVERLAY;
-    const tex = sheetCellFrame(this.scene, ch.skin, ch.dir, cell.col, cell.synthSit);
+    const tex = sheetCellFrame(this.scene, ch.skin, facing as Direction, cell.col, cell.synthSit);
     if (!tex) {
       g.body.setVisible(false);
       this.removeWarpArt(ch.id);
@@ -595,7 +628,8 @@ export class PhaserRenderer {
     }
     const depth = ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
     g.body.setTexture(tex.key, tex.frame);
-    g.body.setPosition(ch.x, ch.y + sit);
+    const seat = this.screenOffset(0, sit);
+    g.body.setPosition(ch.x + seat.x, ch.y + seat.y);
     g.body.setDepth(depth);
     g.body.setAlpha(ch.matrixEffect ? warpBodyAlpha(ch) : 1);
     // A style may also move the body itself (implode pulls it thin, spins it and darkens it).
@@ -605,15 +639,17 @@ export class PhaserRenderer {
     const t = ch.matrixEffect ? warpBodyTransform(ch) : null;
     if (t) {
       g.body.setScale(t.scaleX, t.scaleY);
-      g.body.setAngle(t.angle);
-      g.body.setPosition(ch.x, ch.y + sit - (frameH * (1 - t.scaleY)) / 2);
+      g.body.setRotation(-this.turn + (t.angle * Math.PI) / 180);
+      const mid = this.screenOffset(0, sit - (frameH * (1 - t.scaleY)) / 2);
+      g.body.setPosition(ch.x + mid.x, ch.y + mid.y);
       if (t.darken > 0) {
         const v = Math.round(255 * (1 - t.darken));
         g.body.setTint((v << 16) | (v << 8) | v);
       } else g.body.clearTint();
     } else {
       g.body.setScale(1);
-      g.body.setAngle(0);
+      // Upright on screen whatever the view does — see screenOffset.
+      g.body.setRotation(-this.turn);
       g.body.clearTint();
     }
     g.body.setVisible(true);
@@ -679,8 +715,8 @@ export class PhaserRenderer {
     let rowW = MARKER_GAP_PX * Math.max(0, texs.length - 1);
     for (const t of texs) rowW += t.w;
 
-    const baseY = ch.y + sit - (MARKER_ROW_OFFSET_PX * spriteH) / CHARACTER_BASELINE_HEIGHT;
-    let x = ch.x - rowW / 2;
+    const above = sit - (MARKER_ROW_OFFSET_PX * spriteH) / CHARACTER_BASELINE_HEIGHT;
+    let x = -rowW / 2;
     for (let i = 0; i < texs.length; i++) {
       const t = texs[i];
       let img = g.markers[i];
@@ -690,15 +726,18 @@ export class PhaserRenderer {
       }
       if (img.texture.key !== t.key) img.setTexture(t.key);
       img.setDisplaySize(t.w, t.h);
-      let y = baseY;
+      let y = above;
       let rot = 0;
       if (specs[i].sip) {
         const s = sipOffset(this.scene.time.now);
         rot = s.rot;
         y -= s.lift * specs[i].size;
       }
-      img.setRotation(rot);
-      img.setPosition(x + t.w / 2, y).setVisible(true);
+      // The row is laid out in SCREEN space — a row of glyphs over a head reads as a row only if
+      // it stays level with the viewer, whatever the view is doing.
+      const at = this.screenOffset(x + t.w / 2, y);
+      img.setRotation(-this.turn + rot);
+      img.setPosition(ch.x + at.x, ch.y + at.y).setVisible(true);
       x += t.w + MARKER_GAP_PX;
     }
     for (let i = texs.length; i < g.markers.length; i++) g.markers[i].setVisible(false);
