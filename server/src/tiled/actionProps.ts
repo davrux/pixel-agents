@@ -46,6 +46,9 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
     // gate means the finish line and for a slot means pole position.
     case 'raceGate':
       return { kind, gate: Math.max(0, Math.floor(Number(props[`${prefix}Gate`]) || 0)) };
+    case 'racePit':
+    case 'raceRecords':
+      return { kind };
     case 'raceStart':
       return { kind, slot: Math.max(0, Math.floor(Number(props[`${prefix}Slot`]) || 0)) };
     case 'iframe':

@@ -451,5 +451,33 @@ export const RACE_MAX_MS = 6 * 60 * 1000;
  * enough that nobody sits waiting for somebody who has walked away.
  */
 export const RACE_GRACE_MS = 45_000;
+
+// ── Tyres ─────────────────────────────────────────────────────────────────────
+/**
+ * How much grip is left on completely worn tyres, as a share of the spec's.
+ *
+ * Dust Racing's signature mechanic, and the reason it is worth having: it turns a race from
+ * "hold the throttle down" into a decision, because the fastest way round on lap one is not the
+ * fastest way to the flag. Not zero — bald tyres still steer, they just slide — because a car
+ * that becomes undrivable is a car whose driver has already lost, and there is nothing to play.
+ */
+export const TYRE_MIN_GRIP = 0.55;
+/**
+ * How fast tyres wear, per second, at full slide and at full speed.
+ *
+ * SLIDING is what costs them: a clean lap barely marks them and a lap spent sideways ruins them,
+ * which is what makes the tidy line the fast one over three laps. At this rate a hard-driven
+ * three-lap race arrives at the flag with about half a set left, so the pit is a choice on a long
+ * race rather than a chore on every one.
+ */
+export const TYRE_WEAR_SLIDING_PER_SEC = 0.055;
+export const TYRE_WEAR_ROLLING_PER_SEC = 0.006;
+/** How fast a pit stop puts them back, per second. A full set takes about three seconds — long
+ *  enough to be a decision, short enough that taking it is not giving up. */
+export const TYRE_FIT_PER_SEC = 0.34;
+/** Above this speed the pit crew will not work: you have to actually STOP. */
+export const PIT_SPEED_PX_PER_SEC = 45;
+/** Below this the HUD warns, and a computer driver starts looking for the pit lane. */
+export const TYRE_WARN = 0.35;
 /** How long the result board stays up before the track is free again. */
 export const RACE_RESULTS_MS = 9000;

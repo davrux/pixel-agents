@@ -26,7 +26,7 @@ import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/offi
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
 import { RACE_PHASES, raceClock } from '@pixel/shared/office/race/raceState.js';
 import { isDifficulty, DEFAULT_DIFFICULTY } from '@pixel/shared/office/race/racerNames.js';
-import { offerRecord, raceRecords, type RaceRecords } from '../raceRecordStore.js';
+import { allRaceRecords, offerRecord, raceRecords, type RaceRecords } from '../raceRecordStore.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
@@ -887,6 +887,21 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const { winner, loser } of this.os.takeScuffleResults()) {
       petScoreStore.record(this.zone.id, winner, loser);
     }
+  }
+
+  /**
+   * What the timing screen shows: this track's records, at every lap count anybody has raced.
+   *
+   * Every lap count, because that is how they are stored and a board that showed only today's
+   * would hide the three-lap record from somebody running five.
+   */
+  private raceRecordsMessage(): Record<string, unknown> {
+    return {
+      type: 'raceRecords',
+      zone: this.zone.id,
+      label: this.zone.label,
+      rows: allRaceRecords(this.zone.id),
+    };
   }
 
   /** The leaderboard as the whiteboard shows it: slots resolved to the names people know. */
@@ -2024,6 +2039,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.broadcast('m', this.meetingRoomMembersMsg(key));
         continue;
       }
+      if (action.kind === 'raceRecords') {
+        // The timing screen at the end of the pit lane. Same rule as every other kiosk: the answer
+        // goes to whoever walked up to it, not to the zone.
+        const client = this.clients.find((c) => this.players.get(c.sessionId) === id);
+        client?.send('m', this.raceRecordsMessage());
+        continue;
+      }
       if (action.kind === 'petScores') {
         // Only the client that walked up, like every other kiosk: a board is read by whoever stands
         // in front of it, and a broadcast would open a panel on every screen in the zone.
@@ -2228,6 +2250,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.finished = kart.finished;
       ks.sliding = kart.sliding;
       ks.wrongWay = kart.wrongWay;
+      ks.tyre = Math.max(0, Math.min(255, Math.round((kart.tyre || 0) * 255)));
       ks.progress = Math.max(0, Math.min(65535, Math.round(this.os.kartProgress(kart.id) * 100)));
       ks.art = Math.min(255, Math.max(0, kart.art | 0));
       const entry = race.entries.get(kart.id);

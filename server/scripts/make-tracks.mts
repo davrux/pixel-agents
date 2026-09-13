@@ -22,18 +22,21 @@
  * Tilesets and gids are copied from uponu, because a map's own tileset table is what its gids
  * resolve against (see resolveFromTmjTilesets) and inventing one would need a bake.
  *
- * Run: scripts/make-raceway.sh [--check]
+ * TWO tracks come out of it, from one description each: a racing game with one circuit is a
+ * demo. They differ in the things that decide how a lap feels — how long the straights are, how
+ * wide the road is, how many laps, and whether there is a bridge to be shoved off — and share
+ * everything else, because the second track is meant to be another track and not another engine.
+ *
+ * Run: scripts/make-tracks.sh [--check]
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const REPO = path.join(import.meta.dirname, '..', '..');
 const SRC = path.join(REPO, 'assets', 'tiled', 'zones', 'uponu.tmj');
-const OUT = path.join(REPO, 'assets', 'tiled', 'zones', 'raceway.tmj');
+const ZONES = path.join(REPO, 'assets', 'tiled', 'zones');
 const CHECK = process.argv.includes('--check');
 
-const COLS = 76;
-const ROWS = 44;
 /**
  * The track's own tileset, appended after everything uponu carries.
  *
@@ -67,6 +70,50 @@ const kerbAt = (col: number, row: number): number =>
 const roadAt = (col: number, row: number): number =>
   (Math.floor(col / 3) + Math.floor(row / 3)) % 2 === 0 ? gidOf('asphalt') : gidOf('asphaltB');
 
+
+/** What makes one circuit different from another. Everything else is the same generator. */
+interface TrackSpec {
+  /** The zone id and the file name. */
+  id: string;
+  label: string;
+  cols: number;
+  rows: number;
+  /** How wide the road is, in tiles. Five is quick and unforgiving; seven is friendlier. */
+  width: number;
+  laps: number;
+  /** Where the finish line sits, as a column. */
+  startCol: number;
+  /** A stretch of the far straight with no barrier and a drop either side, or none. */
+  bridge: { from: number; to: number; width: number } | null;
+}
+
+const TRACKS: readonly TrackSpec[] = [
+  {
+    id: 'raceway',
+    label: 'Raceway',
+    cols: 76,
+    rows: 44,
+    width: 5,
+    laps: 3,
+    startCol: 40,
+    bridge: { from: 26, to: 46, width: 4 },
+  },
+  {
+    // Shorter, wider and twice as many laps: a circuit you can actually race side by side on,
+    // where the raceway is a test of whether you can keep it out of the pit. No bridge — one
+    // hazard shared by every track would make them the same track with different numbers.
+    id: 'speedway',
+    label: 'Speedway',
+    cols: 48,
+    rows: 34,
+    width: 7,
+    laps: 6,
+    startCol: 26,
+    bridge: null,
+  },
+];
+
+function buildTrack(spec: TrackSpec): { bytes: string; painted: number; markers: number } {
 /**
  * The ring: a road FIVE tiles wide, and that number is the whole difficulty of the track.
  *
@@ -77,11 +124,11 @@ const roadAt = (col: number, row: number): number =>
  * inside, and carrying full throttle in runs out of tarmac. The handling model was never the
  * problem; there was nowhere on the map to feel it.
  */
+const COLS = spec.cols;
+const ROWS = spec.rows;
+const START_LINE_COL = spec.startCol;
 const OUTER = { left: 2, right: COLS - 3, top: 2, bottom: ROWS - 3 };
-const INNER = { left: 7, right: COLS - 8, top: 7, bottom: ROWS - 8 };
-/** Where the lap is counted, and where the chequered band is painted. One constant, so the
- *  picture and the gate cannot drift apart. */
-const START_LINE_COL = 40;
+const INNER = { left: 2 + spec.width, right: COLS - 3 - spec.width, top: 2 + spec.width, bottom: ROWS - 3 - spec.width };
 
 /**
  * The bridge: a stretch of the far straight with nothing beside it.
@@ -96,7 +143,9 @@ const START_LINE_COL = 40;
  * It is not a shortcut and cannot become one: the gates are a ring walked in order, so leaving
  * the road never advances a lap.
  */
-const BRIDGE = { from: 26, to: 46, top: INNER.top - 4, bottom: INNER.top - 1 };
+const BRIDGE = spec.bridge
+  ? { from: spec.bridge.from, to: spec.bridge.to, top: INNER.top - spec.bridge.width, bottom: INNER.top - 1 }
+  : { from: -1, to: -2, top: 0, bottom: -1 };
 const onBridge = (col: number, row: number): boolean =>
   col >= BRIDGE.from && col <= BRIDGE.to && row >= BRIDGE.top && row <= BRIDGE.bottom;
 const overBridgeSpan = (col: number): boolean => col >= BRIDGE.from && col <= BRIDGE.to;
@@ -171,6 +220,10 @@ const marker = (col: number, row: number, props: Array<{ name: string; type: str
   y: row * TILE + TILE / 2,
   properties: props,
 });
+const pit = (col: number, row: number) =>
+  marker(col, row, [{ name: 'actionKind', type: 'string', value: 'racePit' }]);
+const records = (col: number, row: number) =>
+  marker(col, row, [{ name: 'actionKind', type: 'string', value: 'raceRecords' }]);
 const spawn = (col: number, row: number) =>
   marker(col, row, [{ name: 'actionKind', type: 'string', value: 'spawnPoint' }]);
 const gate = (col: number, row: number, index: number) =>
@@ -208,6 +261,20 @@ for (let i = 0; i < GRID_ROWS; i++) {
   const col = START_LINE_COL - 6 - i * 3;
   for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot++));
 }
+
+/**
+ * The pit lane: boxes along the inside of the start-finish straight, just past the line.
+ *
+ * Inside rather than outside because the inside of that straight is the infield wall, so a car
+ * that stops there is out of everybody's way — a pit box in the racing line would be a hazard
+ * rather than a choice. Past the line, so a stop costs you the lap you are on and not the one you
+ * have just completed, which is what makes the decision a real one.
+ */
+for (let col = START_LINE_COL + 3; col <= START_LINE_COL + 10; col++) {
+  objects.push(pit(col, INNER.bottom + 1));
+}
+// The timing screen: one board at the end of the pit lane shows what this track has been lapped in.
+objects.push(records(START_LINE_COL + 12, INNER.bottom + 1));
 
 // Arrive IN the grid, down the lane between its two rows — not wherever the free-tile search
 // happens to land. On a ring this long that is the difference between getting in a kart and
@@ -252,8 +319,8 @@ const map = {
   nextobjectid: objectId,
   orientation: 'orthogonal',
   properties: [
-    { name: 'mapName', type: 'string', value: 'raceway' },
-    { name: 'laps', type: 'int', value: 3 },
+    { name: 'mapName', type: 'string', value: spec.id },
+    { name: 'laps', type: 'int', value: spec.laps },
   ],
   renderorder: 'right-down',
   tiledversion: (src.tiledversion as string) ?? '1.11.0',
@@ -265,16 +332,35 @@ const map = {
   width: COLS,
 };
 
-const json = JSON.stringify(map, null, 1) + '\n';
+  return {
+    bytes: JSON.stringify(map, null, 1) + '\n',
+    painted: ground.filter((g) => g).length,
+    markers: objects.length,
+  };
+}
+
+let differs = false;
+for (const spec of TRACKS) {
+  const out = path.join(ZONES, `${spec.id}.tmj`);
+  const { bytes, painted, markers } = buildTrack(spec);
+  if (CHECK) {
+    const onDisk = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
+    if (onDisk !== bytes) {
+      console.error(`${path.relative(REPO, out)} differs from the generator`);
+      differs = true;
+    }
+    continue;
+  }
+  fs.writeFileSync(out, bytes);
+  console.log(
+    `wrote ${path.relative(REPO, out)} (${spec.cols}x${spec.rows}, ${painted} painted cells, ` +
+      `${markers} markers, ${spec.laps} laps)`,
+  );
+}
 if (CHECK) {
-  const onDisk = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : '';
-  if (onDisk !== json) {
-    console.error(`${OUT} differs from the generator — run scripts/make-raceway.sh`);
+  if (differs) {
+    console.error('run scripts/make-tracks.sh');
     process.exit(1);
   }
-  console.log(`${OUT} matches the generator`);
-} else {
-  fs.writeFileSync(OUT, json);
-  const road = ground.filter((g) => g).length;
-  console.log(`wrote ${OUT} (${COLS}x${ROWS}, ${road} painted cells, ${objects.length} markers, 3 laps)`);
+  console.log(`all ${TRACKS.length} tracks match the generator`);
 }

@@ -29,7 +29,7 @@ import {
 
 import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
-import { RaceHud, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
+import { RaceHud, raceTime, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
 import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
 import {
   CAMERA_TURN_RAD_PER_SEC,
@@ -156,6 +156,7 @@ type RenderKart = {
   art: number;
   wrongWay: boolean;
   progress: number;
+  tyre: number;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -821,6 +822,7 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneMembers') this.onZoneMembers(m);
         else if (m.type === 'petScores') this.openPetScores(m);
+        else if (m.type === 'raceRecords') this.openRaceRecords(m);
         else if (m.type === 'userList') this.onUserList(m);
         else if (m.type === 'onlineUsers') this.onOnlineUsers(m);
         else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
@@ -1074,6 +1076,7 @@ export class OfficeScene extends Phaser.Scene {
         art: 0,
         wrongWay: false,
         progress: 0,
+        tyre: 1,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1157,6 +1160,7 @@ export class OfficeScene extends Phaser.Scene {
     rk.art = (ks.art as number) ?? 0;
     rk.wrongWay = !!ks.wrongWay;
     rk.progress = ((ks.progress as number) ?? 0) / 100;
+    rk.tyre = ((ks.tyre as number) ?? 255) / 255;
   }
 
   /**
@@ -1200,6 +1204,7 @@ export class OfficeScene extends Phaser.Scene {
             lastLapMs: mine.lastLapMs,
             bestLapMs: mine.bestLapMs,
             wrongWay: mine.wrongWay,
+            tyre: mine.tyre,
           }
         : null,
       drivers: [...this.karts.values()]
@@ -1215,6 +1220,7 @@ export class OfficeScene extends Phaser.Scene {
             finishedMs: k.totalMs,
             bestLapMs: k.bestLapMs,
             progress: k.progress,
+            tyre: k.tyre,
             me: k.driverId === this.myPlayerId,
             bot: who?.controller === ControllerKind.RACER,
           };
@@ -3400,6 +3406,49 @@ export class OfficeScene extends Phaser.Scene {
    * has to know that Emma is `dog_0`. Sent to the one client that walked up, which is why this
    * opens a dialog rather than updating something shared.
    */
+  /**
+   * The timing screen at the end of the pit lane: what this track has been lapped in.
+   *
+   * One block per lap count, because that is how a record is kept — a three-lap time says nothing
+   * about a five-lap one — and a board that folded them together would hide one behind the other.
+   */
+  private openRaceRecords(m: Record<string, unknown>): void {
+    const rows = Array.isArray(m.rows)
+      ? (m.rows as Array<{ laps?: unknown; lapMs?: unknown; lapBy?: unknown; raceMs?: unknown; raceBy?: unknown }>)
+      : [];
+    const body = document.createElement('div');
+    if (rows.length === 0) {
+      const empty = document.createElement('p');
+      empty.style.color = '#818586';
+      empty.textContent = 'Nobody has set a time here yet. Get in a car and run /race.';
+      body.appendChild(empty);
+    }
+    for (const r of rows) {
+      const head = document.createElement('div');
+      head.style.cssText = 'color:#e7da00;margin:0.5rem 0 0.2rem;';
+      head.textContent = `${Number(r.laps ?? 0)} laps`;
+      body.appendChild(head);
+      for (const [label, ms, by] of [
+        ['Best lap', Number(r.lapMs ?? 0), String(r.lapBy ?? '')],
+        ['Best race', Number(r.raceMs ?? 0), String(r.raceBy ?? '')],
+      ] as const) {
+        const row = document.createElement('div');
+        row.className = 'pa-list-row';
+        const what = document.createElement('span');
+        what.style.flex = '1';
+        what.textContent = label;
+        const time = document.createElement('span');
+        time.textContent = raceTime(ms);
+        const who = document.createElement('span');
+        who.style.cssText = 'color:#818586;min-width:7rem;text-align:right;';
+        who.textContent = by;
+        row.append(what, time, who);
+        body.appendChild(row);
+      }
+    }
+    openPaDialog({ title: `Track records — ${String(m.label ?? m.zone ?? '')}`, body, buttons: [] });
+  }
+
   private openPetScores(m: Record<string, unknown>): void {
     const rows = Array.isArray(m.rows)
       ? (m.rows as Array<{ name?: unknown; wins?: unknown; losses?: unknown }>)

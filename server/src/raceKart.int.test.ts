@@ -406,3 +406,79 @@ test('too much gas runs a corner wide; lifting makes it', () => {
     `a gripping corner is not the radius it was steered to: ${lifted.radius.toFixed(0)} vs ${KART_TURN_RADIUS_PX}`,
   );
 });
+
+test('tyres wear on the slide, not on the straight, and grip goes with them', () => {
+  // The mechanic this whole thing turns on: what costs a set of tyres is SLIDING, so the tidy
+  // line is the fast one over three laps and a race is a decision rather than a held throttle.
+  const { track } = world();
+  const SIDE = 80;
+  const tileMap: number[][] = Array.from({ length: SIDE }, () => new Array<number>(SIDE).fill(0));
+  const w: KartWorld = { tileMap, blockedTiles: new Set<string>(), track };
+
+  const run = (steer: -1 | 0 | 1): number => {
+    const kart = createKart(1, at(SIDE / 2, SIDE / 2), 0);
+    kart.driverId = 42;
+    kart.vx = KART_MAX_SPEED_PX_PER_SEC;
+    kart.state = 'drive';
+    drive(kart, w, 6, { throttle: 1, steer });
+    return kart.tyre;
+  };
+  const straight = run(0);
+  const sideways = run(1);
+  assert.ok(straight > 0.9, `a straight line cost too much tyre: ${straight.toFixed(2)} left`);
+  assert.ok(sideways < straight - 0.15, `sliding cost no more than driving straight: ${sideways.toFixed(2)}`);
+  assert.ok(sideways > 0, 'six seconds destroyed a whole set');
+
+  // Worn tyres slide sooner — the reason a stop can be worth the time it costs.
+  const cornerAt = (tyre: number): number => {
+    const kart = createKart(2, at(SIDE / 2, SIDE / 2), 0);
+    kart.driverId = 42;
+    kart.vx = KART_MAX_SPEED_PX_PER_SEC;
+    kart.state = 'drive';
+    kart.tyre = tyre;
+    let slip = 0;
+    for (let i = 0; i < 60; i++) {
+      kart.input = { throttle: 1, steer: 1 };
+      updateKart(kart, DT, w);
+      const hx = Math.cos(kart.heading);
+      const hy = Math.sin(kart.heading);
+      const along = kart.vx * hx + kart.vy * hy;
+      const side = -kart.vx * hy + kart.vy * hx;
+      if (Math.abs(along) > 20) slip = Math.max(slip, Math.abs(Math.atan2(side, Math.abs(along))));
+    }
+    return (slip * 180) / Math.PI;
+  };
+  assert.ok(cornerAt(0.05) > cornerAt(1) * 1.15, 'bald tyres cornered as well as fresh ones');
+  // …but never undrivable: a car nobody can steer is a driver who has already lost.
+  assert.ok(cornerAt(0) < 75, 'bald tyres are uncontrollable rather than slow');
+});
+
+test('a pit box puts tyres back, and only when you actually stop', () => {
+  const { track } = world();
+  assert.ok(track.pit.size === 0, 'the hand-built oval is not supposed to have a pit lane');
+  // Give it one, right where the car is.
+  const box = `${11},${7}`;
+  const withPit = { ...track, pit: new Set([box]) };
+  const SIDE = 80;
+  const tileMap: number[][] = Array.from({ length: SIDE }, () => new Array<number>(SIDE).fill(0));
+  const w: KartWorld = { tileMap, blockedTiles: new Set<string>(), track: withPit };
+
+  const kart = createKart(1, at(11, 7), 0);
+  kart.driverId = 42;
+  kart.state = 'drive';
+  kart.tyre = 0.2;
+  // Stopped on the box: the crew works.
+  drive(kart, w, 2, { throttle: 0 });
+  assert.ok(kart.tyre > 0.6, `a stop changed nothing: ${kart.tyre.toFixed(2)}`);
+  assert.ok(kart.tyre <= 1, 'tyres went past new');
+
+  // Driving THROUGH it at speed does not.
+  const flying = createKart(2, at(11, 7), 0);
+  flying.driverId = 42;
+  flying.state = 'drive';
+  flying.tyre = 0.2;
+  flying.vx = KART_MAX_SPEED_PX_PER_SEC;
+  const before = flying.tyre;
+  updateKart(flying, DT, w);
+  assert.ok(flying.tyre <= before, 'a car flying through the pit lane had its tyres changed');
+});

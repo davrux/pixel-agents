@@ -77,6 +77,26 @@ export function offerRecord(zoneId: string, laps: number, kind: RaceRecordKind, 
   return result.changes > 0;
 }
 
+/** Every record a zone holds, newest lap count first — what the timing screen shows. */
+export function allRaceRecords(zoneId: string): Array<{ laps: number; lapMs: number; lapBy: string; raceMs: number; raceBy: string }> {
+  const rows = db
+    .prepare('SELECT laps, kind, ms, holder FROM race_records WHERE zone_id = ? ORDER BY laps ASC')
+    .all(zoneId) as Array<{ laps: number; kind: string; ms: number; holder: string }>;
+  const byLaps = new Map<number, { laps: number; lapMs: number; lapBy: string; raceMs: number; raceBy: string }>();
+  for (const r of rows) {
+    let e = byLaps.get(r.laps);
+    if (!e) byLaps.set(r.laps, (e = { laps: r.laps, lapMs: 0, lapBy: '', raceMs: 0, raceBy: '' }));
+    if (r.kind === 'lap') {
+      e.lapMs = r.ms;
+      e.lapBy = r.holder;
+    } else {
+      e.raceMs = r.ms;
+      e.raceBy = r.holder;
+    }
+  }
+  return [...byLaps.values()];
+}
+
 /** Every record a zone holds — for a board, and for the delete path. */
 export function clearRaceRecords(zoneId: string): void {
   db.prepare('DELETE FROM race_records WHERE zone_id = ?').run(zoneId);

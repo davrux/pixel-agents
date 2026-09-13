@@ -163,6 +163,9 @@ export class KartSync extends PawnSync {
    * A `uint16` holds 655 laps at a hundredth each, which is finer than any gap anybody reads.
    */
   @type('uint16') progress = 0;
+  /** How much tyre is left, 0…255 for 0…1. A byte because a driver reads a BAR, and a bar has
+   *  nowhere near 256 steps in it. */
+  @type('uint8') tyre = 255;
   /** Going the wrong way round. Synced rather than derived, so every viewer warns the same driver
    *  at the same moment — and because a client has no velocity to derive it from. */
   @type('boolean') wrongWay = false;

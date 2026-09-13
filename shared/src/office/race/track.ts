@@ -39,6 +39,9 @@ export interface RaceTrack {
   /** Grid slots in starting order, as pixel positions. */
   grid: readonly { x: number; y: number }[];
   laps: number;
+  /** `"col,row"` of every pit box. Empty on a track with no pit lane, which simply means tyres
+   *  cannot be changed there — not that they do not wear. */
+  pit: ReadonlySet<string>;
 }
 
 const DEFAULT_LAPS = 3;
@@ -60,6 +63,7 @@ const centre = (col: number, row: number): { x: number; y: number } => ({
 export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const byGate = new Map<number, { tiles: Set<string>; sx: number; sy: number; n: number }>();
   const grid: Array<{ slot: number; x: number; y: number }> = [];
+  const pit = new Set<string>();
   const actions = layout.tileActions ?? [];
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i] as Action | null;
@@ -79,6 +83,8 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
       g.n++;
     } else if (action.kind === 'raceStart') {
       grid.push({ slot: action.slot, ...centre(col, row) });
+    } else if (action.kind === 'racePit') {
+      pit.add(key(col, row));
     }
   }
   if (byGate.size < 2 || grid.length === 0) return null;
@@ -91,7 +97,13 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     gates,
     grid: grid.sort((a, b) => a.slot - b.slot).map(({ x, y }) => ({ x, y })),
     laps: Math.max(1, Math.floor(layout.laps ?? DEFAULT_LAPS)),
+    pit,
   };
+}
+
+/** Is this tile a pit box? */
+export function inPit(track: RaceTrack, col: number, row: number): boolean {
+  return track.pit.has(key(col, row));
 }
 
 /** Which gate covers this tile, or null. */

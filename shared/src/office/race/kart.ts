@@ -42,12 +42,17 @@ import {
   KART_RADIUS_PX,
   KART_STEER_AT_REST,
   KART_STEER_RAD_PER_SEC,
+  PIT_SPEED_PX_PER_SEC,
+  TYRE_FIT_PER_SEC,
+  TYRE_MIN_GRIP,
+  TYRE_WEAR_ROLLING_PER_SEC,
+  TYRE_WEAR_SLIDING_PER_SEC,
 } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
 import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
-import { gateAt, headingFrom, nextGate, wrapAngle, type RaceTrack } from './track.js';
+import { gateAt, headingFrom, inPit, nextGate, wrapAngle, type RaceTrack } from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
 export interface KartInput {
@@ -95,6 +100,14 @@ export interface Kart {
    * two viewers guessing from successive positions would disagree about where the marks go.
    */
   sliding: boolean;
+  /**
+   * How much tyre is left, 1 (fresh) down to 0 (bald).
+   *
+   * The one number that makes a race a race rather than a held throttle: grip falls with it, and
+   * what wears them is SLIDING, so the tidy line is the fast one over three laps. Restored by
+   * stopping in a pit box.
+   */
+  tyre: number;
   /** Travelling the wrong way round the circuit. A world fact, so every viewer warns the same
    *  driver at the same moment. */
   wrongWay: boolean;
@@ -128,6 +141,7 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     art: 0,
     sliding: false,
     wrongWay: false,
+    tyre: 1,
   };
 }
 
@@ -232,8 +246,10 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(spec.maxSpeed, along));
 
   // The tyres kill at most this much sideways speed this tick — a LIMIT, not a fraction. Beyond
-  // it the kart slides, and that is the drift.
-  const lateral = spec.grip * Math.sqrt(Math.max(0, 1 - power * power));
+  // it the kart slides, and that is the drift. Worn tyres have less of it, which is the whole of
+  // why a pit stop can be worth the time it costs.
+  const wear = TYRE_MIN_GRIP + (1 - TYRE_MIN_GRIP) * Math.max(0, Math.min(1, kart.tyre));
+  const lateral = spec.grip * wear * Math.sqrt(Math.max(0, 1 - power * power));
   const bite = lateral * dt;
   side -= Math.sign(side) * Math.min(Math.abs(side), bite);
 
@@ -258,6 +274,22 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   } else kart.sliding = false;
 
   kart.state = kart.driverId === null ? 'idle' : 'drive';
+
+  // ── tyres ─────────────────────────────────────────────────────────────────
+  // Stopped in a pit box, they go back on; anywhere else they wear, and it is SLIDING that costs
+  // them. Rolling wear is there so a long race still ends on older tyres than it started, but it
+  // is an order of magnitude smaller — the line you drive is what decides.
+  const stopped = Math.hypot(kart.vx, kart.vy) < PIT_SPEED_PX_PER_SEC;
+  if (stopped && inPit(world.track, tileOf(kart.x), tileOf(kart.y))) {
+    kart.tyre = Math.min(1, kart.tyre + TYRE_FIT_PER_SEC * dt);
+  } else if (kart.driverId !== null) {
+    const pace = Math.min(1, Math.abs(along) / Math.max(1, spec.maxSpeed));
+    const slide = Math.min(1, Math.abs(side) / 60);
+    kart.tyre = Math.max(
+      0,
+      kart.tyre - (TYRE_WEAR_ROLLING_PER_SEC * pace + TYRE_WEAR_SLIDING_PER_SEC * slide) * dt,
+    );
+  }
 
   // ── moving ────────────────────────────────────────────────────────────────
   const dx = kart.vx * dt;

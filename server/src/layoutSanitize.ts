@@ -179,6 +179,10 @@ export function sanitizeAction(raw: unknown): Action | null {
       return { kind: 'raceGate', gate: raceIndex(rec.gate) };
     case 'raceStart':
       return { kind: 'raceStart', slot: raceIndex(rec.slot) };
+    case 'racePit':
+      return { kind: 'racePit' };
+    case 'raceRecords':
+      return { kind: 'raceRecords' };
     default:
       return null;
   }

@@ -542,6 +542,11 @@ export type Action =
   | { kind: 'raceGate'; gate: number }
   /** A slot on the starting grid, `slot` being the order karts are placed in (0 = pole). */
   | { kind: 'raceStart'; slot: number }
+  /** A pit box: stop on one of these and the tyres go back on. */
+  | { kind: 'racePit' }
+  /** A board that shows this track's records. Like `petScores`, it is a property of a PLACEMENT —
+   *  one whiteboard becomes the timing screen and every other one stays a whiteboard. */
+  | { kind: 'raceRecords' }
   /**
    * A talking object: it speaks by itself, with nobody there. On every full
    * hour it says the time — a speech bubble reading `9 UHR, 9 UHR !!!` — and
