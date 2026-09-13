@@ -54,7 +54,7 @@ test('the committed map imports as a track: four gates, a grid, its lap count', 
   assert.ok(track, 'raceway.tmj is not recognised as a race track');
   assert.equal(track.gates.length, 4, `gates: ${track.gates.length}`);
   assert.equal(track.laps, 3, 'the laps property did not survive the import');
-  assert.equal(track.grid.length, 8, `grid slots: ${track.grid.length}`);
+  assert.equal(track.grid.length, 12, `grid slots: ${track.grid.length}`);
   // Each gate is a LINE across the road, or a kart drives past it — and it has to span whatever
   // the road IS at that column. Gate 2 sits on the bridge, which is three tiles rather than five.
   for (const gate of track.gates) {
@@ -73,7 +73,7 @@ test('the map survives the save path: a stored track is still a track', () => {
   const track = raceTrack(stored);
   assert.ok(track, 'the stored map is no longer a race track');
   assert.equal(track.gates.length, 4, `gates after a save: ${track.gates.length}`);
-  assert.equal(track.grid.length, 8, `grid slots after a save: ${track.grid.length}`);
+  assert.equal(track.grid.length, 12, `grid slots after a save: ${track.grid.length}`);
   assert.equal(track.laps, 3, 'the lap count did not survive a save');
 });
 

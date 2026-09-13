@@ -39,7 +39,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'race',
     group: 'user',
-    usage: '/race [stop]',
+    usage: '/race [easy|medium|hard|stop]',
     summary: 'Start a race for everyone in a kart, on a track. Without one, drive around as long as you like.',
   },
   {

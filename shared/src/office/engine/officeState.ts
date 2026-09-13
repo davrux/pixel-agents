@@ -44,10 +44,13 @@ import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
 import { racerInput } from '../race/racerDriver.js';
-import { RACER_NAMES, RACER_SKILLS } from '../race/racerNames.js';
+import { DIFFICULTY, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
 import {
   completeLap,
   createRace,
+  markFinalLap,
+  takeNotices,
+  type RaceNotice,
   retireKart,
   standings,
   startRace,
@@ -55,7 +58,14 @@ import {
   tickRace,
   type Race,
 } from '../race/raceState.js';
-import { headingFrom, raceProgress, raceTrack, type RaceTrack } from '../race/track.js';
+import {
+  goingBackwards,
+  headingFrom,
+  lapFraction,
+  raceProgress,
+  raceTrack,
+  type RaceTrack,
+} from '../race/track.js';
 import { canStep, DIRS_4, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
 import {
@@ -242,6 +252,9 @@ export class OfficeState {
    *  thing that keeps it bounded — see clearRacers. */
   private racers = new Set<number>();
   private nextRacerName = 0;
+  /** How hard the computer drivers are in the RUNNING race — set when it starts, so changing it
+   *  cannot alter one already under way. */
+  private difficulty: RaceDifficulty = 'medium';
   private nextKartId = 3_000_000;
 
   // ── Pets ──────────────────────────────────────────────────
@@ -1122,6 +1135,27 @@ export class OfficeState {
     return this.race;
   }
 
+  /** What the race has announced since the last call — the room turns these into chat lines and
+   *  banners. Drained, like the scuffle results, so the engine writes to nothing itself. */
+  takeRaceNotices(): RaceNotice[] {
+    return takeNotices(this.race);
+  }
+
+  /** How far round the whole race this kart is, in laps — the number a running order's gaps are
+   *  measured in. 0 where there is no track. */
+  kartProgress(kartId: number): number {
+    const kart = this.karts.get(kartId);
+    if (!this.track || !kart) return 0;
+    return raceProgress(this.track, kart.lap, kart.gate, kart.x, kart.y) / this.track.gates.length;
+  }
+
+  /** The name to show for whoever drives this kart — a person's display name or a racer's. */
+  kartDriverName(kartId: number): string {
+    const kart = this.karts.get(kartId);
+    const ch = kart?.driverId !== null && kart?.driverId !== undefined ? this.characters.get(kart.driverId) : null;
+    return ch?.folderName ?? '';
+  }
+
   /**
    * Put the lights on for everyone currently in a seat.
    *
@@ -1130,10 +1164,11 @@ export class OfficeState {
    * refused rather than arbitrated. Karts are gathered onto the grid in the order they happen to
    * be in, which is as fair as anything else and does not need a qualifying session.
    */
-  startRace(): boolean {
+  startRace(difficulty: RaceDifficulty = 'medium', records = { lapMs: 0, raceMs: 0 }): boolean {
     if (!this.track) return false;
     const driven = [...this.karts.values()].filter((k) => k.driverId !== null);
     if (driven.length === 0) return false;
+    this.difficulty = difficulty;
     // Fill the rest of the grid with computer drivers. A race with nobody in it is not a race:
     // bumping has nothing to bump, a position is a number with no one behind it, and a lap time
     // is a stopwatch. They exist only while the race does — see `clearRacers`.
@@ -1145,7 +1180,13 @@ export class OfficeState {
       kart.state = 'drive';
       driven.push(kart);
     }
-    if (!startRace(this.race, this.track, driven.map((k) => k.id))) return false;
+    const entrants = driven.map((k) => ({
+      kartId: k.id,
+      // Who the race WAITS for. A computer driver still circulating must not keep a person on a
+      // results board they have finished with.
+      human: k.driverId !== null && !this.racers.has(k.driverId),
+    }));
+    if (!startRace(this.race, this.track, entrants, records)) return false;
     const heading = headingFrom(this.track, this.track.gates[0]);
     driven.forEach((kart, i) => {
       const slot = this.track!.grid[i % this.track!.grid.length];
@@ -1189,7 +1230,12 @@ export class OfficeState {
     ch.folderName = name;
     // Spread over the field so the grid is a range of pace rather than a train: the first one out
     // is the quick one, and there is always somebody a beginner can beat.
-    ch.racerSkill = RACER_SKILLS[this.racers.size % RACER_SKILLS.length];
+    // Difficulty scales the whole field rather than adding a rival: the same spread of pace,
+    // slower or quicker as a set, so there is still somebody to beat at every level.
+    ch.racerSkill = Math.max(
+      0.15,
+      Math.min(1, RACER_SKILLS[this.racers.size % RACER_SKILLS.length] * DIFFICULTY[this.difficulty]),
+    );
     this.characters.set(id, ch);
     this.racers.add(id);
     return id;
@@ -1245,10 +1291,32 @@ export class OfficeState {
     }
     if (this.race.phase === 'racing') {
       const track = this.track;
-      standings(this.race, (id) => {
+      const progressOf = (id: number): number => {
         const k = this.karts.get(id);
         return k ? raceProgress(track, k.lap, k.gate, k.x, k.y) : 0;
-      });
+      };
+      standings(this.race, progressOf);
+      // The chequered flag comes out for the LEADER, so everybody sees it at the same moment
+      // rather than each driver on their own last lap.
+      let lead: Kart | null = null;
+      let best = -1;
+      for (const id of this.race.entries.keys()) {
+        const p = progressOf(id);
+        if (p > best) {
+          best = p;
+          lead = this.karts.get(id) ?? null;
+        }
+      }
+      if (lead) markFinalLap(this.race, lead.lap, lapFraction(track, lead.gate, lead.x, lead.y));
+    }
+    // Who is going the wrong way — asked every tick, of everyone, because it is a warning and a
+    // warning that arrives late is no warning.
+    for (const kart of this.karts.values()) {
+      kart.wrongWay =
+        kart.driverId !== null &&
+        kart.state === 'drive' &&
+        !kart.finished &&
+        goingBackwards(this.track, kart.gate, kart.x, kart.y, kart.vx, kart.vy);
     }
     const list = [...this.karts.values()];
     for (let i = 0; i < list.length; i++) {

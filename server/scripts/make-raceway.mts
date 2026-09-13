@@ -196,9 +196,16 @@ for (let col = INNER.right + 1; col <= OUTER.right; col++) objects.push(gate(col
 const gate2Top = overBridgeSpan(midCol) ? BRIDGE.top : OUTER.top;
 for (let row = gate2Top; row <= INNER.top - 1; row++) objects.push(gate(midCol, row, 2));
 for (let col = OUTER.left; col <= INNER.left - 1; col++) objects.push(gate(col, midRow, 3));
-/** The grid: four rows of two behind the line, on the long start-finish straight. */
+/**
+ * The grid: six rows of two behind the line, on the long start-finish straight.
+ *
+ * Twelve, which is the field Dust Racing runs. Eight was a compromise with a shorter straight;
+ * this one is seventy tiles long and there is no reason to leave four cars in the garage.
+ */
 let slot = 0;
-for (const col of [START_LINE_COL - 6, START_LINE_COL - 9, START_LINE_COL - 12, START_LINE_COL - 15]) {
+const GRID_ROWS = 6;
+for (let i = 0; i < GRID_ROWS; i++) {
+  const col = START_LINE_COL - 6 - i * 3;
   for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot++));
 }
 
@@ -206,8 +213,7 @@ for (const col of [START_LINE_COL - 6, START_LINE_COL - 9, START_LINE_COL - 12, 
 // happens to land. On a ring this long that is the difference between getting in a kart and
 // walking half a lap to find one, and it was measured: a spawn seven tiles up the straight is
 // already out of reach of every kart on it.
-const gridCols = [START_LINE_COL - 15, START_LINE_COL - 12, START_LINE_COL - 9, START_LINE_COL - 6];
-for (const col of gridCols) objects.push(spawn(col, INNER.bottom + 3));
+for (let i = 0; i < GRID_ROWS; i++) objects.push(spawn(START_LINE_COL - 6 - i * 3, INNER.bottom + 3));
 
 const tileLayer = (id: number, name: string, cls: string, data: number[]) => ({
   data,

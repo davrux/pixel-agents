@@ -24,7 +24,9 @@ import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteDat
 import { CharacterSync, KartSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
-import { RACE_PHASES } from '@pixel/shared/office/race/raceState.js';
+import { RACE_PHASES, raceClock } from '@pixel/shared/office/race/raceState.js';
+import { isDifficulty, DEFAULT_DIFFICULTY } from '@pixel/shared/office/race/racerNames.js';
+import { offerRecord, raceRecords, type RaceRecords } from '../raceRecordStore.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
@@ -184,6 +186,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * outright (onLeave, portalGo).
    */
   private readonly voiceChannels = new Map<number, string>();
+  /** The track records for the lap count of the running (or last) race, kept so the wire can
+   *  carry the holders' names without a query per patch. */
+  private records: RaceRecords = { lapMs: 0, lapBy: '', raceMs: 0, raceBy: '' };
   /** Seconds until the next player-spot checkpoint (see checkpointSpots). */
   private spotCheckpointIn = SPOT_CHECKPOINT_SEC;
   /** The spot last written per user, so a checkpoint only writes what changed —
@@ -1769,10 +1774,21 @@ export class SimRoom extends Room<{ state: RoomState }> {
         return;
       }
       if (this.os.raceInfo().phase !== 'idle') return void sys('A race is already under way.');
-      if (!this.os.startRace()) return void sys('Nobody is in a kart — get in one first (E).');
+      const difficulty = isDifficulty(args[0]) ? args[0] : DEFAULT_DIFFICULTY;
+      if (args[0] && !isDifficulty(args[0]) && args[0] !== 'stop') {
+        return void sys('Difficulty is easy, medium or hard.');
+      }
+      const laps = this.os.raceTrack()?.laps ?? 0;
+      this.records = raceRecords(this.zone.id, laps);
+      if (!this.os.startRace(difficulty, { lapMs: this.records.lapMs, raceMs: this.records.raceMs })) {
+        return void sys('Nobody is in a kart — get in one first (E).');
+      }
       this.broadcast('m', {
         type: 'system',
-        text: `${me.username} started a race — ${this.os.raceInfo().laps} laps!`,
+        text:
+          `${me.username} started a ${difficulty} race — ${laps} laps` +
+          (this.records.raceMs ? `, record ${raceClock(this.records.raceMs)} by ${this.records.raceBy}` : '') +
+          '!',
       });
       return;
     }
@@ -1949,6 +1965,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.syncPets();
     this.syncKarts();
     this.syncRace();
+    this.announceRace();
     this.syncFurnitureOn();
     this.recordScuffleResults();
     this.checkpointSpots(dt);
@@ -2210,6 +2227,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.gate = Math.min(255, kart.gate);
       ks.finished = kart.finished;
       ks.sliding = kart.sliding;
+      ks.wrongWay = kart.wrongWay;
+      ks.progress = Math.max(0, Math.min(65535, Math.round(this.os.kartProgress(kart.id) * 100)));
       ks.art = Math.min(255, Math.max(0, kart.art | 0));
       const entry = race.entries.get(kart.id);
       ks.place = Math.min(255, entry?.place ?? 0);
@@ -2232,6 +2251,49 @@ export class SimRoom extends Room<{ state: RoomState }> {
     r.timerMs = Math.max(0, Math.min(0xffffffff, Math.round(race.timerMs) || 0));
     r.laps = Math.min(255, race.laps);
     r.entries = Math.min(255, race.entries.size);
+    r.finalLap = race.finalLap;
+    // The records as they stand THIS instant, including one set a moment ago — the board is meant
+    // to update the moment somebody beats it.
+    r.recordLapMs = Math.max(0, Math.min(0xffffffff, Math.round(race.recordLapMs) || 0));
+    r.recordRaceMs = Math.max(0, Math.min(0xffffffff, Math.round(race.recordRaceMs) || 0));
+    r.recordLapBy = this.records.lapBy.slice(0, 64);
+    r.recordRaceBy = this.records.raceBy.slice(0, 64);
+  }
+
+  /**
+   * Turn what the race announced into chat lines, and put new records in the database.
+   *
+   * Drained rather than pushed, like the scuffle results: the engine writes to no store and knows
+   * nothing about a zone id. Records are offered to SQL, which decides — two zones in one process
+   * share the connection, and a record is exactly the value a lost update makes nonsense of.
+   */
+  private announceRace(): void {
+    const notices = this.os.takeRaceNotices();
+    if (notices.length === 0) return;
+    const laps = this.os.raceInfo().laps;
+    for (const n of notices) {
+      const who = n.kartId ? this.os.kartDriverName(n.kartId) || 'a driver' : '';
+      const t = raceClock(n.ms);
+      if (n.kind === 'finalLap') {
+        this.broadcast('m', { type: 'system', text: '🏁 Final lap!' });
+      } else if (n.kind === 'lapRecord') {
+        if (offerRecord(this.zone.id, laps, 'lap', n.ms, who)) {
+          this.records = raceRecords(this.zone.id, laps);
+          this.broadcast('m', { type: 'system', text: `⏱ ${who} set a new lap record: ${t}` });
+        }
+      } else if (n.kind === 'raceRecord') {
+        if (offerRecord(this.zone.id, laps, 'race', n.ms, who)) {
+          this.records = raceRecords(this.zone.id, laps);
+          this.broadcast('m', { type: 'system', text: `🏆 ${who} set a new race record: ${t}` });
+        }
+      } else if (n.kind === 'won') {
+        this.broadcast('m', { type: 'system', text: `🏁 ${who} wins in ${t}!` });
+      } else if (n.kind === 'finished') {
+        this.broadcast('m', { type: 'system', text: `${n.place}. ${who} — ${t}` });
+      }
+      // A plain lap time is deliberately NOT broadcast: eight drivers times three laps is
+      // twenty-four lines of chat nobody reads, and the HUD already shows your own.
+    }
   }
 
   /**

@@ -1,17 +1,27 @@
 /**
- * What a race looks like from the driver's seat: the lights, the lap counter, the board.
+ * What a race looks like from the driver's seat: lights, position, times, the field, the flag.
  *
- * DOM over the canvas, like every other overlay here, for the reason the rest of them are: this
- * is text that must stay upright and crisp while the world turns underneath it, and the driving
+ * DOM over the canvas, like every other overlay here, for the reason the rest of them are: this is
+ * text that must stay upright and crisp while the world turns underneath it, and the driving
  * camera rotates the canvas. A Phaser text object would have to be counter-rotated, re-rasterised
  * per zoom, and kept out of the depth sort.
  *
  * It renders from a plain model the scene assembles out of synced state and owns no truth of its
- * own — the phase, the timer, the places and the times are all decisions, and all of them are the
- * server's. The one thing it decides is what to SHOW: nothing at all when there is no race, which
- * is the normal state of a track and is why the panel is created lazily and hidden rather than
- * rebuilt.
+ * own — the phase, the timer, the places, the times and the records are all decisions, and all of
+ * them are the server's. The one thing it decides is what to SHOW, and that is where most of the
+ * thinking is:
+ *
+ *  - **Position first and biggest.** It is the one number a driver looks at mid-corner, and a race
+ *    where you cannot see yourself losing is a time trial with extra cars in it.
+ *  - **The field is a table, not a list of names.** Place, who, and the GAP — how far behind the
+ *    leader, in seconds where a lap time exists to scale it, and in laps once somebody is lapped.
+ *    A running order with no gaps says who is ahead but never how hard they are to catch.
+ *  - **A banner is one line, centred, and short-lived.** "GO!", "FINAL LAP", a new record. Anything
+ *    that has to be read while driving competes with the corner.
+ *  - **Nothing at all when there is no race**, which is the normal state of a track — so the panel
+ *    is created lazily and hidden rather than rebuilt.
  */
+import { raceClock } from '@pixel/shared/office/race/raceState.js';
 import { RACE_PHASES, type RacePhase } from '@pixel/shared/office/race/raceState.js';
 
 export interface RaceHudDriver {
@@ -21,8 +31,12 @@ export interface RaceHudDriver {
   /** Total race time in ms once finished, else 0. */
   finishedMs: number;
   bestLapMs: number;
-  /** This viewer's own kart. */
+  /** How far round the whole race, in laps — used for the gap and for the order. */
+  progress: number;
+  /** This viewer's own car. */
   me: boolean;
+  /** A computer driver. */
+  bot: boolean;
 }
 
 export interface RaceHudModel {
@@ -30,57 +44,75 @@ export interface RaceHudModel {
   timerMs: number;
   laps: number;
   entries: number;
-  /** Lamps lit, 0-3, and whether it is green. Computed from the same clock the engine releases
-   *  the karts on, so the light and the launch cannot disagree. */
+  /** Lamps lit, 0-3, and whether it is green. */
   lit: number;
   go: boolean;
+  finalLap: boolean;
+  /** The track's standing records and who holds them. */
+  recordLapMs: number;
+  recordLapBy: string;
+  recordRaceMs: number;
+  recordRaceBy: string;
   /** This viewer, when they are in the race. */
-  own: { lap: number; place: number; lastLapMs: number; bestLapMs: number } | null;
-  /** Everyone, for the board at the end. */
+  own: { lap: number; place: number; lastLapMs: number; bestLapMs: number; wrongWay: boolean } | null;
   drivers: RaceHudDriver[];
 }
 
-/** mm:ss.mmm, or a dash for "no time yet" — a board full of 0:00.000 reads as a bug. */
-export function raceTime(ms: number): string {
-  if (!ms || ms <= 0) return '—';
-  const total = Math.round(ms);
-  const m = Math.floor(total / 60000);
-  const s = Math.floor((total % 60000) / 1000);
-  const cs = Math.floor((total % 1000) / 10);
-  return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
-}
+/** m:ss.cc, or a dash — the same formatter the server uses for its chat lines. */
+export const raceTime = raceClock;
 
 const CSS = `
-.pa-race-lights{position:absolute;left:50%;top:14%;transform:translateX(-50%);display:flex;gap:0.6rem;
+.pa-race-lights{position:absolute;left:50%;top:13%;transform:translateX(-50%);display:flex;gap:0.6rem;
   z-index:48;pointer-events:none;}
 .pa-race-lights i{width:2.2rem;height:2.2rem;border-radius:50%;border:2px solid #0a0908;background:#141312;
   box-shadow:inset 0 2px 0 #37342f;display:block;}
 .pa-race-lights i.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,0 0 12px rgba(197,26,27,.7);}
 .pa-race-lights i.go{background:#5aa348;box-shadow:inset 0 2px 0 #7fbf6a,0 0 14px rgba(127,191,106,.8);}
-.pa-race-info{position:absolute;left:50%;top:calc(14% + 3.2rem);transform:translateX(-50%);z-index:48;
-  pointer-events:none;font:1.4rem 'FS Pixel Sans',monospace;color:#f5f3f0;text-shadow:0 0 4px #000,0 0 4px #000;}
+.pa-race-banner{position:absolute;left:50%;top:calc(13% + 3.4rem);transform:translateX(-50%);z-index:48;
+  pointer-events:none;font:1.5rem 'FS Pixel Sans',monospace;color:#f5f3f0;white-space:nowrap;
+  text-shadow:0 0 4px #000,0 0 4px #000,0 0 8px #000;}
+.pa-race-banner.warn{color:#e7da00;}
+.pa-race-banner.bad{color:#e2585a;}
+
 .pa-race-hud{position:absolute;right:0.8rem;top:4.2rem;z-index:47;pointer-events:none;
-  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.5rem 0.7rem;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.5rem 0.6rem;min-width:15rem;
   box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;}
-.pa-race-hud b{color:#e7da00;font-weight:normal;}
-.pa-race-hud .dim{color:#adb0b2;}
-.pa-race-hud hr{border:0;border-top:2px solid #0a0908;margin:0.35rem 0;}
-.pa-race-hud .row{display:flex;justify-content:space-between;gap:1rem;padding:0.05rem 0;}
-.pa-race-hud .row.me{color:#e7da00;}
-.pa-race-board{position:absolute;left:50%;top:22%;transform:translateX(-50%);z-index:49;pointer-events:none;
-  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.7rem 1rem;min-width:16rem;
+.pa-race-hud .top{display:flex;align-items:baseline;gap:0.6rem;}
+.pa-race-hud .pos{font-size:2rem;color:#e7da00;line-height:1;}
+.pa-race-hud .pos small{font-size:0.9rem;color:#adb0b2;}
+.pa-race-hud .lap{font-size:1.1rem;}
+.pa-race-hud .clock{margin-left:auto;font-size:1.1rem;}
+.pa-race-hud .times{color:#adb0b2;margin-top:0.15rem;}
+.pa-race-hud .rec{color:#818586;}
+.pa-race-hud hr{border:0;border-top:2px solid #0a0908;margin:0.4rem -0.6rem;}
+.pa-race-hud table{width:100%;border-collapse:collapse;}
+.pa-race-hud td{padding:0.05rem 0;white-space:nowrap;}
+.pa-race-hud td.p{width:1.4rem;color:#adb0b2;}
+.pa-race-hud td.g{text-align:right;color:#adb0b2;padding-left:0.8rem;}
+.pa-race-hud tr.me td{color:#e7da00;}
+.pa-race-hud tr.me td.p,.pa-race-hud tr.me td.g{color:#e7da00;}
+.pa-race-hud tr.out td{color:#818586;}
+
+.pa-race-board{position:absolute;left:50%;top:18%;transform:translateX(-50%);z-index:49;pointer-events:none;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.8rem 1.1rem;min-width:22rem;
   box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
   font:1rem 'FS Pixel Sans',monospace;color:#f1efec;}
-.pa-race-board h4{margin:0 0 0.5rem;font-weight:normal;color:#e7da00;}
-.pa-race-board div{display:flex;justify-content:space-between;gap:1.2rem;padding:0.12rem 0;}
-.pa-race-board div.me{color:#e7da00;}
+.pa-race-board h4{margin:0 0 0.5rem;font-weight:normal;color:#e7da00;font-size:1.2rem;}
+.pa-race-board table{width:100%;border-collapse:collapse;}
+.pa-race-board th{text-align:left;font-weight:normal;color:#818586;padding-bottom:0.25rem;}
+.pa-race-board th.r,.pa-race-board td.r{text-align:right;}
+.pa-race-board td{padding:0.12rem 0;}
+.pa-race-board tr.me td{color:#e7da00;}
+.pa-race-board .foot{color:#818586;margin-top:0.5rem;}
 `;
 
 export class RaceHud {
   private lights: HTMLDivElement | null = null;
-  private info: HTMLDivElement | null = null;
+  private banner: HTMLDivElement | null = null;
   private hud: HTMLDivElement | null = null;
   private board: HTMLDivElement | null = null;
+  /** What the banner last said, so it is only rewritten when it changes. */
+  private bannerText = '';
 
   constructor(private readonly host: HTMLElement) {
     if (!document.getElementById('pa-race-style')) {
@@ -91,10 +123,10 @@ export class RaceHud {
     }
   }
 
-  /** Everything the overlay owns, gone. Called when the scene tears down a zone. */
+  /** Everything the overlay owns, gone. */
   destroy(): void {
-    for (const el of [this.lights, this.info, this.hud, this.board]) el?.remove();
-    this.lights = this.info = this.hud = this.board = null;
+    for (const el of [this.lights, this.banner, this.hud, this.board]) el?.remove();
+    this.lights = this.banner = this.hud = this.board = null;
   }
 
   update(m: RaceHudModel | null): void {
@@ -103,12 +135,13 @@ export class RaceHud {
       return;
     }
     this.renderLights(m);
+    this.renderBanner(m);
     this.renderHud(m);
     this.renderBoard(m);
   }
 
   private hide(): void {
-    for (const el of [this.lights, this.info, this.hud, this.board]) if (el) el.style.display = 'none';
+    for (const el of [this.lights, this.banner, this.hud, this.board]) if (el) el.style.display = 'none';
   }
 
   private el(current: HTMLDivElement | null, cls: string): HTMLDivElement {
@@ -121,15 +154,11 @@ export class RaceHud {
 
   private renderLights(m: RaceHudModel): void {
     this.lights = this.el(this.lights, 'pa-race-lights');
-    this.info = this.el(this.info, 'pa-race-info');
     if (m.phase !== 'countdown') {
       this.lights.style.display = 'none';
-      this.info.style.display = 'none';
       return;
     }
     this.lights.style.display = '';
-    this.info.style.display = '';
-    // Rebuilt only when the count changes — this runs every frame otherwise.
     const want = `${m.lit}${m.go ? 'g' : ''}`;
     if (this.lights.dataset.state !== want) {
       this.lights.dataset.state = want;
@@ -141,34 +170,82 @@ export class RaceHud {
         this.lights.appendChild(lamp);
       }
     }
-    this.info.textContent = m.go ? 'GO!' : `${m.laps} laps`;
+  }
+
+  /**
+   * One line, and only one — whichever matters most right now.
+   *
+   * Going the wrong way beats everything, because it is the only one you can act on; then the
+   * lights, then the flag. Two banners stacked is two things to read in a corner.
+   */
+  private renderBanner(m: RaceHudModel): void {
+    this.banner = this.el(this.banner, 'pa-race-banner');
+    let text = '';
+    let cls = '';
+    if (m.own?.wrongWay) {
+      text = '⟲ WRONG WAY';
+      cls = ' bad';
+    } else if (m.phase === 'countdown') {
+      text = m.go ? 'GO!' : `${m.laps} laps`;
+      cls = m.go ? ' warn' : '';
+    } else if (m.phase === 'racing' && m.finalLap) {
+      text = '🏁 FINAL LAP';
+      cls = ' warn';
+    }
+    if (!text) {
+      this.banner.style.display = 'none';
+      this.bannerText = '';
+      return;
+    }
+    this.banner.style.display = '';
+    if (this.bannerText !== text + cls) {
+      this.bannerText = text + cls;
+      this.banner.className = `pa-race-banner${cls}`;
+      this.banner.textContent = text;
+    }
+  }
+
+  /** The gap to the leader, as a driver reads it: seconds, or laps once lapped. */
+  private gap(m: RaceHudModel, d: RaceHudDriver, leader: RaceHudDriver | undefined): string {
+    if (d.finishedMs) return raceTime(d.finishedMs);
+    if (!leader || d === leader) return d.me ? 'you' : '';
+    const behind = leader.progress - d.progress;
+    if (behind >= 1) return `+${Math.floor(behind)} lap${Math.floor(behind) > 1 ? 's' : ''}`;
+    // Scaled by a real lap time where one exists — a gap in "fractions of a lap" means nothing.
+    const lapMs = d.bestLapMs || leader.bestLapMs || m.recordLapMs;
+    if (!lapMs) return '';
+    return `+${((behind * lapMs) / 1000).toFixed(1)}s`;
   }
 
   private renderHud(m: RaceHudModel): void {
     this.hud = this.el(this.hud, 'pa-race-hud');
-    if (m.phase !== 'racing') {
+    if (m.phase !== 'racing' && m.phase !== 'countdown') {
       this.hud.style.display = 'none';
       return;
     }
     this.hud.style.display = '';
-    // The order matters more than the clock: a race you cannot see yourself losing is a time
-    // trial with extra karts on it. Everybody, because eight is the most a grid holds.
     const order = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
-    const own = m.own
-      ? `<div>Lap <b>${Math.min(m.own.lap + 1, m.laps)}/${m.laps}</b>` +
-        ` &nbsp; <b>${raceTime(m.timerMs)}</b></div>` +
-        `<div class="dim">last ${raceTime(m.own.lastLapMs)} · best ${raceTime(m.own.bestLapMs)}</div>` +
-        '<hr>'
-      : `<div><b>${raceTime(m.timerMs)}</b></div><hr>`;
-    this.hud.innerHTML =
-      own +
-      order
-        .map(
-          (d) =>
-            `<div class="row ${d.me ? 'me' : ''}"><span>${d.place || '–'}. ${escapeHtml(d.name)}</span>` +
-            `<span class="dim">${d.finishedMs ? raceTime(d.finishedMs) : `L${Math.min(d.lap + 1, m.laps)}`}</span></div>`,
-        )
-        .join('');
+    const leader = order[0];
+    const own = m.own;
+    const head = own
+      ? `<div class="top"><span class="pos">P${own.place || '–'}<small>/${m.entries}</small></span>` +
+        `<span class="lap">Lap ${Math.min(own.lap + 1, m.laps)}/${m.laps}</span>` +
+        `<span class="clock">${raceTime(m.timerMs)}</span></div>` +
+        `<div class="times">last ${raceTime(own.lastLapMs)} · best ${raceTime(own.bestLapMs)}</div>`
+      : `<div class="top"><span class="lap">${m.laps} laps</span>` +
+        `<span class="clock">${raceTime(m.timerMs)}</span></div>`;
+    const rec = m.recordLapMs
+      ? `<div class="rec">record ${raceTime(m.recordLapMs)}${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
+      : '';
+    const rows = order
+      .map(
+        (d) =>
+          `<tr class="${d.me ? 'me' : ''}${d.finishedMs ? ' out' : ''}">` +
+          `<td class="p">${d.place || '–'}</td><td>${escapeHtml(d.name)}</td>` +
+          `<td class="g">${this.gap(m, d, leader)}</td></tr>`,
+      )
+      .join('');
+    this.hud.innerHTML = `${head}${rec}<hr><table>${rows}</table>`;
   }
 
   private renderBoard(m: RaceHudModel): void {
@@ -179,15 +256,24 @@ export class RaceHud {
     }
     this.board.style.display = '';
     const rows = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
+    const body = rows
+      .map(
+        (d) =>
+          `<tr class="${d.me ? 'me' : ''}"><td>${d.place ? `${d.place}.` : '—'}</td>` +
+          `<td>${escapeHtml(d.name)}</td>` +
+          `<td class="r">${d.finishedMs ? raceTime(d.finishedMs) : `lap ${Math.min(d.lap + 1, m.laps)}`}</td>` +
+          `<td class="r">${raceTime(d.bestLapMs)}</td></tr>`,
+      )
+      .join('');
+    const foot = m.recordLapMs
+      ? `<div class="foot">Track record ${raceTime(m.recordLapMs)}${m.recordLapBy ? ` — ${escapeHtml(m.recordLapBy)}` : ''}` +
+        (m.recordRaceMs ? ` · race ${raceTime(m.recordRaceMs)}${m.recordRaceBy ? ` — ${escapeHtml(m.recordRaceBy)}` : ''}` : '') +
+        '</div>'
+      : '';
     this.board.innerHTML =
-      '<h4>Result</h4>' +
-      rows
-        .map(
-          (d) =>
-            `<div class="${d.me ? 'me' : ''}"><span>${d.place ? `${d.place}.` : '—'} ${escapeHtml(d.name)}</span>` +
-            `<span>${d.finishedMs ? raceTime(d.finishedMs) : `lap ${d.lap}`}</span></div>`,
-        )
-        .join('');
+      `<h4>Result — ${m.laps} laps</h4>` +
+      `<table><tr><th></th><th>Driver</th><th class="r">Time</th><th class="r">Best lap</th></tr>${body}</table>` +
+      foot;
   }
 }
 

@@ -95,6 +95,9 @@ export interface Kart {
    * two viewers guessing from successive positions would disagree about where the marks go.
    */
   sliding: boolean;
+  /** Travelling the wrong way round the circuit. A world fact, so every viewer warns the same
+   *  driver at the same moment. */
+  wrongWay: boolean;
 }
 
 export interface KartWorld {
@@ -124,6 +127,7 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     spec: DEFAULT_KART_SPEC.id,
     art: 0,
     sliding: false,
+    wrongWay: false,
   };
 }
 

@@ -14,6 +14,10 @@ export const RACER_NAMES: readonly string[] = [
   'Blaze',
   'Nitro',
   'Zip',
+  'Ember',
+  'Vortex',
+  'Piston',
+  'Quasar',
 ];
 
 /**
@@ -24,4 +28,27 @@ export const RACER_NAMES: readonly string[] = [
  * beginner finishes ahead of somebody on their first try. Nobody is at 1.0 — a driver that never
  * makes a mistake is a wall, not an opponent.
  */
-export const RACER_SKILLS: readonly number[] = [0.92, 0.78, 0.66, 0.55, 0.85, 0.72, 0.6, 0.48];
+export const RACER_SKILLS: readonly number[] = [0.92, 0.78, 0.66, 0.55, 0.85, 0.72, 0.6, 0.48, 0.88, 0.69, 0.58, 0.5];
+
+/**
+ * How hard the field is, as a factor on every skill.
+ *
+ * Dust Racing offers Easy / Medium / Hard and so does this. It scales the whole GRID rather than
+ * adding a faster rival, so the spread of pace survives at every level — there is somebody to beat
+ * on hard and somebody to chase on easy, which a single "the AI is faster now" knob destroys.
+ */
+export type RaceDifficulty = 'easy' | 'medium' | 'hard';
+
+export const DIFFICULTY: Record<RaceDifficulty, number> = {
+  easy: 0.72,
+  medium: 1,
+  hard: 1.16,
+};
+
+/** The one a `/race` with no argument runs. */
+export const DEFAULT_DIFFICULTY: RaceDifficulty = 'medium';
+
+/** Is this a difficulty this build knows? A typed argument from a client is checked, never cast. */
+export function isDifficulty(value: unknown): value is RaceDifficulty {
+  return value === 'easy' || value === 'medium' || value === 'hard';
+}

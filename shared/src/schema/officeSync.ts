@@ -155,6 +155,17 @@ export class KartSync extends PawnSync {
   /** Which car it looks like — an index into VEHICLE_ART. A decision, not a local choice: two
    *  viewers must not see the same kart in different colours. */
   @type('uint8') art = 0;
+  /**
+   * How far round the whole race it is, in hundredths of a lap.
+   *
+   * Synced rather than derived: the gap between two cars is the thing a running order is FOR, and
+   * a client has no track — it does not know how many gates a lap has, let alone where they are.
+   * A `uint16` holds 655 laps at a hundredth each, which is finer than any gap anybody reads.
+   */
+  @type('uint16') progress = 0;
+  /** Going the wrong way round. Synced rather than derived, so every viewer warns the same driver
+   *  at the same moment — and because a client has no velocity to derive it from. */
+  @type('boolean') wrongWay = false;
 }
 
 /**
@@ -172,6 +183,15 @@ export class RaceSync extends Schema {
   @type('uint8') laps = 0;
   /** How many karts are in it — the denominator for "P2 of 4". */
   @type('uint8') entries = 0;
+  /** The leader is on the last lap and nearly home: the chequered flag is out. */
+  @type('boolean') finalLap = false;
+  /** The track's standing records, in ms — 0 for "nobody has set one". Shown beside your own
+   *  times, which is what makes a lap worth repeating. */
+  @type('uint32') recordLapMs = 0;
+  @type('uint32') recordRaceMs = 0;
+  /** Who holds them. Empty while unset. */
+  @type('string') recordLapBy = '';
+  @type('string') recordRaceBy = '';
 }
 
 /**

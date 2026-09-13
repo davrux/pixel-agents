@@ -154,6 +154,8 @@ type RenderKart = {
   bestLapMs: number;
   totalMs: number;
   art: number;
+  wrongWay: boolean;
+  progress: number;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -1070,6 +1072,8 @@ export class OfficeScene extends Phaser.Scene {
         bestLapMs: 0,
         totalMs: 0,
         art: 0,
+        wrongWay: false,
+        progress: 0,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1151,6 +1155,8 @@ export class OfficeScene extends Phaser.Scene {
     rk.bestLapMs = (ks.bestLapMs as number) ?? 0;
     rk.totalMs = (ks.totalMs as number) ?? 0;
     rk.art = (ks.art as number) ?? 0;
+    rk.wrongWay = !!ks.wrongWay;
+    rk.progress = ((ks.progress as number) ?? 0) / 100;
   }
 
   /**
@@ -1171,8 +1177,8 @@ export class OfficeScene extends Phaser.Scene {
     const phase = racePhaseOf((race.phase as number) ?? 0);
     if (phase === 'idle') return null;
     const timerMs = (race.timerMs as number) ?? 0;
-    // The lamps are read off the same clock the engine releases the karts on, so the light and
-    // the launch are one instant rather than two that nearly agree.
+    // The lamps are read off the same clock the engine releases the cars on, so the light and the
+    // launch are one instant rather than two that nearly agree.
     const secs = Math.ceil((timerMs - RACE_GREEN_MS) / 1000);
     const mine = this.myKart();
     return {
@@ -1182,20 +1188,35 @@ export class OfficeScene extends Phaser.Scene {
       entries: (race.entries as number) ?? 0,
       lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
       go: phase === 'countdown' && secs <= 0,
-      own: mine ? { lap: mine.lap, place: mine.place, lastLapMs: mine.lastLapMs, bestLapMs: mine.bestLapMs } : null,
+      finalLap: !!race.finalLap,
+      recordLapMs: (race.recordLapMs as number) ?? 0,
+      recordLapBy: (race.recordLapBy as string) ?? '',
+      recordRaceMs: (race.recordRaceMs as number) ?? 0,
+      recordRaceBy: (race.recordRaceBy as string) ?? '',
+      own: mine
+        ? {
+            lap: mine.lap,
+            place: mine.place,
+            lastLapMs: mine.lastLapMs,
+            bestLapMs: mine.bestLapMs,
+            wrongWay: mine.wrongWay,
+          }
+        : null,
       drivers: [...this.karts.values()]
         .filter((k) => k.driverId !== 0)
         .map((k) => {
-          // A driver whose character has not arrived yet (or has just left) still has a row on
-          // the board — with no name rather than no row, which is what a crash here would cost.
+          // A driver whose character has not arrived yet (or has just left) still gets a row —
+          // with no name rather than no row, which is what a crash here would cost.
           const who = this.characters.get(k.driverId);
           return {
-          name: (who ? this.characterLabel(who as never) : '') || 'driver',
-          place: k.place,
-          lap: k.lap,
-          finishedMs: k.totalMs,
-          bestLapMs: k.bestLapMs,
-          me: k.driverId === this.myPlayerId,
+            name: (who ? this.characterLabel(who as never) : '') || 'driver',
+            place: k.place,
+            lap: k.lap,
+            finishedMs: k.totalMs,
+            bestLapMs: k.bestLapMs,
+            progress: k.progress,
+            me: k.driverId === this.myPlayerId,
+            bot: who?.controller === ControllerKind.RACER,
           };
         }),
     };
@@ -2899,7 +2920,9 @@ export class OfficeScene extends Phaser.Scene {
           ['Left-click floor', 'Walk there'],
           ['Left-click chair / bench', 'Sit down'],
           ['C', 'Sit / stand (in place)'],
-          ['E', 'Get in or out of a kart (on a race track)'],
+          ['E', 'Get in or out of a car (on a race track)'],
+          ['/race', 'Start a race for everyone in a car — add easy, medium or hard'],
+          ['/race stop', 'Call a running race off'],
           ['Click an avatar', 'Select it (tooltip) — hover works too'],
           ['Mouse wheel', 'Zoom'],
           ['Drag (empty space)', 'Pan the camera'],

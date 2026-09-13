@@ -140,5 +140,40 @@ export function raceProgress(track: RaceTrack, lap: number, gate: number, x: num
   const target = nextGate(track, gate);
   const d = Math.hypot(target.x - x, target.y - y);
   const span = Math.max(1, Math.hypot(target.x - track.gates[gate].x, target.y - track.gates[gate].y));
-  return lap * track.gates.length + gate + Math.max(0, 1 - d / span);
+  // Clamped at both ends: a kart that has overshot its next gate sideways can measure FARTHER than
+  // the gate it came from, and an unclamped fraction would then rank it behind somebody it has
+  // just passed. Monotone within a leg is what a running order needs.
+  return lap * track.gates.length + gate + Math.max(0, Math.min(1, 1 - d / span));
+}
+
+/**
+ * How far round the lap, as a fraction of one lap, 0…1 — what "95 % of the last lap" means.
+ *
+ * Separate from `raceProgress` because that one counts laps as well, and the two are asked
+ * different questions: one orders the field, this one says how near the flag the leader is.
+ */
+export function lapFraction(track: RaceTrack, gate: number, x: number, y: number): number {
+  const whole = raceProgress(track, 0, gate, x, y);
+  return Math.max(0, Math.min(1, whole / track.gates.length));
+}
+
+/**
+ * Is this kart travelling the wrong way round?
+ *
+ * Taken from the direction it is MOVING against the direction of the next gate, not from its
+ * heading: a kart spun round by a bump points backwards for a moment while still sliding forwards,
+ * and warning somebody for that is noise. Below a crawl the question is meaningless, so it is not
+ * asked — the answer there would flap every time a stopped kart was nudged.
+ */
+export function goingBackwards(track: RaceTrack, gate: number, x: number, y: number, vx: number, vy: number): boolean {
+  const speed = Math.hypot(vx, vy);
+  if (speed < 30) return false;
+  const target = nextGate(track, gate);
+  const tx = target.x - x;
+  const ty = target.y - y;
+  const len = Math.hypot(tx, ty);
+  if (len < 1) return false;
+  // The cosine of the angle between where it is going and where the next gate is. A track bends,
+  // so "not straight at it" is normal; only a genuine reversal counts.
+  return (vx * tx + vy * ty) / (speed * len) < -0.35;
 }

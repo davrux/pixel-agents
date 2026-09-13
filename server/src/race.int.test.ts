@@ -15,21 +15,30 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { before } from 'node:test';
 
-import { RACE_COUNTDOWN_MS, RACE_MAX_MS, RACE_RESULTS_MS, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
+import {
+  RACE_COUNTDOWN_MS,
+  RACE_GRACE_MS,
+  RACE_MAX_MS,
+  RACE_RESULTS_MS,
+  RACE_TICK_HZ,
+} from '@pixel/shared/office/constants.js';
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import {
+  FINAL_LAP_AT,
   RACE_PHASES,
   completeLap,
   createRace,
   lights,
+  markFinalLap,
   racing,
   standings,
   startRace,
   stopRace,
+  takeNotices,
   tickRace,
 } from '@pixel/shared/office/race/raceState.js';
-import { raceTrack } from '@pixel/shared/office/race/track.js';
+import { goingBackwards, raceProgress, raceTrack } from '@pixel/shared/office/race/track.js';
 import { ControllerKind, type OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -62,7 +71,7 @@ test('lights count down and the last one is green', () => {
   const track = raceTrack(layout);
   assert.ok(track);
   assert.equal(lights(race).lit, 0, 'lamps are lit with no race running');
-  startRace(race, track, [1]);
+  startRace(race, track, [{ kartId: 1, human: true }]);
   const seen: string[] = [];
   for (let t = 0; t < RACE_COUNTDOWN_MS; t += 100) {
     const l = lights(race);
@@ -82,8 +91,8 @@ test('a race refuses to start twice, or with nobody in it', () => {
   const track = raceTrack(layout);
   assert.ok(track);
   assert.equal(startRace(race, track, []), false, 'started a race with no drivers');
-  assert.equal(startRace(race, track, [1, 2]), true);
-  assert.equal(startRace(race, track, [3]), false, 'started a second race on top of the first');
+  assert.equal(startRace(race, track, [{ kartId: 1, human: true }, { kartId: 2, human: true }]), true);
+  assert.equal(startRace(race, track, [{ kartId: 3, human: true }]), false, 'started a second race on top of the first');
   assert.equal(race.entries.size, 2, 'the refused start changed the field');
 });
 
@@ -91,7 +100,7 @@ test('laps are timed from the LIGHTS, and the best one is kept', () => {
   const race = createRace();
   const track = raceTrack(layout);
   assert.ok(track);
-  startRace(race, track, [1]);
+  startRace(race, track, [{ kartId: 1, human: true }]);
   // Whoever typed /race should not carry the countdown in their time.
   while (race.phase === 'countdown') tickRace(race, 100);
   assert.equal(race.phase, 'racing');
@@ -115,7 +124,7 @@ test('places are handed out in finishing order, and the rest are sorted live', (
   const race = createRace();
   const track = raceTrack(layout);
   assert.ok(track);
-  startRace(race, track, [1, 2, 3]);
+  startRace(race, track, [{ kartId: 1, human: true }, { kartId: 2, human: true }, { kartId: 3, human: true }]);
   while (race.phase === 'countdown') tickRace(race, 100);
   tickRace(race, 10_000);
   completeLap(race, 2, 3); // kart 2 wins
@@ -133,7 +142,7 @@ test('a race ends when everyone is home, and again when the clock runs out', () 
   const track = raceTrack(layout);
   assert.ok(track);
   const home = createRace();
-  startRace(home, track, [1]);
+  startRace(home, track, [{ kartId: 1, human: true }]);
   while (home.phase === 'countdown') tickRace(home, 100);
   completeLap(home, 1, home.laps);
   assert.equal(tickRace(home, 16).ended, true, 'the last finisher did not end the race');
@@ -145,7 +154,7 @@ test('a race ends when everyone is home, and again when the clock runs out', () 
 
   // One driver who parks in the pit must not hold the zone forever.
   const stalled = createRace();
-  startRace(stalled, track, [1, 2]);
+  startRace(stalled, track, [{ kartId: 1, human: true }, { kartId: 2, human: true }]);
   while (stalled.phase === 'countdown') tickRace(stalled, 100);
   tickRace(stalled, RACE_MAX_MS);
   assert.equal(stalled.phase, 'done', 'a race nobody finished never ended');
@@ -278,7 +287,7 @@ test('stopRace is safe from any phase', () => {
   assert.equal(race.phase, 'idle');
   const track = raceTrack(layout);
   assert.ok(track);
-  startRace(race, track, [1]);
+  startRace(race, track, [{ kartId: 1, human: true }]);
   stopRace(race);
   assert.equal(race.phase, 'idle');
   assert.equal(race.finished, 0);
@@ -337,15 +346,22 @@ test('a computer driver gets round the circuit on its own', () => {
   // The human sits still; everybody else drives themselves.
   const bots = [...os.karts.values()].filter((k) => k.driverId !== null && k.driverId !== driver);
   assert.ok(bots.length >= 4, `only ${bots.length} opponents`);
+  // Read while the race is still ON: once it is over the board goes up and then the entries are
+  // cleared, and a test that reads afterwards is reading an empty race.
+  const places: number[] = [];
+  let home: typeof bots = [];
+  while (os.raceInfo().phase === 'countdown') os.update(DT); // the lights first
   for (let i = 0; i < Math.round(200 / DT); i++) {
     kart.input = { throttle: 0, steer: 0 };
     os.update(DT);
-    if (bots.every((b) => b.finished)) break;
+    if (os.raceInfo().phase !== 'racing' || bots.every((b) => b.finished)) {
+      home = bots.filter((b) => b.finished);
+      for (const b of home) places.push(os.raceInfo().entries.get(b.id)?.place ?? 0);
+      break;
+    }
   }
-  const home = bots.filter((b) => b.finished);
   assert.ok(home.length >= Math.ceil(bots.length / 2), `only ${home.length} of ${bots.length} opponents finished`);
   // …and the places they earned are a ranking, not all the same number.
-  const places = home.map((b) => os.raceInfo().entries.get(b.id)!.place);
   assert.equal(new Set(places).size, places.length, `two opponents share a place: ${places}`);
   assert.ok(Math.min(...places) === 1, 'nobody came first');
 });
@@ -388,4 +404,137 @@ test('a driver who leaves mid-race retires, so the race can still end', () => {
     0,
     'the computer drivers outlived the race',
   );
+});
+
+test('the flag comes out for the LEADER, and stays out', () => {
+  const race = createRace();
+  const track = raceTrack(layout);
+  assert.ok(track);
+  startRace(race, track, [{ kartId: 1, human: true }]);
+  while (race.phase === 'countdown') tickRace(race, 100);
+  // Not on the first lap, however far round it anybody is.
+  markFinalLap(race, 0, 0.99);
+  assert.equal(race.finalLap, false, 'the flag came out on lap one of three');
+  // Not at the start of the last lap either — it is a moment, not a phase.
+  markFinalLap(race, race.laps - 1, 0.2);
+  assert.equal(race.finalLap, false);
+  markFinalLap(race, race.laps - 1, FINAL_LAP_AT);
+  assert.equal(race.finalLap, true, 'the flag never came out');
+  assert.ok(takeNotices(race).some((n) => n.kind === 'finalLap'), 'the flag was not announced');
+  // Latched: a leader shoved backwards must not put it away again, or the banner blinks.
+  markFinalLap(race, 0, 0);
+  assert.equal(race.finalLap, true, 'the flag went away again');
+});
+
+test('a record is measured against what STOOD, and announced once', () => {
+  const race = createRace();
+  const track = raceTrack(layout);
+  assert.ok(track);
+  startRace(race, track, [{ kartId: 1, human: true }], { lapMs: 30_000, raceMs: 100_000 });
+  while (race.phase === 'countdown') tickRace(race, 100);
+  tickRace(race, 31_000);
+  completeLap(race, 1, 1); // slower than the record
+  assert.equal(takeNotices(race).filter((n) => n.kind === 'lapRecord').length, 0, 'a slow lap set a record');
+  tickRace(race, 25_000);
+  completeLap(race, 1, 2); // faster
+  assert.equal(takeNotices(race).filter((n) => n.kind === 'lapRecord').length, 1, 'a fast lap set no record');
+  tickRace(race, 26_000);
+  completeLap(race, 1, 3); // slower than the one just set — no second announcement
+  const last = takeNotices(race);
+  assert.equal(last.filter((n) => n.kind === 'lapRecord').length, 0, 'a slower lap announced a record');
+  assert.ok(last.some((n) => n.kind === 'won'), 'the winner was not announced');
+  assert.ok(last.some((n) => n.kind === 'raceRecord'), 'a race under the record set none');
+});
+
+test('the race ends when the PEOPLE are home, not the last computer driver', () => {
+  const race = createRace();
+  const track = raceTrack(layout);
+  assert.ok(track);
+  startRace(race, track, [
+    { kartId: 1, human: true },
+    { kartId: 2, human: false },
+    { kartId: 3, human: false },
+  ]);
+  while (race.phase === 'countdown') tickRace(race, 100);
+  tickRace(race, 60_000);
+  completeLap(race, 1, race.laps);
+  assert.equal(tickRace(race, 16).ended, true, 'the only person finished and the race ran on');
+  assert.equal(race.phase, 'done');
+
+  // With nobody human in it every entry has to be home, or it would end the instant it started.
+  const demo = createRace();
+  startRace(demo, track, [{ kartId: 9, human: false }]);
+  while (demo.phase === 'countdown') tickRace(demo, 100);
+  assert.equal(tickRace(demo, 16).ended, false, 'a grid of computer drivers ended at once');
+  completeLap(demo, 9, demo.laps);
+  assert.equal(tickRace(demo, 16).ended, true);
+});
+
+test('driving backwards is warned about, and being shoved round is not', () => {
+  const track = raceTrack(layout);
+  assert.ok(track);
+  const gate = track.gates[0];
+  const next = track.gates[1];
+  const toNext = Math.atan2(next.y - gate.y, next.x - gate.x);
+  const fast = 150;
+  // Straight at the next gate: fine.
+  assert.equal(
+    goingBackwards(track, 0, gate.x, gate.y, Math.cos(toNext) * fast, Math.sin(toNext) * fast),
+    false,
+    'driving towards the next gate counted as the wrong way',
+  );
+  // Straight away from it: the wrong way.
+  assert.equal(
+    goingBackwards(track, 0, gate.x, gate.y, -Math.cos(toNext) * fast, -Math.sin(toNext) * fast),
+    true,
+    'driving away from the next gate was not the wrong way',
+  );
+  // A track BENDS, so "not straight at it" must not be enough.
+  const across = toNext + Math.PI / 2;
+  assert.equal(
+    goingBackwards(track, 0, gate.x, gate.y, Math.cos(across) * fast, Math.sin(across) * fast),
+    false,
+    'a corner counted as the wrong way',
+  );
+  // Barely moving: the question is meaningless and is not asked, or a nudged car flaps the warning.
+  assert.equal(goingBackwards(track, 0, gate.x, gate.y, -Math.cos(toNext) * 8, -Math.sin(toNext) * 8), false);
+});
+
+test('a running order is by progress, and progress is monotone within a leg', () => {
+  const track = raceTrack(layout);
+  assert.ok(track);
+  // Sitting ON the gate you just passed is the least progress of that leg; nearing the next is
+  // the most; and neither can escape the leg it belongs to.
+  const at0 = raceProgress(track, 0, 0, track.gates[0].x, track.gates[0].y);
+  const near1 = raceProgress(track, 0, 0, track.gates[1].x, track.gates[1].y);
+  assert.ok(near1 > at0, 'closing on the next gate did not count as progress');
+  assert.ok(near1 <= at0 + 1.0001, `one leg is worth more than one gate: ${near1 - at0}`);
+  // Miles off the track, past the gate: still inside the leg, never behind where it started.
+  const wild = raceProgress(track, 0, 0, track.gates[1].x + 2000, track.gates[1].y + 2000);
+  assert.ok(wild >= at0 && wild <= at0 + 1.0001, `progress escaped its leg: ${wild}`);
+  // A later lap always outranks an earlier one.
+  assert.ok(raceProgress(track, 1, 0, track.gates[0].x, track.gates[0].y) > near1);
+});
+
+test('the winner starts a clock: nobody waits for a driver who has given up', () => {
+  const race = createRace();
+  const track = raceTrack(layout);
+  assert.ok(track);
+  startRace(race, track, [
+    { kartId: 1, human: true },
+    { kartId: 2, human: true },
+  ]);
+  while (race.phase === 'countdown') tickRace(race, 100);
+  tickRace(race, 60_000);
+  completeLap(race, 1, race.laps); // kart 1 wins; kart 2 is in the pit and not coming
+  assert.equal(race.phase, 'racing', 'the race ended while somebody was still out there');
+  tickRace(race, RACE_GRACE_MS - 1000);
+  assert.equal(race.phase, 'racing', 'the grace period was not honoured');
+  tickRace(race, 2000);
+  assert.equal(race.phase, 'done', 'the race ran on past the grace period');
+  // The one who never finished has no TIME — a result board says "still out there" rather than
+  // inventing one. (Its running place comes from `standings`, which the engine calls; this test
+  // drives the machine directly and never does.)
+  assert.equal(race.entries.get(2)!.finishedMs, null);
+  assert.equal(race.entries.get(1)!.place, 1);
 });

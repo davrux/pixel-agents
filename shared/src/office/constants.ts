@@ -442,5 +442,14 @@ export const RACE_COUNTDOWN_MS = 3700;
  * genuine three laps is never cut off — the autopilot needs about 40 s.
  */
 export const RACE_MAX_MS = 6 * 60 * 1000;
+/**
+ * How long the field has once the WINNER is home, in ms.
+ *
+ * Every racing game has this and it is not really about racing: a driver who ends up in the pit
+ * and stops trying would otherwise hold everybody else on the track until the six-minute cap.
+ * Forty-five seconds is long enough to finish a lap you were most of the way round and short
+ * enough that nobody sits waiting for somebody who has walked away.
+ */
+export const RACE_GRACE_MS = 45_000;
 /** How long the result board stays up before the track is free again. */
 export const RACE_RESULTS_MS = 9000;
