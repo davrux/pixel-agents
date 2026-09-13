@@ -423,6 +423,35 @@
           "value": ""
         }
       ]
+    },
+    {
+      "id": 23,
+      "name": "SurfaceKind",
+      "storageType": "string",
+      "type": "enum",
+      "values": [
+        "",
+        "rough"
+      ],
+      "valuesAsFlags": false
+    },
+    {
+      "id": 25,
+      "name": "SurfaceLayer",
+      "type": "class",
+      "color": "#ffa0a0a4",
+      "drawFill": true,
+      "useAs": [
+        "layer"
+      ],
+      "members": [
+        {
+          "name": "surface",
+          "type": "string",
+          "propertyType": "SurfaceKind",
+          "value": "rough"
+        }
+      ]
     }
   ]
 }

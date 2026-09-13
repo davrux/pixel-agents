@@ -1003,6 +1003,27 @@ export interface WallEdges {
   };
 }
 
+/**
+ * What the ground DOES, as opposed to what it looks like.
+ *
+ * Painted on its own layer (class `SurfaceLayer`, whose `surface` property says which of these it
+ * is), exactly the way the collision layer works and for exactly the reason AGENTS.md already
+ * gives for decals: whether a patch of ground is slippery is a fact about the PLACE, not about the
+ * picture. Tie it to the art and the same grass is rough everywhere it is ever painted, and a
+ * mapper who wants a drivable verge has to invent a second grass.
+ *
+ * Append only: a kind is stored by name in a map, so a saved map keeps meaning what it meant.
+ * Adding one is a value here, a row in the Tiled enum, and a branch wherever the physics reads it
+ * — a kind nothing implements would be a surface that lies.
+ */
+export type SurfaceKind = 'rough';
+
+export const SURFACE_KINDS: readonly SurfaceKind[] = ['rough'];
+
+export function isSurfaceKind(value: unknown): value is SurfaceKind {
+  return typeof value === 'string' && (SURFACE_KINDS as readonly string[]).includes(value);
+}
+
 export interface OfficeLayout {
   /** 2 since ground cells hold a sheet's local tile id (see `tiles`); 1 stored a
    *  floor PATTERN plus a separate colour, and is migrated on read. */
@@ -1029,6 +1050,19 @@ export interface OfficeLayout {
    * floor sets still work unchanged — a swatch is just a column in the sheet.
    */
   tiles: number[];
+  /**
+   * Which cells carry which surface, as CELL INDICES into `tiles`.
+   *
+   * Indices rather than a value per cell because a surface is sparse on most maps and absent on
+   * nearly all of them — the whole field is omitted when nothing is painted, the same habit
+   * `tileFlip` and `decals` already follow, so a map that is not a race track carries nothing.
+   *
+   * It replaced one Action object per cell, which is what the same information cost before:
+   * 2469 objects on the longest track, against a flat list of numbers. Not a format change — an
+   * older client ignores the field and draws exactly what it drew before, because a surface is
+   * physics and the physics is the server's.
+   */
+  surfaces?: Partial<Record<SurfaceKind, number[]>>;
   furniture: PlacedFurniture[];
   /** LEGACY (version 1 only): per-tile palette swatch, or null for "Natural".
    *  Folded into `tiles` by the v1→v2 migration — a swatch was always just the

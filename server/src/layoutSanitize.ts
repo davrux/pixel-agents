@@ -22,6 +22,7 @@ import {
 // re-export a second copy from the pre-Tiled worldConfig, and this import was
 // silently taking that one (same value, but the wrong source).
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
+import { isSurfaceKind } from '@pixel/shared/office/types.js';
 import type { Action } from '@pixel/shared/office/types.js';
 
 /** Cap a saved layout's free-text labels (OfficeLayout.texts) to a sane
@@ -221,6 +222,31 @@ export function sanitizeLayoutActions(layout: Record<string, unknown>): Record<s
     const clean: Array<Action | null> = new Array(total).fill(null);
     for (let i = 0; i < Math.min(total, tileActions.length); i++) clean[i] = sanitizeAction(tileActions[i]);
     layout.tileActions = clean;
+  }
+  /**
+   * Surfaces, clamped where they arrive like every other value from outside: a kind this build
+   * does not know is dropped rather than stored, and an index that is not a cell of this map
+   * cannot become one. Named HERE at all because `sanitizeLayout*` is the write path — a field
+   * nobody lists is a field that silently disappears on the next save, which is how a map's
+   * pictures once vanished and how every race gate did.
+   */
+  const surfaces = layout.surfaces;
+  if (surfaces && typeof surfaces === 'object' && !Array.isArray(surfaces)) {
+    const total = cols * rows;
+    const clean: Record<string, number[]> = {};
+    for (const [kind, cells] of Object.entries(surfaces as Record<string, unknown>)) {
+      if (!isSurfaceKind(kind) || !Array.isArray(cells)) continue;
+      const seen = new Set<number>();
+      for (const raw of cells) {
+        const cell = Math.floor(Number(raw));
+        if (Number.isInteger(cell) && cell >= 0 && cell < total) seen.add(cell);
+      }
+      if (seen.size > 0) clean[kind] = [...seen].sort((a, b) => a - b);
+    }
+    if (Object.keys(clean).length > 0) layout.surfaces = clean;
+    else delete layout.surfaces;
+  } else if (surfaces !== undefined) {
+    delete layout.surfaces;
   }
   const furniture = layout.furniture;
   if (Array.isArray(furniture)) {

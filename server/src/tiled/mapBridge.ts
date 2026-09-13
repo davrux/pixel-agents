@@ -12,8 +12,8 @@
  * importer is free to derive (zOffset from object list order, uid freshly per
  * import) and to ignore what our renderer cannot show (rotation, diagonal flip).
  */
-import type { Action, OfficeLayout, PlacedDecal, PlacedFurniture, PlacedImage, PlacedText } from '@pixel/shared/office/types.js';
-import { TileType } from '@pixel/shared/office/types.js';
+import type { Action, OfficeLayout, PlacedDecal, PlacedFurniture, PlacedImage, PlacedText, SurfaceKind } from '@pixel/shared/office/types.js';
+import { isSurfaceKind, TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
@@ -571,6 +571,39 @@ export function importTmjToLayout(
    * make a map render differently in the game than it looks in the editor, which
    * is the one thing the whole Tiled path exists to prevent.
    */
+  /**
+   * What the ground DOES — one layer per kind, and the TOPMOST one wins.
+   *
+   * Painted like the collision layer: any tile at all means "here", and the layer's own `surface`
+   * property says what "here" means. So a surface needs no art, a kind can be toggled on its own
+   * while authoring, and the same grass can be rough in one place and drivable in another —
+   * which is the whole reason this is not a property on the tile.
+   *
+   * Topmost wins because that is the rule Tiled already teaches through draw order: paint a patch
+   * of one surface over another and the one you can see is the one that counts. Tiled lists layers
+   * bottom-first, so later entries overwrite earlier ones and the last word is the top layer's.
+   */
+  const surfaceWarnings = new Set<string>();
+  const surfaceAt = new Map<number, SurfaceKind>();
+  for (const layer of layers.filter((l) => l.class === 'SurfaceLayer')) {
+    const data = layer.data as number[] | undefined;
+    if (!Array.isArray(data)) continue;
+    const props: PropBag = Object.fromEntries(((layer.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+    const kind = props.surface;
+    if (!isSurfaceKind(kind)) {
+      if (kind !== undefined && kind !== '') {
+        warnOnce(surfaceWarnings, `surface layer "${layer.name}": "${String(kind)}" is not a surface this build knows`, notices);
+      }
+      continue;
+    }
+    for (let i = 0; i < Math.min(data.length, cols * rows); i++) {
+      if ((Number(data[i]) || 0) !== 0) surfaceAt.set(i, kind);
+    }
+  }
+  const surfaces: Partial<Record<SurfaceKind, number[]>> = {};
+  for (const [cell, kind] of surfaceAt) (surfaces[kind] ??= []).push(cell);
+  for (const list of Object.values(surfaces)) list.sort((a, b) => a - b);
+
   const decals: PlacedDecal[] = [];
   /** Rotated decals whose art cannot take it — reported once each. */
   const decalWarnings = new Set<string>();
@@ -782,6 +815,8 @@ export function importTmjToLayout(
     // Same rule as `decals` below: left out unless the map actually mirrors
     // something, which keeps a 3192-cell array of zeros off every join.
     ...(tileFlip.some((bits) => bits !== 0) ? { tileFlip } : {}),
+    // Omitted entirely on a map that paints none, like the two above it.
+    ...(Object.keys(surfaces).length > 0 ? { surfaces } : {}),
     // Left out entirely when the map paints none, so a layout only carries what
     // its map actually has (same as the optional fields above).
     ...(decals.length > 0 ? { decals } : {}),

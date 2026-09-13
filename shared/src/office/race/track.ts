@@ -124,10 +124,18 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     } else if (action.kind === 'racePit') {
       pit.add(key(col, row));
     } else if (action.kind === 'raceRough') {
+      // The older way of saying it, one Action per cell. Still read, because a map that was
+      // authored that way must keep meaning what it meant — but `SurfaceLayer` is what a mapper
+      // paints now, and it is a list of numbers where this was an object per cell.
       rough.add(key(col, row));
     } else if (action.kind === 'raceFinish') {
       finish = centre(col, row);
     }
+  }
+  // …and the same fact painted on a surface layer, which is where it comes from now.
+  for (const cell of layout.surfaces?.rough ?? []) {
+    const col = cell % layout.cols;
+    rough.add(key(col, (cell - col) / layout.cols));
   }
   if (byGate.size < 2 || grid.length === 0) return null;
 
