@@ -51,17 +51,54 @@ export function seasonTable(zoneId: string): StandingRow[] {
   const rows = db
     .prepare('SELECT user_id, points, starts, wins, best_place FROM race_points WHERE zone_id = ?')
     .all(zoneId) as Array<{ user_id: string; points: number; starts: number; wins: number; best_place: number }>;
-  return rows
-    .map((r) => ({
-      userId: r.user_id,
-      name: r.user_id,
-      points: r.points,
-      starts: r.starts,
-      wins: r.wins,
-      bestPlace: r.best_place,
-    }))
-    .sort(bySeason);
+  return rows.map(toRow).sort(bySeason);
 }
+
+/**
+ * The CHAMPIONSHIP: every track added together.
+ *
+ * The rows stay per zone — that is the raw fact, and a board hanging beside one circuit should
+ * show that circuit — but a season that stops at the end of one track is not a season. Dust
+ * Racing's own progression is across its tracks, and this world now has three; adding them up is
+ * what makes driving the second one mean anything.
+ *
+ * Summed in SQL rather than by walking the zones, because that is where the rows are and because
+ * the alternative needs a list of which zones count — and a zone with a race track in it is
+ * exactly the set of zones that has rows here. `best_place` takes the MIN over the tracks, with
+ * the same "skip zero" rule as a single zone's: a retirement somewhere must not erase a podium
+ * somewhere else.
+ */
+export function championshipTable(): StandingRow[] {
+  const rows = db
+    .prepare(
+      `SELECT user_id,
+              SUM(points) AS points,
+              SUM(starts) AS starts,
+              SUM(wins) AS wins,
+              MIN(NULLIF(best_place, 0)) AS best_place
+         FROM race_points
+        GROUP BY user_id`,
+    )
+    .all() as Array<{ user_id: string; points: number; starts: number; wins: number; best_place: number | null }>;
+  return rows.map((r) => toRow({ ...r, best_place: r.best_place ?? 0 })).sort(bySeason);
+}
+
+/** How many tracks this account has raced on — what makes a championship row read as a season. */
+export function tracksRaced(userId: string): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM race_points WHERE user_id = ? AND starts > 0')
+    .get(userId) as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
+const toRow = (r: { user_id: string; points: number; starts: number; wins: number; best_place: number }): StandingRow => ({
+  userId: r.user_id,
+  name: r.user_id,
+  points: r.points,
+  starts: r.starts,
+  wins: r.wins,
+  bestPlace: r.best_place,
+});
 
 /** Wipe a zone's season — the delete path, and `/race reset` for whoever owns the zone. */
 export function clearSeason(zoneId: string): void {

@@ -27,6 +27,7 @@ import {
   RACE_MAX_LAPS,
   RACE_MIN_LAPS,
 } from '@pixel/shared/office/constants.js';
+import { pointsFor } from '@pixel/shared/office/race/championship.js';
 import { raceClock } from '@pixel/shared/office/race/raceState.js';
 import { RACE_PHASES, type RacePhase } from '@pixel/shared/office/race/raceState.js';
 
@@ -126,7 +127,7 @@ const CSS = `
 .pa-race-hud tr.me td.p,.pa-race-hud tr.me td.g{color:#e7da00;}
 .pa-race-hud tr.out td{color:#818586;}
 
-.pa-race-setup{position:absolute;left:50%;bottom:2.2rem;transform:translateX(-50%);z-index:49;
+.pa-race-setup{position:fixed;left:calc(50% + 12rem);bottom:2.2rem;transform:translateX(-50%);z-index:56;
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.6rem 0.8rem;
   box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
   font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;display:flex;gap:1rem;align-items:flex-end;}
@@ -144,8 +145,9 @@ const CSS = `
 .pa-race-setup button.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
 .pa-race-setup button.go{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;
   padding:0.35rem 1.1rem;font-size:1.1rem;}
-.pa-race-setup .hint{color:#818586;font-size:0.8rem;}
+.pa-race-setup .hint{color:#818586;font-size:0.8rem;text-align:center;white-space:nowrap;}
 
+.pa-race-board td.pts{color:#e7da00;}
 .pa-race-board{position:absolute;left:50%;top:18%;transform:translateX(-50%);z-index:49;pointer-events:none;
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.8rem 1.1rem;min-width:22rem;
   box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
@@ -256,10 +258,13 @@ export class RaceHud {
       ).join('') +
       `</div></div>`;
     const ready = m.humansInKarts > 0;
+    // The hint belongs UNDER the button, in its column: as a sibling it became a flex item of its
+    // own and wrapped "get in a kart (E)" into a three-line sliver beside the panel.
     const go = `<div class="f"><span class="total">on the grid <b>${drivers}</b>/${m.gridSlots}</span>` +
-      `<button class="go" data-act="start"${ready ? '' : ' disabled'}>Start</button></div>`;
-    const hint = ready ? '' : `<div class="hint">get in a kart (E)</div>`;
-    this.setup.innerHTML = `${laps}${bots}${diff}${count}${go}${hint}`;
+      `<button class="go" data-act="start"${ready ? '' : ' disabled'}>Start</button>` +
+      (ready ? '' : `<span class="hint">get in a kart (E)</span>`) +
+      `</div>`;
+    this.setup.innerHTML = `${laps}${bots}${diff}${count}${go}`;
     for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
       b.onclick = () => this.act(b.dataset.act ?? '', m);
     }
@@ -434,13 +439,19 @@ export class RaceHud {
     this.board.style.display = '';
     const rows = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
     const body = rows
-      .map(
-        (d) =>
+      .map((d) => {
+        // What this finish was worth. Resolved from the same shared table the server scores with
+        // and from the place it already synced, so there is nothing extra on the wire — and only
+        // for PEOPLE, because a computer driver takes a place and carries no points anywhere.
+        const points = d.bot ? 0 : pointsFor(d.place);
+        return (
           `<tr class="${d.me ? 'me' : ''}"><td>${d.place ? `${d.place}.` : '—'}</td>` +
           `<td>${escapeHtml(d.name)}</td>` +
           `<td class="r">${d.finishedMs ? raceTime(d.finishedMs) : `lap ${Math.min(d.lap + 1, m.laps)}`}</td>` +
-          `<td class="r">${raceTime(d.bestLapMs)}</td></tr>`,
-      )
+          `<td class="r">${raceTime(d.bestLapMs)}</td>` +
+          `<td class="r pts">${points > 0 ? `+${points}` : ''}</td></tr>`
+        );
+      })
       .join('');
     const foot = m.recordLapMs
       ? `<div class="foot">Track record ${raceTime(m.recordLapMs)}${m.recordLapBy ? ` — ${escapeHtml(m.recordLapBy)}` : ''}` +
@@ -449,7 +460,8 @@ export class RaceHud {
       : '';
     this.board.innerHTML =
       `<h4>Result — ${m.laps} laps</h4>` +
-      `<table><tr><th></th><th>Driver</th><th class="r">Time</th><th class="r">Best lap</th></tr>${body}</table>` +
+      `<table><tr><th></th><th>Driver</th><th class="r">Time</th><th class="r">Best lap</th>` +
+      `<th class="r">Pts</th></tr>${body}</table>` +
       foot;
   }
 }

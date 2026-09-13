@@ -3493,7 +3493,16 @@ export class OfficeScene extends Phaser.Scene {
     this.pendingRecords = null;
     const body = document.createElement('div');
     body.appendChild(this.recordsBlock(records));
-    body.appendChild(this.seasonBlock(season));
+    body.appendChild(
+      this.seasonBlock(
+        season.rows,
+        `On this track — ${String(season.label ?? season.zone ?? '')}`,
+        'No points here yet. Finish a race to score.',
+      ),
+    );
+    body.appendChild(
+      this.seasonBlock(season.championship, 'Championship — every track', 'No points anywhere yet.', true),
+    );
     openPaDialog({
       title: `Timing — ${String(season.label ?? season.zone ?? '')}`,
       body,
@@ -3502,20 +3511,27 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** The season table: points, starts, wins, best finish. */
-  private seasonBlock(m: Record<string, unknown>): HTMLElement {
-    const rows = Array.isArray(m.rows)
-      ? (m.rows as Array<{ name?: unknown; points?: unknown; starts?: unknown; wins?: unknown; bestPlace?: unknown }>)
+  /**
+   * One standings table. Used twice on the timing screen — this track, and every track added up.
+   *
+   * Two tables rather than one, because they answer different questions and either alone
+   * misleads: a board beside a circuit should say who is quick HERE, and a season that stops at
+   * the end of one track is not a season.
+   */
+  private seasonBlock(rowsIn: unknown, title: string, empty: string, showTracks = false): HTMLElement {
+    const rows = Array.isArray(rowsIn)
+      ? (rowsIn as Array<{ name?: unknown; points?: unknown; starts?: unknown; wins?: unknown; tracks?: unknown }>)
       : [];
     const box = document.createElement('div');
     const head = document.createElement('div');
     head.style.cssText = 'color:#e7da00;margin:0.9rem 0 0.2rem;';
-    head.textContent = 'Championship';
+    head.textContent = title;
     box.appendChild(head);
     if (rows.length === 0) {
-      const empty = document.createElement('p');
-      empty.style.color = '#818586';
-      empty.textContent = 'No points yet. Finish a race to score.';
-      box.appendChild(empty);
+      const none = document.createElement('p');
+      none.style.color = '#818586';
+      none.textContent = empty;
+      box.appendChild(none);
       return box;
     }
     rows.forEach((r, i) => {
@@ -3528,10 +3544,17 @@ export class OfficeScene extends Phaser.Scene {
       name.style.flex = '1';
       name.textContent = String(r.name ?? '');
       const detail = document.createElement('span');
-      detail.style.cssText = 'color:#818586;min-width:9rem;text-align:right;';
+      detail.style.cssText = 'color:#818586;min-width:11rem;text-align:right;';
       // Starts and wins beside the points, because a season is a story and a bare score is not:
-      // twelve points from one win reads differently from twelve from six finishes.
-      detail.textContent = `${Number(r.starts ?? 0)} starts · ${Number(r.wins ?? 0)} wins`;
+      // twelve points from one win reads differently from twelve from six finishes. Across the
+      // championship the number of TRACKS is the same kind of context — a score from one circuit
+      // is a good day, the same score from three is a season.
+      const tracks = Number(r.tracks ?? 0);
+      const starts = Number(r.starts ?? 0);
+      const wins = Number(r.wins ?? 0);
+      detail.textContent =
+        `${starts} start${starts === 1 ? '' : 's'} · ${wins} win${wins === 1 ? '' : 's'}` +
+        (showTracks && tracks > 0 ? ` · ${tracks} track${tracks === 1 ? '' : 's'}` : '');
       const pts = document.createElement('span');
       pts.style.cssText = 'min-width:3.5rem;text-align:right;color:#e7da00;';
       pts.textContent = `${Number(r.points ?? 0)}`;

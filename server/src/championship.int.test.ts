@@ -15,7 +15,7 @@ import test, { before } from 'node:test';
 
 import { POINTS, bySeason, pointsFor } from '@pixel/shared/office/race/championship.js';
 
-import { clearSeason, scoreFinish, seasonTable } from './championshipStore.js';
+import { championshipTable, clearSeason, scoreFinish, seasonTable, tracksRaced } from './championshipStore.js';
 import { userStore } from './userStore.js';
 
 const ZONE = 'champzone';
@@ -94,4 +94,66 @@ test('a computer driver has no account, so it scores nothing', () => {
   // writing a row keyed on nothing.
   scoreFinish(ZONE, '', 1, pointsFor(1));
   assert.equal(seasonTable(ZONE).length, 0, 'a nameless finisher got into the season table');
+});
+
+// ── the championship: every track added together ─────────────────────────────
+
+const TRACK_A = 'champ-a';
+const TRACK_B = 'champ-b';
+
+test('a championship adds the tracks up, and a retirement on one keeps a podium on another', () => {
+  for (const z of [TRACK_A, TRACK_B]) clearSeason(z);
+  // Ada: a win on A, a fourth on B. Bob: two seconds. Cid: retired on A, won B.
+  scoreFinish(TRACK_A, 'ada', 1, pointsFor(1));
+  scoreFinish(TRACK_B, 'ada', 4, pointsFor(4));
+  scoreFinish(TRACK_A, 'bob', 2, pointsFor(2));
+  scoreFinish(TRACK_B, 'bob', 2, pointsFor(2));
+  scoreFinish(TRACK_A, 'cid', 0, pointsFor(0));
+  scoreFinish(TRACK_B, 'cid', 1, pointsFor(1));
+
+  const table = championshipTable().filter((r) => ['ada', 'bob', 'cid'].includes(r.userId));
+  const row = (id: string): (typeof table)[number] => {
+    const r = table.find((x) => x.userId === id);
+    assert.ok(r, `${id} is not in the championship`);
+    return r;
+  };
+  assert.equal(row('ada').points, 25 + 12);
+  assert.equal(row('bob').points, 18 + 18);
+  assert.equal(row('cid').points, 25);
+  assert.equal(row('ada').starts, 2);
+  assert.equal(row('cid').starts, 2, 'a retirement was not a start in the championship either');
+  assert.equal(row('cid').wins, 1);
+  // The best finish is the best ANYWHERE, and the retirement on track A must not become it —
+  // this is the same "skip the zero" rule as one zone's, but expressed over a GROUP BY, which is
+  // where a plain MIN() would quietly answer 0.
+  assert.equal(row('cid').bestPlace, 1, 'a retirement became the best finish of the season');
+  assert.equal(row('ada').bestPlace, 1);
+  assert.equal(row('bob').bestPlace, 2);
+
+  // Ordered by points, then wins, then best finish — ada and bob are level on 37 and 36, so the
+  // order here is simply by points.
+  assert.deepEqual(table.map((r) => r.userId), ['ada', 'bob', 'cid']);
+});
+
+test('the per-track tables are untouched by the championship view', () => {
+  // The rows stay per zone: that is the raw fact, and a board beside one circuit shows that
+  // circuit. Adding them up must be a VIEW, not a second place the truth is written.
+  const a = seasonTable(TRACK_A).find((r) => r.userId === 'ada');
+  const b = seasonTable(TRACK_B).find((r) => r.userId === 'ada');
+  assert.equal(a?.points, 25);
+  assert.equal(b?.points, 12);
+});
+
+test('how many tracks somebody has raced is what turns a score into a season', () => {
+  // The same 25 points from one circuit and from three read differently, so the board says which.
+  assert.equal(tracksRaced('ada'), 2);
+  assert.equal(tracksRaced('nobody-at-all'), 0);
+});
+
+test('clearing one track leaves the rest of the championship standing', () => {
+  clearSeason(TRACK_A);
+  const cid = championshipTable().find((r) => r.userId === 'cid');
+  assert.equal(cid?.points, 25, 'wiping one season took another with it');
+  assert.equal(cid?.starts, 1);
+  for (const z of [TRACK_A, TRACK_B]) clearSeason(z);
 });

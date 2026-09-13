@@ -27,8 +27,8 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from 
 import { RACE_PHASES, raceClock } from '@pixel/shared/office/race/raceState.js';
 import { isDifficulty, RACE_DIFFICULTIES } from '@pixel/shared/office/race/racerNames.js';
 import { allRaceRecords, offerRecord, raceRecords, type RaceRecords } from '../raceRecordStore.js';
-import { scoreFinish, seasonTable } from '../championshipStore.js';
-import { pointsFor } from '@pixel/shared/office/race/championship.js';
+import { championshipTable, scoreFinish, seasonTable, tracksRaced } from '../championshipStore.js';
+import { pointsFor, type StandingRow } from '@pixel/shared/office/race/championship.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
@@ -903,18 +903,28 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return '';
   }
 
-  /** The season table, with the names people know rather than login ids. */
+  /**
+   * The season table, with the names people know rather than login ids — this track, and the
+   * championship across every track.
+   *
+   * Both, because they answer different questions and each one alone is misleading: the board
+   * beside a circuit should say who is quick HERE, and a season that stops at the end of one
+   * track is not a season.
+   */
   private seasonMessage(): Record<string, unknown> {
-    const rows = seasonTable(this.zone.id).map((r) => ({
-      ...r,
-      // The name people know, not the login id — and the login id when the account is gone, so a
-      // season keeps the row rather than showing a blank line.
-      name: (() => {
-        const u = userStore.get(r.userId);
-        return u ? UserStore.displayName(u) : r.userId;
-      })(),
-    }));
-    return { type: 'raceSeason', zone: this.zone.id, label: this.zone.label, rows };
+    // The name people know, not the login id — and the login id when the account is gone, so a
+    // season keeps the row rather than showing a blank line.
+    const named = (r: StandingRow): Record<string, unknown> => {
+      const u = userStore.get(r.userId);
+      return { ...r, name: u ? UserStore.displayName(u) : r.userId, tracks: tracksRaced(r.userId) };
+    };
+    return {
+      type: 'raceSeason',
+      zone: this.zone.id,
+      label: this.zone.label,
+      rows: seasonTable(this.zone.id).map(named),
+      championship: championshipTable().map(named),
+    };
   }
 
   /**
@@ -1853,6 +1863,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.startConfiguredRace(client, me.username);
       return;
     }
+    if (spec.name === 'season') {
+      // To the one client that asked, like the timing screen: a table is read by whoever wants it,
+      // and a broadcast would open a panel on every screen in the zone.
+      if (!this.os.raceTrack()) return void sys('There is no race track in this zone.');
+      client.send('m', this.raceRecordsMessage());
+      client.send('m', this.seasonMessage());
+      return;
+    }
     if (spec.name === 'afk') {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
@@ -2382,6 +2400,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private announceRace(): void {
     const notices = this.os.takeRaceNotices();
     if (notices.length === 0) return;
+    const scored: string[] = [];
     const laps = this.os.raceInfo().laps;
     for (const n of notices) {
       const who = n.kartId ? this.os.kartDriverName(n.kartId) || 'a driver' : '';
@@ -2406,7 +2425,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
         // a place (it has to, or the places a person beat mean nothing) and carries no points
         // anywhere, because a season table of scenery is a list nobody reads.
         const userId = this.userIdDriving(n.kartId);
-        if (userId) scoreFinish(this.zone.id, userId, n.place, pointsFor(n.place));
+        if (userId) {
+          const points = pointsFor(n.place);
+          scoreFinish(this.zone.id, userId, n.place, points);
+          // Said out loud, and with the new total. Points were being written to a table you could
+          // only see by walking to the timing screen, which is a championship nobody knows they
+          // are in — reported in those words ("ich sehe davon nur leider nichts"). Only when
+          // something was actually scored: "0 points" is a line about nothing.
+          if (points > 0) {
+            const total = championshipTable().find((r) => r.userId === userId)?.points ?? points;
+            scored.push(`${who} +${points} (${total})`);
+          }
+        }
       }
       if (n.kind === 'won') {
         this.broadcast('m', { type: 'system', text: `🏁 ${who} wins in ${t}!` });
@@ -2415,6 +2445,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
       // A plain lap time is deliberately NOT broadcast: eight drivers times three laps is
       // twenty-four lines of chat nobody reads, and the HUD already shows your own.
+    }
+    // One line for the whole field rather than one per finisher: only people score, so this is
+    // usually one or two names, and a race of twelve must not put twelve lines in the chat.
+    if (scored.length > 0) {
+      this.broadcast('m', { type: 'system', text: `🏆 championship: ${scored.join(' · ')}` });
     }
   }
 

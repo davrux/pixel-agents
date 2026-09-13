@@ -43,6 +43,20 @@ export const COMMANDS: CommandSpec[] = [
     summary: 'Start a race for everyone in a kart, on a track. Without one, drive around as long as you like.',
   },
   {
+    /**
+     * The standings, without walking to the timing screen.
+     *
+     * The board beside the pit lane is the right place to READ a season — it is a thing in the
+     * world and you go to it. It is the wrong place to be the ONLY way: points are scored at the
+     * flag and the table lives a lap away, so a championship existed that nobody knew they were
+     * in. Same answer, one command.
+     */
+    name: 'season',
+    group: 'user',
+    usage: '/season',
+    summary: 'Show this track’s standings and the championship across every track.',
+  },
+  {
     name: 'afk',
     group: 'user',
     usage: '/afk',
