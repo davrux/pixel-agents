@@ -53,7 +53,9 @@ test('the committed map imports as a track: four gates, a grid, its lap count', 
   const track = raceTrack(layout);
   assert.ok(track, 'raceway.tmj is not recognised as a race track');
   assert.equal(track.gates.length, 4, `gates: ${track.gates.length}`);
-  assert.equal(track.laps, 3, 'the laps property did not survive the import');
+  // Whatever the map says, not a number written here as well: the distance is a track design
+  // decision and changing it must not be a test edit.
+  assert.equal(track.laps, (layout as { laps?: number }).laps, 'the laps property did not survive the import');
   assert.equal(track.grid.length, 12, `grid slots: ${track.grid.length}`);
   // Each gate is a LINE across the road, or a kart drives past it — and it has to span whatever
   // the road IS at that column. Gate 2 sits on the bridge, which is three tiles rather than five.
@@ -74,7 +76,7 @@ test('the map survives the save path: a stored track is still a track', () => {
   assert.ok(track, 'the stored map is no longer a race track');
   assert.equal(track.gates.length, 4, `gates after a save: ${track.gates.length}`);
   assert.equal(track.grid.length, 12, `grid slots after a save: ${track.grid.length}`);
-  assert.equal(track.laps, 3, 'the lap count did not survive a save');
+  assert.equal(track.laps, (layout as { laps?: number }).laps, 'the lap count did not survive a save');
 });
 
 test('the engine puts one kart on each grid slot, parked and facing the first corner', () => {
@@ -188,7 +190,7 @@ test('an autopilot drives three laps without falling off', () => {
   }
 
   assert.equal(kart.finished, true, `never finished: lap ${kart.lap}, gate ${kart.gate}, ${ticks} ticks`);
-  assert.equal(kart.lap, 3, `finished on lap ${kart.lap}`);
+  assert.equal(kart.lap, track.laps, `finished on lap ${kart.lap} of ${track.laps}`);
   assert.equal(os.raceInfo().entries.get(kart.id)?.place, 1, 'the only finisher did not come first');
   assert.equal(falls, 0, `fell off ${falls} time(s) while following the racing line`);
   // A lap of this oval is about 150 tiles of road; three of them at the speed limit cannot be

@@ -52,6 +52,7 @@ import {
   ROUGH_WEAR_FACTOR,
   TYRE_FIT_PER_SEC,
   TYRE_MIN_GRIP,
+  TYRE_SLIDE_REF_PX_PER_SEC,
   TYRE_WEAR_ROLLING_PER_SEC,
   TYRE_WEAR_SLIDING_PER_SEC,
 } from '../constants.js';
@@ -336,7 +337,7 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     kart.tyre = Math.min(1, kart.tyre + TYRE_FIT_PER_SEC * dt);
   } else if (kart.driverId !== null) {
     const pace = Math.min(1, Math.abs(along) / Math.max(1, spec.maxSpeed));
-    const slide = Math.min(1, Math.abs(side) / 60);
+    const slide = Math.min(1, Math.abs(side) / TYRE_SLIDE_REF_PX_PER_SEC);
     const rate = (TYRE_WEAR_ROLLING_PER_SEC * pace + TYRE_WEAR_SLIDING_PER_SEC * slide) *
       (offRoad ? ROUGH_WEAR_FACTOR : 1);
     kart.tyre = Math.max(0, kart.tyre - rate * dt);

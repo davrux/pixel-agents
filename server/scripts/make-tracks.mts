@@ -114,7 +114,15 @@ interface TrackSpec {
   kind: 'ring' | 'sprint';
   cols: number;
   rows: number;
-  /** How wide the road is, in tiles. Five is quick and unforgiving; seven is friendlier. */
+  /**
+   * How wide the road is, in tiles.
+   *
+   * Read against the CAR, which is four tiles long and two wide: nine is about two and a half car
+   * widths and takes two abreast with room to move, eleven is generous, seven is a stage you have
+   * to be tidy on. These were 5 and 7 when a car was two tiles long — the same numbers in tiles
+   * meant twice as much road per car, and scaling the car without scaling these would have left a
+   * circuit nobody could overtake on.
+   */
   width: number;
   laps: number;
   /** Where the finish line sits, as a column. Rings only. */
@@ -133,10 +141,15 @@ const TRACKS: readonly TrackSpec[] = [
     kind: 'ring',
     cols: 76,
     rows: 44,
-    width: 5,
-    laps: 3,
+    width: 9,
+    // Four, not three: the wider road is quicker — measured, a lap fell from about 25 seconds to
+    // 11.5 when the cars and the road grew together — and three of those is a race that is over
+    // before it has a shape. Not five either, and that is the tyres: a lap costs about 19 % of a
+    // set, so five makes the pit stop compulsory where four leaves it the decision it is meant to
+    // be. The panel can still set anything.
+    laps: 4,
     startCol: 40,
-    bridge: { from: 26, to: 46, width: 4 },
+    bridge: { from: 26, to: 46, width: 7 },
   },
   {
     // Shorter, wider and twice as many laps: a circuit you can actually race side by side on,
@@ -147,9 +160,12 @@ const TRACKS: readonly TrackSpec[] = [
     kind: 'ring',
     cols: 48,
     rows: 34,
-    width: 7,
+    width: 11,
     laps: 6,
-    startCol: 26,
+    // Far enough round that the grid fits BEHIND it: six rows five tiles apart need thirty tiles
+    // of straight, and at 26 the last two rows fell off the west end of the map — measured as a
+    // field of seven on a twelve-car grid.
+    startCol: 38,
     bridge: null,
   },
   {
@@ -167,7 +183,7 @@ const TRACKS: readonly TrackSpec[] = [
     kind: 'sprint',
     cols: 88,
     rows: 50,
-    width: 5,
+    width: 7,
     laps: 1,
     startCol: 0,
     bridge: null,
@@ -484,7 +500,7 @@ const isOutfield = RING ? onOutfield : onStageOutfield;
 const STAGE_GATES = Math.max(6, Math.round(STAGE_LENGTH / 18));
 /** The grid needs this much straight road behind the start line, and the finish line sits this
  *  far back from the very end so it is on road rather than at the point it runs out. */
-const STAGE_GRID_RUN = 14;
+const STAGE_GRID_RUN = 30;
 const STAGE_FINISH_RUN = 2.5;
 const stageGateCells: Array<Array<{ col: number; row: number }>> = [];
 const chequered = new Set<string>();
@@ -519,9 +535,9 @@ if (spec.kind === 'sprint') {
   let gslot = 0;
   for (let i = 0; i < RING_GRID_ROWS; i++) {
     // Behind the line, down the first run — which is straight, so the two columns are level.
-    const p = stageAt(STAGE_GRID_RUN - 2 - i * 2);
+    const p = stageAt(STAGE_GRID_RUN - 3 - i * 5);
     const col = Math.round(p.x);
-    for (const row of [Math.round(p.y) - 1, Math.round(p.y) + 1]) {
+    for (const row of [Math.round(p.y) - 2, Math.round(p.y) + 2]) {
       stageGrid.push({ col, row, slot: gslot, ...(gslot++ === 0 ? { dir: 0 } : {}) });
     }
     stageSpawns.push({ col, row: Math.round(p.y) });
@@ -668,8 +684,10 @@ for (let col = OUTER.left; col <= INNER.left - 1; col++) objects.push(gate(col, 
  */
 let slot = 0;
 
+// Five tiles between rows, because a car is four long: at three they overlapped the moment the
+// art grew, and a starting grid where the cars intersect is not a grid.
 for (let i = 0; i < RING_GRID_ROWS; i++) {
-  const col = START_LINE_COL - 6 - i * 3;
+  const col = START_LINE_COL - 8 - i * 5;
   // These circuits run anticlockwise, so the grid on the bottom straight faces EAST (0°).
   for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot, slot++ === 0 ? 0 : undefined));
 }
@@ -721,7 +739,7 @@ for (const cell of rough) objects.push(marker(cell.col, cell.row, [
 // happens to land. On a ring this long that is the difference between getting in a kart and
 // walking half a lap to find one, and it was measured: a spawn seven tiles up the straight is
 // already out of reach of every kart on it. A stage places its own, beside its own grid.
-if (RING) for (let i = 0; i < RING_GRID_ROWS; i++) objects.push(spawn(START_LINE_COL - 6 - i * 3, INNER.bottom + 3));
+if (RING) for (let i = 0; i < RING_GRID_ROWS; i++) objects.push(spawn(START_LINE_COL - 8 - i * 5, INNER.bottom + 4));
 
 const tileLayer = (id: number, name: string, cls: string, data: number[]) => ({
   data,

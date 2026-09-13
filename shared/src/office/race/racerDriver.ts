@@ -29,10 +29,17 @@ import type { Kart, KartInput, KartWorld } from './kart.js';
 import { isRough, nextPoint } from './track.js';
 
 /** How far ahead a perfect driver looks, in tiles. Scaled by skill. */
-const LOOK_TILES = 9;
-/** How far away a pit box is still worth pulling into, in tiles. Beyond it, carry on and take it
- *  next lap — a detour across the circuit costs more than a worn set. */
-const PIT_REACH_TILES = 9;
+const LOOK_TILES = 13;
+/**
+ * How far away a pit box is still worth pulling into, in tiles. Beyond it, carry on and take it
+ * next lap — a detour across the circuit costs more than a worn set.
+ *
+ * Both of these are DISTANCES, so they are really times: nine tiles at the old pace was most of a
+ * second to decide in, and at the new one it is half. Measured before they grew, most of the
+ * field finished a race on bald tyres having driven past the pit lane every lap — the decision
+ * window had closed faster than the driver could take it.
+ */
+const PIT_REACH_TILES = 14;
 /** Below this much road to the left and right combined, a stretch counts as tight. */
 const TIGHT_TILES = 3.2;
 /** Candidate steering offsets, smallest correction first, both ways round. */

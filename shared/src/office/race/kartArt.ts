@@ -20,14 +20,26 @@ export interface VehicleArt {
   id: string;
   /** The file under `assets/vehicles/dust/` it is built from. */
   source: string;
-  /** Game-scale size in pixels. Two tiles long, so it reads as a car on a five-tile road. */
+  /** Game-scale size in pixels. */
   w: number;
   h: number;
 }
 
-/** Two tiles and a bit long. Bigger and it will not fit two abreast on the road. */
-const W = 34;
-const H = 18;
+/**
+ * FOUR tiles long, which is the size of a car in this world.
+ *
+ * It was two, and that was wrong against everything around it: uponu parks its cars as 64×48 and
+ * 48×80 furniture, a character is 16×32, and a race car at 34×18 came out shorter than a person
+ * is tall. Reported in those words — "die Autos sind viel zu klein", next to the cars already
+ * standing in the world.
+ *
+ * The aspect is the source's own (175×93), so this is the render scaled up rather than restyled.
+ * Everything geometric follows it: the collision radius is half the width, the turn radius scales
+ * with the car, and the roads were widened to match — see KART_TURN_RADIUS_PX for why the top
+ * speed does NOT simply scale with it.
+ */
+const W = 64;
+const H = 34;
 
 export const VEHICLE_ART: readonly VehicleArt[] = [
   { id: 'car-red', source: 'carRed.png', w: W, h: H },

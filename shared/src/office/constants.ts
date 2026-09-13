@@ -307,11 +307,11 @@ export const DECAL_DEPTH = -99998.5;
  *  slow — a long straight has to feel like one. Every derived number below is set against this,
  *  so raising it is not a free knob: a corner demands `v² / radius`, which grows with the SQUARE.
  *  At 240 a full-lock corner asks 823 px/s² of tyres that have 600. */
-export const KART_MAX_SPEED_PX_PER_SEC = 240;
+export const KART_MAX_SPEED_PX_PER_SEC = 260;
 /** Reverse is deliberately slow: it is for getting off a wall, not for racing backwards. */
 export const KART_MAX_REVERSE_PX_PER_SEC = 55;
-export const KART_ACCEL_PX_PER_SEC2 = 320;
-export const KART_BRAKE_PX_PER_SEC2 = 500;
+export const KART_ACCEL_PX_PER_SEC2 = 345;
+export const KART_BRAKE_PX_PER_SEC2 = 540;
 /**
  * Coasting loss per second, as a fraction — a kart slows when you let go, but does not stop dead.
  *
@@ -386,10 +386,23 @@ export const KART_STEER_AT_REST = 0.35;
  * it. That is the whole of "wer zu viel Gas gibt, sollte rausfliegen", as one relation between
  * three constants rather than as a rule about corners.
  */
-export const KART_TURN_RADIUS_PX = 70;
-/** Collision radius in pixels — a kart is 16 px of art, and bodies that touch at 9 read as
- *  touching before they overlap. */
-export const KART_RADIUS_PX = 9;
+/**
+ * …and it is deliberately TIGHTER than the car it steers.
+ *
+ * A car four tiles long would really turn in about ten tiles, and 132 px is what that works out
+ * to — measured, it is undrivable here: the bots got round not one corner of any of the three
+ * circuits in two hundred seconds, because a right-angle corner on a nine-tile road cannot be
+ * taken in an eight-tile circle. Swept across six radii, the tracks start working at 80 and are
+ * comfortable below it, so the car turns like a kart and is drawn like a car. That is the
+ * compromise every top-down racer makes, and the alternative is tracks several screens across.
+ *
+ * The SPEED moved with it and not by taste: the handling is the relation `v² / r` against the
+ * grip budget, so the top speed is whatever keeps that where it was — 240²/70 = 823 before,
+ * 260²/82 = 824 now. The choice in a corner is the same choice it always was.
+ */
+export const KART_TURN_RADIUS_PX = 82;
+/** Collision radius in pixels — half the car's width, so two bodies touch when the pictures do. */
+export const KART_RADIUS_PX = 17;
 /** What the RAMMER gives away, as a share of the closing speed. Under 1 so a collision costs
  *  both of them something, which is what makes ramming a trade rather than a free win. */
 export const KART_BUMP_TRANSFER = 0.7;
@@ -526,8 +539,17 @@ export const TYRE_MIN_GRIP = 0.55;
  * three-lap race arrives at the flag with about half a set left, so the pit is a choice on a long
  * race rather than a chore on every one.
  */
-export const TYRE_WEAR_SLIDING_PER_SEC = 0.055;
+export const TYRE_WEAR_SLIDING_PER_SEC = 0.038;
 export const TYRE_WEAR_ROLLING_PER_SEC = 0.006;
+/**
+ * The sideways speed that counts as a full slide, px/s — what tyre wear is measured against.
+ *
+ * A SPEED, so it scales with the world: when the cars grew and the top speed went from 240 to
+ * 260, the same corner produced proportionally more sideways velocity and a set of tyres went
+ * from lasting a race to lasting two laps. Measured at the old reference, a hard raceway lap cost
+ * 24 % of a set against the 17 % the design is stated in.
+ */
+export const TYRE_SLIDE_REF_PX_PER_SEC = 65;
 /** How fast a pit stop puts them back, per second. A full set takes about three seconds — long
  *  enough to be a decision, short enough that taking it is not giving up. */
 export const TYRE_FIT_PER_SEC = 0.34;

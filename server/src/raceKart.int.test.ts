@@ -31,6 +31,7 @@ import test from 'node:test';
 
 import {
   KART_FALL_SEC,
+  KART_RADIUS_PX,
   KART_RECOVER_SEC,
   KART_STUCK_SEC,
   KART_MAX_SPEED_PX_PER_SEC,
@@ -272,8 +273,14 @@ test('a bump is a trade, and a shove from the side puts a kart off the road', ()
   // Head to head along the bottom straight: one at speed, one parked.
   const runner = createKart(1, at(8, 12), 0);
   runner.driverId = 42;
-  drive(runner, w, 1.5, { throttle: 1 });
-  const parked = createKart(2, { x: runner.x + 17, y: runner.y }, 0);
+  // Long enough to be carrying speed, short enough to still be on the straight: the cars got
+  // bigger and quicker, and a second and a half of full throttle now ends in the east barrier
+  // with the runner stationary, which tests nothing about a bump.
+  drive(runner, w, 0.7, { throttle: 1 });
+  assert.ok(Math.hypot(runner.vx, runner.vy) > 100, 'the runner never got up to speed');
+  // Just inside touching distance, expressed as the radius rather than as the number it
+  // happened to be: two bodies touch at two radii, and the cars have since grown.
+  const parked = createKart(2, { x: runner.x + KART_RADIUS_PX * 2 - 1, y: runner.y }, 0);
   const before = Math.hypot(runner.vx, runner.vy);
 
   assert.equal(bumpKarts(runner, parked), true, 'two karts a pixel apart did not touch');
@@ -293,7 +300,7 @@ test('a bump is a trade, and a shove from the side puts a kart off the road', ()
   // Placed at the contact point with the speed it built up, rather than waiting for the tick that
   // happens to overlap them.
   rammer.x = victim.x;
-  rammer.y = victim.y + 17;
+  rammer.y = victim.y + KART_RADIUS_PX * 2 - 1;
   assert.ok(rammer.vy < -20, `the rammer is not moving north: vy=${rammer.vy}`);
   bumpKarts(rammer, victim);
   assert.ok(victim.vy < -15, `not pushed north: vy=${victim.vy}`);

@@ -52,10 +52,10 @@ const BALANCED: KartSpec = {
 export const KART_SPECS: readonly KartSpec[] = [
   BALANCED,
   // Faster in a straight line and it will not stay with the balanced kart through a corner.
-  { ...BALANCED, id: 'sprinter', label: 'Sprinter', maxSpeed: 230, accel: 300, grip: 520, turnRadius: 84 },
+  { ...BALANCED, id: 'sprinter', label: 'Sprinter', maxSpeed: 249, accel: 325, grip: 520, turnRadius: 98 },
   // Slower down the straight, holds a tighter line, and can be driven flat out where the other
   // two have to lift.
-  { ...BALANCED, id: 'gripper', label: 'Gripper', maxSpeed: 170, accel: 240, grip: 700, turnRadius: 58 },
+  { ...BALANCED, id: 'gripper', label: 'Gripper', maxSpeed: 184, accel: 260, grip: 700, turnRadius: 68 },
 ];
 
 export const DEFAULT_KART_SPEC = BALANCED;

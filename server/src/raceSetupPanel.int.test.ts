@@ -152,3 +152,30 @@ test('a fresh track brings its own defaults, and drops the last one’s', () => 
   assert.equal(setup.countdownSec, RACE_DEFAULT_COUNTDOWN_SEC);
   assert.equal(setup.difficulty, 'medium');
 });
+
+test('the cars nobody took leave the grid when the race starts, and come back after', () => {
+  // "Wenn das Rennen startet, sollten alle überflüssigen Autos verschwunden sein." A grid with
+  // nine parked empty cars on it is not a starting grid, and once the field sets off they are
+  // obstacles in the middle of the road that nobody is ever going to move.
+  const { os } = seated(circuit);
+  const slots = os.raceTrack()!.grid.length;
+  assert.equal(os.karts.size, slots, 'the grid did not start full');
+  os.setRaceSetup({ bots: 2 });
+  assert.equal(os.startRace(), true);
+  assert.equal(os.karts.size, 3, `one human and two computer drivers left ${os.karts.size} cars out`);
+  for (const kart of os.karts.values()) {
+    assert.notEqual(kart.driverId, null, 'an empty car stayed on the grid');
+  }
+
+  // …and the circuit gives them back, or the next person to walk up finds nothing to get into.
+  os.abandonRace();
+  for (let i = 0; i < 5; i++) os.update(DT);
+  assert.equal(os.raceInfo().phase, 'idle');
+  assert.equal(os.karts.size, slots, 'the grid was not refilled after the race');
+  // Exactly one car per slot, not two stacked on the ones that were driven.
+  const grid = os.raceTrack()!.grid;
+  for (const slot of grid) {
+    const here = [...os.karts.values()].filter((k) => Math.hypot(k.x - slot.x, k.y - slot.y) < 16);
+    assert.equal(here.length, 1, 'a grid slot ended up with a different number of cars than one');
+  }
+});

@@ -1238,6 +1238,13 @@ export class OfficeState {
       kart.state = 'drive';
       driven.push(kart);
     }
+    // Everything nobody took goes away for the duration. A starting grid with nine empty cars
+    // parked on it is not a starting grid — and once the field sets off they are obstacles in the
+    // middle of the road that no driver is ever going to move. The circuit gives them back when
+    // the race does (`fillGrid`).
+    for (const [id, kart] of [...this.karts]) {
+      if (kart.driverId === null) this.karts.delete(id);
+    }
     const entrants = driven.map((k) => ({
       kartId: k.id,
       // Who the race WAITS for. A computer driver still circulating must not keep a person on a
@@ -1331,8 +1338,10 @@ export class OfficeState {
     const { ended } = tickRace(this.race, dt * 1000);
     if (ended) for (const kart of this.karts.values()) kart.input = { throttle: 0, steer: 0 };
     // The results board is up for a while and then the track is free again — which is also when
-    // the computer drivers leave, so an idle raceway is empty rather than full of parked bots.
+    // the computer drivers leave, so an idle raceway is empty rather than full of parked bots,
+    // and when the cars the race took off the grid come back.
     if (this.race.phase === 'idle' && this.racers.size > 0) this.clearRacers();
+    if (this.race.phase === 'idle' && this.track && this.karts.size < this.track.grid.length) this.fillGrid();
     // Held on the grid until the lights go out. Not a refusal of input — the throttle is simply
     // not connected yet — so a driver leaning on it is already going when it is.
     const held = this.race.phase === 'countdown';
@@ -2860,8 +2869,25 @@ export class OfficeState {
     stopRace(this.race);
     this.clearRacers();
     this.karts.clear();
+    this.fillGrid();
+  }
+
+  /**
+   * Put a car in every empty slot on the grid.
+   *
+   * Called when the track is built and again when a race gives the circuit back, because a race
+   * REMOVES the cars nobody took (see `startRace`) — so without this the grid would stay however
+   * empty the last race left it and the next person to walk up would find nothing to get into.
+   */
+  private fillGrid(): void {
     if (!this.track) return;
+    const taken = new Set<number>();
+    for (const kart of this.karts.values()) {
+      const at = this.track.grid.findIndex((slot) => Math.hypot(slot.x - kart.x, slot.y - kart.y) < TILE_SIZE);
+      if (at >= 0) taken.add(at);
+    }
     this.track.grid.forEach((slot, i) => {
+      if (taken.has(i)) return;
       const id = this.nextKartId++;
       const kart = createKart(id, slot, headingFrom(this.track!, this.track!.gates[0]));
       // One colour per grid slot: on a screen full of identical cars nobody can follow their own.

@@ -122,7 +122,9 @@ test('laps are timed from the LIGHTS, and the best one is kept', () => {
   assert.equal(race.entries.get(1)!.lastLapMs, 25_000, 'the second lap was timed from the start');
   assert.equal(race.entries.get(1)!.bestLapMs, 25_000, 'a faster lap did not become the best');
   tickRace(race, 40_000);
-  assert.equal(completeLap(race, 1, 3), true, 'the last lap did not finish the race');
+  // The LAST lap, whatever the track's distance is — a literal here is a test that has to be
+  // edited every time a circuit's length is tuned.
+  assert.equal(completeLap(race, 1, race.laps), true, 'the last lap did not finish the race');
   assert.equal(race.entries.get(1)!.bestLapMs, 25_000, 'a slower lap replaced the best');
   assert.equal(race.entries.get(1)!.place, 1);
   assert.equal(race.entries.get(1)!.finishedMs, 95_000);
@@ -135,7 +137,7 @@ test('places are handed out in finishing order, and the rest are sorted live', (
   startRace(race, track, [{ kartId: 1, human: true }, { kartId: 2, human: true }, { kartId: 3, human: true }]);
   while (race.phase === 'countdown') tickRace(race, 100);
   tickRace(race, 10_000);
-  completeLap(race, 2, 3); // kart 2 wins
+  completeLap(race, 2, race.laps); // kart 2 wins
   assert.equal(race.entries.get(2)!.place, 1);
   // The others are ordered by how far round they are, behind whoever has finished.
   standings(race, (id) => (id === 3 ? 5.5 : 2.1));
@@ -185,7 +187,8 @@ test('with no race running a kart laps for ever and finishes nothing', () => {
   assert.ok(track);
   // Carried from gate to gate rather than driven: what is under test is what a LAP means with no
   // race running, and a driving autopilot would only add its own ability to the assertion.
-  for (let lap = 0; lap < 5; lap++) {
+  const circuits = track.laps + 2;
+  for (let lap = 0; lap < circuits; lap++) {
     for (const gate of track.gates) {
       kart.x = gate.x;
       kart.y = gate.y;
@@ -196,9 +199,9 @@ test('with no race running a kart laps for ever and finishes nothing', () => {
     }
   }
   // It has been round more times than the race would allow, and none of that ended anything.
-  // Four, not five: the kart starts ON gate 0, and the next gate it is looking for is 1 — so the
-  // first crossing of the line is the one that opens the lap rather than closing one.
-  assert.equal(kart.lap, 4, `five circuits gave ${kart.lap} laps`);
+  // One fewer lap than circuits: the kart starts ON gate 0, and the next gate it is looking for
+  // is 1 — so the first crossing of the line opens a lap rather than closing one.
+  assert.equal(kart.lap, circuits - 1, `${circuits} circuits gave ${kart.lap} laps`);
   assert.ok(kart.lap > track.laps, `the lap limit still bit at lap ${kart.lap}`);
   assert.equal(kart.finished, false, 'a kart finished a race nobody started');
   assert.equal(os.raceInfo().phase, 'idle');
@@ -480,7 +483,7 @@ test('a record is measured against what STOOD, and announced once', () => {
   completeLap(race, 1, 2); // faster
   assert.equal(takeNotices(race).filter((n) => n.kind === 'lapRecord').length, 1, 'a fast lap set no record');
   tickRace(race, 26_000);
-  completeLap(race, 1, 3); // slower than the one just set — no second announcement
+  completeLap(race, 1, race.laps); // slower than the one just set — no second announcement
   const last = takeNotices(race);
   assert.equal(last.filter((n) => n.kind === 'lapRecord').length, 0, 'a slower lap announced a record');
   assert.ok(last.some((n) => n.kind === 'won'), 'the winner was not announced');
