@@ -354,6 +354,7 @@ export class ZoneStore {
     // foreign key for the same reason the two tables above have none.
     this.db.prepare('DELETE FROM pet_scores WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM race_records WHERE zone_id = ?').run(id);
+    this.db.prepare('DELETE FROM race_points WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zones WHERE id = ?').run(id);
     return true;
   }

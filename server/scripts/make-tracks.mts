@@ -231,10 +231,19 @@ const gate = (col: number, row: number, index: number) =>
     { name: 'actionKind', type: 'string', value: 'raceGate' },
     { name: 'actionGate', type: 'int', value: index },
   ]);
-const start = (col: number, row: number, slot: number) =>
+/**
+ * A grid slot — and on slot 0, the BEACON that says which way the race sets off.
+ *
+ * Only the first slot carries a direction, because one answer is what the question has: the whole
+ * grid faces the same way. Before beacons the direction lived in the NUMBERING of the gates, which
+ * is invisible to whoever is placing them in Tiled — a circuit that runs north is exactly as valid
+ * as one that runs east, and the map should be able to SAY which.
+ */
+const start = (col: number, row: number, slot: number, dir?: number) =>
   marker(col, row, [
     { name: 'actionKind', type: 'string', value: 'raceStart' },
     { name: 'actionSlot', type: 'int', value: slot },
+    ...(dir === undefined ? [] : [{ name: 'actionDir', type: 'int', value: dir }]),
   ]);
 
 const objects: ReturnType<typeof marker>[] = [];
@@ -259,7 +268,8 @@ let slot = 0;
 const GRID_ROWS = 6;
 for (let i = 0; i < GRID_ROWS; i++) {
   const col = START_LINE_COL - 6 - i * 3;
-  for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot++));
+  // These circuits run anticlockwise, so the grid on the bottom straight faces EAST (0°).
+  for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot, slot++ === 0 ? 0 : undefined));
 }
 
 /**

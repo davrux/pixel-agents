@@ -47,10 +47,17 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
     case 'raceGate':
       return { kind, gate: Math.max(0, Math.floor(Number(props[`${prefix}Gate`]) || 0)) };
     case 'racePit':
+    case 'raceFinish':
     case 'raceRecords':
       return { kind };
     case 'raceStart':
-      return { kind, slot: Math.max(0, Math.floor(Number(props[`${prefix}Slot`]) || 0)) };
+      return {
+        kind,
+        slot: Math.max(0, Math.floor(Number(props[`${prefix}Slot`]) || 0)),
+        // Degrees, 0 = east. Absent means "work it out from the gates", which is what every map
+        // drawn before beacons existed says by saying nothing.
+        dir: props[`${prefix}Dir`] === undefined ? -1 : Math.floor(Number(props[`${prefix}Dir`]) || 0),
+      };
     case 'iframe':
       return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
     case 'appliance':

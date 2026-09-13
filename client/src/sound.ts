@@ -26,6 +26,32 @@ export function setSoundEnabled(on: boolean): void {
 export function setAlertVolume(v: number): void {
   alertVolume = Math.max(0, Math.min(1, v));
 }
+/**
+ * The shared AudioContext, for sound that is not a one-shot chime.
+ *
+ * Exported so the engine note and the tyre squeal can live in their own module without opening a
+ * second context: browsers cap how many a page may have, and two of them would also mean two
+ * volume settings and two things to forget to suspend.
+ *
+ * Returns null when sound is off or the browser will not give one, which is the same answer the
+ * chimes act on — a caller that gets null makes no noise and carries on.
+ */
+export function audioContext(): AudioContext | null {
+  if (!soundEnabled) return null;
+  try {
+    ctx ??= new AudioContext();
+    if (ctx.state === 'suspended') void ctx.resume();
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+
+/** The master volume, for the same callers. */
+export function currentVolume(): number {
+  return soundEnabled ? alertVolume : 0;
+}
+
 /** Unlock/resume the AudioContext from a user gesture (browsers suspend it). */
 export function unlockAudio(): void {
   try {

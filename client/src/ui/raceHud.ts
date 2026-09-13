@@ -145,7 +145,7 @@ export class RaceHud {
   }
 
   update(m: RaceHudModel | null): void {
-    if (!m || m.phase === 'idle') {
+    if (!m) {
       this.hide();
       return;
     }
@@ -197,7 +197,13 @@ export class RaceHud {
     this.banner = this.el(this.banner, 'pa-race-banner');
     let text = '';
     let cls = '';
-    if (m.own?.wrongWay) {
+    if (m.phase === 'idle') {
+      // Practice has one thing worth a banner, and it is the one you can act on.
+      if (m.own?.wrongWay) {
+        text = '⟲ WRONG WAY';
+        cls = ' bad';
+      }
+    } else if (m.own?.wrongWay) {
       text = '⟲ WRONG WAY';
       cls = ' bad';
     } else if (m.phase === 'countdown') {
@@ -238,11 +244,26 @@ export class RaceHud {
 
   private renderHud(m: RaceHudModel): void {
     this.hud = this.el(this.hud, 'pa-race-hud');
-    if (m.phase !== 'racing' && m.phase !== 'countdown') {
+    if (m.phase === 'done' || (m.phase === 'idle' && !m.own)) {
       this.hud.style.display = 'none';
       return;
     }
     this.hud.style.display = '';
+    // Practice: no race, no field, no places — your own lap, your own times, your own tyres, and
+    // the record to chase. Everything a lap on your own is about.
+    if (m.phase === 'idle' && m.own) {
+      const rec = m.recordLapMs
+        ? `<div class="rec">record ${raceTime(m.recordLapMs)}` +
+          `${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
+        : '<div class="rec">no record yet — /race to set one</div>';
+      this.hud.innerHTML =
+        `<div class="top"><span class="lap">Practice · lap ${m.own.lap + 1}</span>` +
+        `<span class="clock">${raceTime(m.own.lastLapMs)}</span></div>` +
+        `<div class="times">best ${raceTime(m.own.bestLapMs)}</div>` +
+        this.tyreBar(m.own.tyre) +
+        rec;
+      return;
+    }
     const order = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
     const leader = order[0];
     const own = m.own;
@@ -253,12 +274,7 @@ export class RaceHud {
         `<div class="times">last ${raceTime(own.lastLapMs)} · best ${raceTime(own.bestLapMs)}</div>`
       : `<div class="top"><span class="lap">${m.laps} laps</span>` +
         `<span class="clock">${raceTime(m.timerMs)}</span></div>`;
-    // Tyres as a bar: what a driver needs from them is "how much is left" at a glance, never a
-    // number. Only for somebody actually driving.
-    const tyre = own
-      ? `<div class="tyre${own.tyre < 0.15 ? ' gone' : own.tyre < TYRE_WARN ? ' low' : ''}">` +
-        `<span>tyres</span><span class="bar"><i style="width:${Math.round(own.tyre * 100)}%"></i></span></div>`
-      : '';
+    const tyre = own ? this.tyreBar(own.tyre) : '';
     const rec = m.recordLapMs
       ? `<div class="rec">record ${raceTime(m.recordLapMs)}${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
       : '';
@@ -271,6 +287,15 @@ export class RaceHud {
       )
       .join('');
     this.hud.innerHTML = `${head}${tyre}${rec}<hr><table>${rows}</table>`;
+  }
+
+  /** Tyres as a bar: what a driver needs from them is "how much is left" at a glance, never a
+   *  number. */
+  private tyreBar(tyre: number): string {
+    return (
+      `<div class="tyre${tyre < 0.15 ? ' gone' : tyre < TYRE_WARN ? ' low' : ''}">` +
+      `<span>tyres</span><span class="bar"><i style="width:${Math.round(tyre * 100)}%"></i></span></div>`
+    );
   }
 
   private renderBoard(m: RaceHudModel): void {

@@ -7201,6 +7201,11 @@
        "name": "actionSlot",
        "type": "int",
        "value": 0
+      },
+      {
+       "name": "actionDir",
+       "type": "int",
+       "value": 0
       }
      ]
     },

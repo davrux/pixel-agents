@@ -38,7 +38,24 @@ export interface RaceTrack {
   gates: readonly RaceGate[];
   /** Grid slots in starting order, as pixel positions. */
   grid: readonly { x: number; y: number }[];
+  /**
+   * Which way the field sets off, in radians — from the start beacon if one says so, otherwise
+   * worked out from where gate 1 is.
+   *
+   * A beacon rather than only the gate order, because the direction of a lap used to live in the
+   * NUMBERING of the gates and nothing on the map showed it: a circuit that runs north is exactly
+   * as valid as one that runs east, and whoever draws it should be able to SAY so.
+   */
+  startHeading: number;
   laps: number;
+  /**
+   * A point-to-point race: run the gates once and the finish ends it.
+   *
+   * True when the map places a `raceFinish`. Laps are not the only shape a race has, and a hill
+   * climb or a rally stage needs no circuit at all — what it needs is a start, some gates in
+   * order, and a line at the far end.
+   */
+  sprint: boolean;
   /** `"col,row"` of every pit box. Empty on a track with no pit lane, which simply means tyres
    *  cannot be changed there — not that they do not wear. */
   pit: ReadonlySet<string>;
@@ -62,8 +79,9 @@ const centre = (col: number, row: number): { x: number; y: number } => ({
  */
 export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const byGate = new Map<number, { tiles: Set<string>; sx: number; sy: number; n: number }>();
-  const grid: Array<{ slot: number; x: number; y: number }> = [];
+  const grid: Array<{ slot: number; x: number; y: number; dir: number }> = [];
   const pit = new Set<string>();
+  let finish: { x: number; y: number } | null = null;
   const actions = layout.tileActions ?? [];
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i] as Action | null;
@@ -82,9 +100,11 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
       g.sy += c.y;
       g.n++;
     } else if (action.kind === 'raceStart') {
-      grid.push({ slot: action.slot, ...centre(col, row) });
+      grid.push({ slot: action.slot, dir: action.dir ?? -1, ...centre(col, row) });
     } else if (action.kind === 'racePit') {
       pit.add(key(col, row));
+    } else if (action.kind === 'raceFinish') {
+      finish = centre(col, row);
     }
   }
   if (byGate.size < 2 || grid.length === 0) return null;
@@ -93,10 +113,19 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     .sort((a, b) => a[0] - b[0])
     .map(([, g], index) => ({ index, tiles: g.tiles, x: g.sx / g.n, y: g.sy / g.n }));
 
+  const ordered = grid.sort((a, b) => a.slot - b.slot);
+  // The beacon wins where one states a direction; otherwise the gates do, which is what every map
+  // drawn before beacons existed means.
+  const stated = ordered.find((g) => g.dir >= 0);
+  const startHeading = stated
+    ? wrapAngle((stated.dir * Math.PI) / 180)
+    : wrapAngle(Math.atan2(gates[1].y - gates[0].y, gates[1].x - gates[0].x));
   return {
     gates,
-    grid: grid.sort((a, b) => a.slot - b.slot).map(({ x, y }) => ({ x, y })),
+    grid: ordered.map(({ x, y }) => ({ x, y })),
+    startHeading,
     laps: Math.max(1, Math.floor(layout.laps ?? DEFAULT_LAPS)),
+    sprint: finish !== null,
     pit,
   };
 }
@@ -139,6 +168,9 @@ export function wrapAngle(rad: number): number {
 }
 
 export function headingFrom(track: RaceTrack, gate: RaceGate): number {
+  // From the LINE the start beacon sets, for gate 0 — a grid that faces the way the beacon says
+  // is the whole point of having one. Anywhere else, the next gate is the only thing that knows.
+  if (gate.index === 0) return track.startHeading;
   const to = nextGate(track, gate.index);
   // Wrapped, because `atan2` answers in (-pi, pi] and the wire carries a heading unsigned.
   return wrapAngle(Math.atan2(to.y - gate.y, to.x - gate.x));

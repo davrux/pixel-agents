@@ -71,8 +71,8 @@ function ovalLayout(): OfficeLayout {
   for (let col = 19; col <= 21; col++) gate(col, 8, 1); // right
   for (let row = 2; row <= 4; row++) gate(12, row, 2); // top
   for (let col = 2; col <= 4; col++) gate(col, 8, 3); // left
-  tileActions[12 * COLS + 10] = { kind: 'raceStart', slot: 0 };
-  tileActions[12 * COLS + 9] = { kind: 'raceStart', slot: 1 };
+  tileActions[12 * COLS + 10] = { kind: 'raceStart', slot: 0, dir: -1 };
+  tileActions[12 * COLS + 9] = { kind: 'raceStart', slot: 1, dir: -1 };
   return { version: 3, cols: COLS, rows: ROWS, tiles, tileActions, laps: 2 } as unknown as OfficeLayout;
 }
 
@@ -140,7 +140,7 @@ test('a map with no gates is not a track, however much road it has', () => {
   // One gate is not a ring either — a lap needs somewhere to go and come back from.
   const one = { ...layout, tileActions: new Array(COLS * ROWS).fill(null) } as unknown as OfficeLayout;
   (one.tileActions as Array<Action | null>)[12 * COLS + 12] = { kind: 'raceGate', gate: 0 };
-  (one.tileActions as Array<Action | null>)[12 * COLS + 10] = { kind: 'raceStart', slot: 0 };
+  (one.tileActions as Array<Action | null>)[12 * COLS + 10] = { kind: 'raceStart', slot: 0, dir: -1 };
   assert.equal(raceTrack(one), null);
 });
 

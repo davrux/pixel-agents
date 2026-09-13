@@ -27,6 +27,8 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from 
 import { RACE_PHASES, raceClock } from '@pixel/shared/office/race/raceState.js';
 import { isDifficulty, DEFAULT_DIFFICULTY } from '@pixel/shared/office/race/racerNames.js';
 import { allRaceRecords, offerRecord, raceRecords, type RaceRecords } from '../raceRecordStore.js';
+import { scoreFinish, seasonTable } from '../championshipStore.js';
+import { pointsFor } from '@pixel/shared/office/race/championship.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { ControllerKind, Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
@@ -887,6 +889,32 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const { winner, loser } of this.os.takeScuffleResults()) {
       petScoreStore.record(this.zone.id, winner, loser);
     }
+  }
+
+  /** The account driving a car, or '' for a computer driver or an empty one. */
+  private userIdDriving(kartId: number): string {
+    for (const [sessionId, playerId] of this.players) {
+      const kart = this.os.kartOf(playerId);
+      if (kart?.id === kartId) {
+        const client = this.clients.find((c) => c.sessionId === sessionId);
+        return client ? (authOf(client).userId ?? '') : '';
+      }
+    }
+    return '';
+  }
+
+  /** The season table, with the names people know rather than login ids. */
+  private seasonMessage(): Record<string, unknown> {
+    const rows = seasonTable(this.zone.id).map((r) => ({
+      ...r,
+      // The name people know, not the login id — and the login id when the account is gone, so a
+      // season keeps the row rather than showing a blank line.
+      name: (() => {
+        const u = userStore.get(r.userId);
+        return u ? UserStore.displayName(u) : r.userId;
+      })(),
+    }));
+    return { type: 'raceSeason', zone: this.zone.id, label: this.zone.label, rows };
   }
 
   /**
@@ -2044,6 +2072,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         // goes to whoever walked up to it, not to the zone.
         const client = this.clients.find((c) => this.players.get(c.sessionId) === id);
         client?.send('m', this.raceRecordsMessage());
+        client?.send('m', this.seasonMessage());
         continue;
       }
       if (action.kind === 'petScores') {
@@ -2255,8 +2284,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.art = Math.min(255, Math.max(0, kart.art | 0));
       const entry = race.entries.get(kart.id);
       ks.place = Math.min(255, entry?.place ?? 0);
-      ks.lastLapMs = Math.max(0, Math.round(entry?.lastLapMs ?? 0));
-      ks.bestLapMs = Math.max(0, Math.round(entry?.bestLapMs ?? 0));
+      // A race's times while one runs, the car's own otherwise — practice has lap times too.
+      ks.lastLapMs = Math.max(0, Math.round(entry?.lastLapMs ?? kart.lastLapMs));
+      ks.bestLapMs = Math.max(0, Math.round(entry?.bestLapMs ?? kart.bestLapMs));
       ks.totalMs = Math.max(0, Math.round(entry?.finishedMs ?? 0));
     }
     for (const key of [...this.state.karts.keys()]) {
@@ -2309,7 +2339,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
           this.records = raceRecords(this.zone.id, laps);
           this.broadcast('m', { type: 'system', text: `🏆 ${who} set a new race record: ${t}` });
         }
-      } else if (n.kind === 'won') {
+      } else if (n.kind === 'won' || n.kind === 'finished') {
+        // Points go to the ACCOUNT behind the car, and only to a person: a computer driver takes
+        // a place (it has to, or the places a person beat mean nothing) and carries no points
+        // anywhere, because a season table of scenery is a list nobody reads.
+        const userId = this.userIdDriving(n.kartId);
+        if (userId) scoreFinish(this.zone.id, userId, n.place, pointsFor(n.place));
+      }
+      if (n.kind === 'won') {
         this.broadcast('m', { type: 'system', text: `🏁 ${who} wins in ${t}!` });
       } else if (n.kind === 'finished') {
         this.broadcast('m', { type: 'system', text: `${n.place}. ${who} — ${t}` });

@@ -30,6 +30,7 @@ import {
 import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
 import { RaceHud, raceTime, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
+import { EngineSound, finishChime, lightsBeep } from '../raceSound.js';
 import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
 import {
   CAMERA_TURN_RAD_PER_SEC,
@@ -251,6 +252,18 @@ export class OfficeScene extends Phaser.Scene {
    *  nothing to prompt for, so nothing accumulates per kart. */
   private kartPrompt: HTMLDivElement | null = null;
   private raceHud: RaceHud | null = null;
+  /** The records half of the timing screen, held until the season half arrives — the two are sent
+   *  together and belong in one panel. */
+  private pendingRecords: Record<string, unknown> | null = null;
+  /** The engine you are driving. Started when you get in and stopped on every path out, because a
+   *  continuous sound has no natural end — see raceSound.ts. */
+  private engine: EngineSound | null = null;
+  /** What the race sounded like last frame, so a one-shot fires once: the lamp count, whether we
+   *  had finished, and the phase. */
+  private lastLit = -1;
+  private lastFinished = false;
+  /** Last synced position of the car we are in, for working out how fast it sounds. */
+  private soundPrev: { x: number; y: number } | null = null;
   /** Where the view is turned to right now, eased towards where the kart points. Also read by
    *  the renderer, through `cameraUpHeading`, to decide which body row each figure shows. */
   private driveRotation = 0;
@@ -822,7 +835,8 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneMembers') this.onZoneMembers(m);
         else if (m.type === 'petScores') this.openPetScores(m);
-        else if (m.type === 'raceRecords') this.openRaceRecords(m);
+        else if (m.type === 'raceRecords') this.pendingRecords = m;
+        else if (m.type === 'raceSeason') this.openRaceBoard(m);
         else if (m.type === 'userList') this.onUserList(m);
         else if (m.type === 'onlineUsers') this.onOnlineUsers(m);
         else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
@@ -1169,6 +1183,41 @@ export class OfficeScene extends Phaser.Scene {
    * Null in a zone with no track and in one where nobody has started anything, which is the
    * normal state — the HUD then draws nothing at all rather than a row of zeroes.
    */
+  /**
+   * The race, as sound: an engine while you drive, a beep per lamp, a chime at the flag.
+   *
+   * Driven from the same model the HUD renders, so what you hear and what you see cannot disagree.
+   * Every exit from the car reaches `stop()` — a continuous sound has no natural end, and an
+   * engine left running belongs to a player who parked ten minutes ago.
+   */
+  private updateRaceSound(m: RaceHudModel | null): void {
+    const mine = this.myKart();
+    if (!mine || !m) {
+      this.engine?.stop();
+      this.engine = null;
+      this.lastLit = -1;
+      this.lastFinished = false;
+      return;
+    }
+    this.engine ??= new EngineSound();
+    if (!this.engine.running) this.engine.start();
+    // Speed from the interpolated positions, which is what the eye sees — the wire carries no
+    // velocity, and the sound should follow the picture rather than the patch.
+    const moved = Math.hypot((mine.x ?? mine.tx) - mine.tx, (mine.y ?? mine.ty) - mine.ty);
+    const speed = Math.hypot(mine.tx - (this.soundPrev?.x ?? mine.tx), mine.ty - (this.soundPrev?.y ?? mine.ty)) * 20;
+    this.soundPrev = { x: mine.tx, y: mine.ty };
+    this.engine.update(Math.max(speed, moved * 20), KART_MAX_SPEED_PX_PER_SEC, mine.sliding);
+
+    if (m.phase === 'countdown' && m.lit !== this.lastLit) {
+      this.lastLit = m.lit;
+      if (m.lit > 0) lightsBeep(m.go);
+    }
+    if (m.phase !== 'countdown') this.lastLit = -1;
+    const finished = mine.finished;
+    if (finished && !this.lastFinished) finishChime(mine.place === 1);
+    this.lastFinished = finished;
+  }
+
   /** The synced race phase as its wire index — 0 (idle) when there is no track or no race. */
   private racePhaseIndex(): number {
     const race = (this.room?.state as { race?: { phase?: number } } | undefined)?.race;
@@ -1179,12 +1228,16 @@ export class OfficeScene extends Phaser.Scene {
     const race = (this.room?.state as { race?: Record<string, unknown> } | undefined)?.race;
     if (!race) return null;
     const phase = racePhaseOf((race.phase as number) ?? 0);
-    if (phase === 'idle') return null;
+    const mine = this.myKart();
+    // A HUD whenever you are DRIVING, not only during a race. Free roam is practice — it is where
+    // you learn the circuit — and a practice lap with no lap time, no tyre bar and no idea which
+    // lap you are on is just driving in circles. Reported as "ich habe kein HUD", and it was: the
+    // overlay only existed once somebody had run /race.
+    if (phase === 'idle' && !mine) return null;
     const timerMs = (race.timerMs as number) ?? 0;
     // The lamps are read off the same clock the engine releases the cars on, so the light and the
     // launch are one instant rather than two that nearly agree.
     const secs = Math.ceil((timerMs - RACE_GREEN_MS) / 1000);
-    const mine = this.myKart();
     return {
       phase,
       timerMs,
@@ -2328,6 +2381,7 @@ export class OfficeScene extends Phaser.Scene {
       const race = this.raceModel();
       if (race && !this.raceHud) this.raceHud = new RaceHud(document.getElementById('game') ?? document.body);
       this.raceHud?.update(race);
+      this.updateRaceSound(race);
       this.updateChatBubbles();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
@@ -3412,11 +3466,69 @@ export class OfficeScene extends Phaser.Scene {
    * One block per lap count, because that is how a record is kept — a three-lap time says nothing
    * about a five-lap one — and a board that folded them together would hide one behind the other.
    */
-  private openRaceRecords(m: Record<string, unknown>): void {
+  /** The timing screen: this track's records, and the season table beneath them. */
+  private openRaceBoard(season: Record<string, unknown>): void {
+    const records = this.pendingRecords;
+    this.pendingRecords = null;
+    const body = document.createElement('div');
+    body.appendChild(this.recordsBlock(records));
+    body.appendChild(this.seasonBlock(season));
+    openPaDialog({
+      title: `Timing — ${String(season.label ?? season.zone ?? '')}`,
+      body,
+      buttons: [],
+    });
+  }
+
+  /** The season table: points, starts, wins, best finish. */
+  private seasonBlock(m: Record<string, unknown>): HTMLElement {
     const rows = Array.isArray(m.rows)
-      ? (m.rows as Array<{ laps?: unknown; lapMs?: unknown; lapBy?: unknown; raceMs?: unknown; raceBy?: unknown }>)
+      ? (m.rows as Array<{ name?: unknown; points?: unknown; starts?: unknown; wins?: unknown; bestPlace?: unknown }>)
+      : [];
+    const box = document.createElement('div');
+    const head = document.createElement('div');
+    head.style.cssText = 'color:#e7da00;margin:0.9rem 0 0.2rem;';
+    head.textContent = 'Championship';
+    box.appendChild(head);
+    if (rows.length === 0) {
+      const empty = document.createElement('p');
+      empty.style.color = '#818586';
+      empty.textContent = 'No points yet. Finish a race to score.';
+      box.appendChild(empty);
+      return box;
+    }
+    rows.forEach((r, i) => {
+      const row = document.createElement('div');
+      row.className = 'pa-list-row';
+      const rank = document.createElement('span');
+      rank.style.cssText = 'color:#818586;min-width:1.6rem;';
+      rank.textContent = `${i + 1}.`;
+      const name = document.createElement('span');
+      name.style.flex = '1';
+      name.textContent = String(r.name ?? '');
+      const detail = document.createElement('span');
+      detail.style.cssText = 'color:#818586;min-width:9rem;text-align:right;';
+      // Starts and wins beside the points, because a season is a story and a bare score is not:
+      // twelve points from one win reads differently from twelve from six finishes.
+      detail.textContent = `${Number(r.starts ?? 0)} starts · ${Number(r.wins ?? 0)} wins`;
+      const pts = document.createElement('span');
+      pts.style.cssText = 'min-width:3.5rem;text-align:right;color:#e7da00;';
+      pts.textContent = `${Number(r.points ?? 0)}`;
+      row.append(rank, name, detail, pts);
+      box.appendChild(row);
+    });
+    return box;
+  }
+
+  private recordsBlock(m: Record<string, unknown> | null): HTMLElement {
+    const rows = Array.isArray(m?.rows)
+      ? (m!.rows as Array<{ laps?: unknown; lapMs?: unknown; lapBy?: unknown; raceMs?: unknown; raceBy?: unknown }>)
       : [];
     const body = document.createElement('div');
+    const title = document.createElement('div');
+    title.style.cssText = 'color:#e7da00;margin:0 0 0.2rem;';
+    title.textContent = 'Track records';
+    body.appendChild(title);
     if (rows.length === 0) {
       const empty = document.createElement('p');
       empty.style.color = '#818586';
@@ -3446,7 +3558,7 @@ export class OfficeScene extends Phaser.Scene {
         body.appendChild(row);
       }
     }
-    openPaDialog({ title: `Track records — ${String(m.label ?? m.zone ?? '')}`, body, buttons: [] });
+    return body;
   }
 
   private openPetScores(m: Record<string, unknown>): void {

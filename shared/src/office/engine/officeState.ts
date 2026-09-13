@@ -252,6 +252,8 @@ export class OfficeState {
    *  thing that keeps it bounded — see clearRacers. */
   private racers = new Set<number>();
   private nextRacerName = 0;
+  /** Cells of a sprint's finish line. Empty on a circuit, and rebuilt with the map. */
+  private finishTiles = new Set<string>();
   /** How hard the computer drivers are in the RUNNING race — set when it starts, so changing it
    *  cannot alter one already under way. */
   private difficulty: RaceDifficulty = 'medium';
@@ -1199,6 +1201,7 @@ export class OfficeState {
       kart.gate = 0;
       kart.finished = false;
       kart.sliding = false;
+      kart.lapMs = 0;
       kart.state = 'drive';
       kart.input = { throttle: 0, steer: 0 };
     });
@@ -1284,10 +1287,18 @@ export class OfficeState {
         kart.input = racerInput(kart, world, { level: ch?.racerSkill ?? 0.6 });
       }
       const { lapped } = updateKart(kart, dt, world);
-      // A lap always counts on the ring — it is how a kart knows where it is, and a free-roam
-      // lap tally is pleasant. What a lap MEANS is the race's business, and with none running it
+      // A lap always counts on the ring — it is how a car knows where it is, and a free-roam lap
+      // tally is pleasant. What a lap MEANS is the race's business, and with none running it
       // means nothing at all, which is the whole of "drive as long as you like".
       if (lapped && completeLap(this.race, kart.id, kart.lap)) kart.finished = true;
+      // A sprint ends at the line rather than after N of them: crossing the finish is the whole
+      // race, so it is asked for separately and not as "a lap, but the last one".
+      if (this.track.sprint && !kart.finished && this.race.phase === 'racing') {
+        const cell = `${Math.floor(kart.x / TILE_SIZE)},${Math.floor(kart.y / TILE_SIZE)}`;
+        if (this.finishTiles.has(cell) && completeLap(this.race, kart.id, this.race.laps)) {
+          kart.finished = true;
+        }
+      }
     }
     if (this.race.phase === 'racing') {
       const track = this.track;
@@ -2748,6 +2759,15 @@ export class OfficeState {
    */
   private buildTrack(): void {
     this.track = raceTrack(this.layout);
+    // The finish line of a point-to-point race, as cells — read once with the map rather than
+    // walked per car per tick.
+    this.finishTiles = new Set<string>();
+    const actions = this.layout.tileActions ?? [];
+    for (let i = 0; i < actions.length; i++) {
+      if ((actions[i] as { kind?: string } | null)?.kind !== 'raceFinish') continue;
+      const col = i % this.layout.cols;
+      this.finishTiles.add(`${col},${(i - col) / this.layout.cols}`);
+    }
     // A pushed map replaces the track under a running race, and its gates are not the ones the
     // entries were racing through. Ending it is the only honest answer — and the computer drivers
     // have to GO with it: `stopRace` alone left their pawns in the world with no kart and no race,

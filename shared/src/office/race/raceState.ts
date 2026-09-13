@@ -74,6 +74,9 @@ export interface Race {
   /** How many laps this race is. Taken from the track when it starts, so a re-imported map with a
    *  different lap count cannot change a race that is already running. */
   laps: number;
+  /** A point-to-point race: the gates are run once and the finish ends it. Laps are not the only
+   *  shape a race has. */
+  sprint: boolean;
   entries: Map<number, RaceEntry>;
   /** How many have finished — the next finisher's place. */
   finished: number;
@@ -96,6 +99,7 @@ export function createRace(): Race {
     phase: 'idle',
     timerMs: 0,
     laps: 0,
+    sprint: false,
     entries: new Map(),
     finished: 0,
     finalLap: false,
@@ -133,7 +137,8 @@ export function startRace(
   if (entrants.length === 0) return false;
   race.phase = 'countdown';
   race.timerMs = RACE_COUNTDOWN_MS;
-  race.laps = track.laps;
+  race.laps = track.sprint ? 1 : track.laps;
+  race.sprint = track.sprint;
   race.finished = 0;
   race.finalLap = false;
   race.wonAtMs = 0;

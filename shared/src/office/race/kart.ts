@@ -108,6 +108,16 @@ export interface Kart {
    * stopping in a pit box.
    */
   tyre: number;
+  /**
+   * The car's own lap clock, in ms — running whether or not a race is.
+   *
+   * Practice is where you learn a circuit, and a practice lap with no time on it is driving in
+   * circles. The RACE keeps its own times as well, because a race's best lap is scoped to that
+   * race; these are the car's, for as long as it is out.
+   */
+  lapMs: number;
+  lastLapMs: number;
+  bestLapMs: number;
   /** Travelling the wrong way round the circuit. A world fact, so every viewer warns the same
    *  driver at the same moment. */
   wrongWay: boolean;
@@ -142,6 +152,9 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     sliding: false,
     wrongWay: false,
     tyre: 1,
+    lapMs: 0,
+    lastLapMs: 0,
+    bestLapMs: 0,
   };
 }
 
@@ -204,6 +217,8 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     return { lapped: false, fell: false };
   }
 
+  // The lap clock runs for anybody who is out there, race or no race.
+  if (kart.driverId !== null && !kart.finished) kart.lapMs += dt * 1000;
   const input = kart.driverId === null || kart.finished ? NEUTRAL_INPUT : kart.input;
   // Every number the handling reads comes from the spec, so a second kind of kart is a row in a
   // table rather than a branch in here (see kartSpec.ts).
@@ -318,6 +333,13 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     kart.gate = here.index;
     if (here.index === 0) {
       kart.lap++;
+      // A lap is only a TIME once there has been a previous crossing to measure from — the run
+      // out of the pits to the line is not a lap and must not become somebody's record.
+      if (kart.lap > 1) {
+        kart.lastLapMs = kart.lapMs;
+        if (kart.bestLapMs === 0 || kart.lapMs < kart.bestLapMs) kart.bestLapMs = kart.lapMs;
+      }
+      kart.lapMs = 0;
       // What a completed lap MEANS — a finish, a time, a place — belongs to the race and not to
       // the model: with no race running there is no lap limit at all, and driving round the ring
       // for as long as you like is the normal state of a track.

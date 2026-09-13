@@ -541,7 +541,20 @@ export type Action =
    */
   | { kind: 'raceGate'; gate: number }
   /** A slot on the starting grid, `slot` being the order karts are placed in (0 = pole). */
-  | { kind: 'raceStart'; slot: number }
+  /**
+   * A grid slot, and the beacon that says which way the race sets off.
+   *
+   * `dir` is a compass heading in DEGREES (0 = east, 90 = south on screen), or -1 for "work it
+   * out from the gates". It exists because the direction of a lap used to be implicit in the
+   * NUMBERING of the gates — gate 0 to gate 1 — which is invisible to whoever is placing them in
+   * Tiled and impossible to check by looking at the map. A beacon states it.
+   */
+  | { kind: 'raceStart'; slot: number; dir: number }
+  /**
+   * The finish of a point-to-point race. A track that has one is a SPRINT: you run the gates once
+   * and crossing this ends your race, so a circuit is not the only shape a race can have.
+   */
+  | { kind: 'raceFinish' }
   /** A pit box: stop on one of these and the tyres go back on. */
   | { kind: 'racePit' }
   /** A board that shows this track's records. Like `petScores`, it is a property of a PLACEMENT —

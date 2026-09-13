@@ -178,9 +178,17 @@ export function sanitizeAction(raw: unknown): Action | null {
     case 'raceGate':
       return { kind: 'raceGate', gate: raceIndex(rec.gate) };
     case 'raceStart':
-      return { kind: 'raceStart', slot: raceIndex(rec.slot) };
+      return {
+        kind: 'raceStart',
+        slot: raceIndex(rec.slot),
+        // -1 (work it out) or a whole compass degree. Clamped here like every other number that
+        // arrives from outside, because it ends up steering twelve cars at once.
+        dir: rec.dir === undefined || Number(rec.dir) < 0 ? -1 : Math.floor(Number(rec.dir) || 0) % 360,
+      };
     case 'racePit':
       return { kind: 'racePit' };
+    case 'raceFinish':
+      return { kind: 'raceFinish' };
     case 'raceRecords':
       return { kind: 'raceRecords' };
     default:
