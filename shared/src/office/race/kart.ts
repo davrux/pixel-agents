@@ -44,6 +44,7 @@ import {
   KART_STEER_AT_REST,
   KART_STUCK_SEC,
   KART_STUCK_SPEED_PX_PER_SEC,
+  KART_WRONG_WAY_SEC,
   KART_STEER_RAD_PER_SEC,
   PIT_SPEED_PX_PER_SEC,
   ROUGH_GRIP,
@@ -58,7 +59,7 @@ import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
 import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
-import { gateAt, headingFrom, inPit, isRough, nextGate, wrapAngle, type RaceTrack } from './track.js';
+import { gateAt, headingFrom, inPit, isRough, nextGate, nextPoint, wrapAngle, type RaceTrack } from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
 export interface KartInput {
@@ -127,6 +128,10 @@ export interface Kart {
   /** Travelling the wrong way round the circuit. A world fact, so every viewer warns the same
    *  driver at the same moment. */
   wrongWay: boolean;
+  /** How long, in ms, this car has been losing ground — what the warning is actually made of. */
+  wrongMs: number;
+  /** How far it was from the point it is heading for, last tick. -1 before the first one. */
+  lastGap: number;
   /**
    * How long, in ms, the engine has been asking for something and the ground has not moved.
    *
@@ -173,6 +178,8 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     art: 0,
     sliding: false,
     wrongWay: false,
+    wrongMs: 0,
+    lastGap: -1,
     stuckMs: 0,
     recoverMs: 0,
     tyre: 1,
@@ -451,4 +458,43 @@ export function bumpKarts(a: Kart, b: Kart): boolean {
   a.vx -= nx * Math.max(0, closing) * KART_BUMP_TRANSFER;
   a.vy -= ny * Math.max(0, closing) * KART_BUMP_TRANSFER;
   return true;
+}
+
+/**
+ * Is this car going the wrong way — decided from whether it is LOSING GROUND on the point it is
+ * heading for, not from where it is pointing.
+ *
+ * Direction is the wrong question on any track with a real corner in it (see KART_WRONG_WAY_SEC
+ * for the measurement that retired it). Distance is the right one, and it needs no notion of the
+ * road's shape: a car that is getting further from what it is driving towards, and keeps getting
+ * further, is going backwards whatever it is pointing at.
+ *
+ * It is the raw distance rather than `raceProgress`, and that is not a detail: `raceProgress`
+ * clamps its fraction to the leg, deliberately, so that a running order stays monotone. A car
+ * driving away from the gate it should be reaching pins that clamp at zero after a second or two —
+ * so progress stops falling exactly when the car is most obviously going the wrong way, and the
+ * warning never fires. The clamp is right for standings and wrong here.
+ *
+ * The counter lives on the CAR rather than being recomputed, because "for how long" is the whole
+ * point: a correctly driven hairpin briefly moves away from the gate it is heading for, and a
+ * warning that fires on a single tick of that is the false alarm this replaced.
+ */
+export function updateWrongWay(kart: Kart, world: KartWorld, dt: number): void {
+  const target = nextPoint(world.track, kart.gate);
+  const gap = Math.hypot(target.x - kart.x, target.y - kart.y);
+  const was = kart.lastGap;
+  kart.lastGap = gap;
+  const driving = kart.driverId !== null && kart.state === 'drive' && !kart.finished;
+  // Below a crawl the question is meaningless: a stopped car neither gains nor loses ground, and
+  // asking would flap the warning every time somebody nudged it.
+  if (!driving || was < 0 || Math.hypot(kart.vx, kart.vy) < 30) {
+    kart.wrongMs = 0;
+    kart.wrongWay = false;
+    return;
+  }
+  // Passing a gate moves the target, so the gap jumps; one tick of that is 16 ms against a
+  // threshold of more than a second, and the ticks after it close again.
+  if (gap > was) kart.wrongMs += dt * 1000;
+  else kart.wrongMs = 0;
+  kart.wrongWay = kart.wrongMs >= KART_WRONG_WAY_SEC * 1000;
 }

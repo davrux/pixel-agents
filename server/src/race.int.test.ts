@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import test, { before } from 'node:test';
 
 import {
+  KART_WRONG_WAY_SEC,
   RACE_COUNTDOWN_MS,
   RACE_GRACE_MS,
   RACE_MAX_MS,
@@ -38,7 +39,8 @@ import {
   takeNotices,
   tickRace,
 } from '@pixel/shared/office/race/raceState.js';
-import { goingBackwards, raceProgress, raceTrack } from '@pixel/shared/office/race/track.js';
+import { createKart, updateWrongWay } from '@pixel/shared/office/race/kart.js';
+import { raceProgress, raceTrack } from '@pixel/shared/office/race/track.js';
 import { ControllerKind, type OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -504,34 +506,84 @@ test('the race ends when the PEOPLE are home, not the last computer driver', () 
   assert.equal(tickRace(demo, 16).ended, true);
 });
 
-test('driving backwards is warned about, and being shoved round is not', () => {
+test('driving backwards is warned about, and a hairpin taken correctly is not', () => {
   const track = raceTrack(layout);
   assert.ok(track);
+  const world = { track } as never;
+  const DT = 1 / RACE_TICK_HZ;
+  /** A kart mid-leg, moving at `speed` along `heading`. */
+  const carAt = (gateIndex: number, at: { x: number; y: number }, heading: number, speed = 150) => {
+    const kart = createKart(1, at, heading);
+    kart.driverId = 1;
+    kart.state = 'drive';
+    kart.gate = gateIndex;
+    kart.vx = Math.cos(heading) * speed;
+    kart.vy = Math.sin(heading) * speed;
+    return kart;
+  };
+  const run = (kart: ReturnType<typeof createKart>, seconds: number): void => {
+    for (let i = 0; i < Math.round(seconds / DT); i++) {
+      kart.x += kart.vx * DT;
+      kart.y += kart.vy * DT;
+      updateWrongWay(kart, world, DT);
+    }
+  };
+
   const gate = track.gates[0];
   const next = track.gates[1];
   const toNext = Math.atan2(next.y - gate.y, next.x - gate.x);
-  const fast = 150;
-  // Straight at the next gate: fine.
-  assert.equal(
-    goingBackwards(track, 0, gate.x, gate.y, Math.cos(toNext) * fast, Math.sin(toNext) * fast),
-    false,
-    'driving towards the next gate counted as the wrong way',
-  );
-  // Straight away from it: the wrong way.
-  assert.equal(
-    goingBackwards(track, 0, gate.x, gate.y, -Math.cos(toNext) * fast, -Math.sin(toNext) * fast),
-    true,
-    'driving away from the next gate was not the wrong way',
-  );
-  // A track BENDS, so "not straight at it" must not be enough.
-  const across = toNext + Math.PI / 2;
-  assert.equal(
-    goingBackwards(track, 0, gate.x, gate.y, Math.cos(across) * fast, Math.sin(across) * fast),
-    false,
-    'a corner counted as the wrong way',
-  );
-  // Barely moving: the question is meaningless and is not asked, or a nudged car flaps the warning.
-  assert.equal(goingBackwards(track, 0, gate.x, gate.y, -Math.cos(toNext) * 8, -Math.sin(toNext) * 8), false);
+
+  // Straight at the next gate for two seconds: never warned.
+  const forwards = carAt(0, gate, toNext);
+  run(forwards, 2);
+  assert.equal(forwards.wrongWay, false, 'driving towards the next gate counted as the wrong way');
+
+  // Straight away from it: warned, once it has been happening long enough to mean something.
+  const backwards = carAt(0, gate, toNext + Math.PI);
+  run(backwards, KART_WRONG_WAY_SEC * 0.5);
+  assert.equal(backwards.wrongWay, false, 'the warning fired before it could mean anything');
+  run(backwards, KART_WRONG_WAY_SEC);
+  assert.equal(backwards.wrongWay, true, 'driving away from the next gate was never the wrong way');
+
+  // Barely moving: the question is meaningless and is not asked, or a nudged car flaps it.
+  const crawling = carAt(0, gate, toNext + Math.PI, 8);
+  run(crawling, 3);
+  assert.equal(crawling.wrongWay, false, 'a car at walking pace was accused of turning round');
+
+  // THE REGRESSION, on every committed track: each of them has a corner where the next gate lies
+  // behind the direction you arrive in — 130° at the raceway's last one, and the cosine at
+  // hillroad's hairpin is -0.65. Arriving there on the racing line and carrying on is correct
+  // driving, and the old direction test called every one of them the wrong way.
+  for (const [name, l] of [['raceway', layout], ['hillroad', stageLayout]] as const) {
+    const t = raceTrack(l);
+    assert.ok(t);
+    let sharpest = 0;
+    let worst = 1;
+    for (let i = 0; i < t.gates.length; i++) {
+      const prev = t.gates[(i - 1 + t.gates.length) % t.gates.length];
+      const nxt = t.gates[(i + 1) % t.gates.length];
+      const ix = t.gates[i].x - prev.x;
+      const iy = t.gates[i].y - prev.y;
+      const ox = nxt.x - t.gates[i].x;
+      const oy = nxt.y - t.gates[i].y;
+      const cos = (ix * ox + iy * oy) / (Math.hypot(ix, iy) * Math.hypot(ox, oy));
+      if (cos < worst) {
+        worst = cos;
+        sharpest = i;
+      }
+    }
+    assert.ok(worst < -0.35, `${name}: no corner sharp enough to test with (worst cos ${worst.toFixed(2)})`);
+    const prev = t.gates[(sharpest - 1 + t.gates.length) % t.gates.length];
+    const arriving = Math.atan2(t.gates[sharpest].y - prev.y, t.gates[sharpest].x - prev.x);
+    const through = carAt(sharpest, t.gates[sharpest], arriving);
+    // Half a second of it — longer than a real hairpin takes to swing the car round.
+    run(through, 0.5);
+    assert.equal(
+      through.wrongWay,
+      false,
+      `${name}: taking the sharpest corner on the racing line was called the wrong way`,
+    );
+  }
 });
 
 test('a running order is by progress, and progress is monotone within a leg', () => {

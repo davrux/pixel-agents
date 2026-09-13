@@ -431,6 +431,22 @@ export const KART_FALL_SEC = 1.2;
  * the driver, because only the physics knows whether the ground actually moved underneath.
  */
 export const KART_STUCK_SEC = 0.8;
+/**
+ * How long a car has to be LOSING ground before it is told it is going the wrong way.
+ *
+ * The warning used to compare where a car was going with the straight line to the next gate, and
+ * that is the wrong question on any track with a real corner in it: measured across all three
+ * circuits, every one of them has a turn where the next gate lies BEHIND the direction you arrive
+ * in — 130° at the raceway's last corner, and at hillroad's hairpin the cosine is -0.65, well past
+ * the -0.35 that triggered the warning. The computer drivers never saw it because they brake early
+ * enough that the car has finished rotating; a human carrying speed through the same corner was
+ * told they were driving backwards while driving perfectly correctly.
+ *
+ * Falling progress is the question that actually means "wrong way", and it needs no notion of the
+ * road's shape. A correct hairpin costs about half a second of it, so the threshold is set at
+ * twice that; a real U-turn keeps losing ground for as long as it lasts and is caught a beat later.
+ */
+export const KART_WRONG_WAY_SEC = 1.1;
 /** Below this, with the engine asking for something, a kart is not moving in any useful sense. */
 export const KART_STUCK_SPEED_PX_PER_SEC = 14;
 /**

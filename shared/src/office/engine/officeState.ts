@@ -41,7 +41,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
-import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart } from '../race/kart.js';
+import { bumpKarts, createKart, facingFromHeading, updateKart, updateWrongWay, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
 import { racerInput } from '../race/racerDriver.js';
 import { DIFFICULTY, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
@@ -59,7 +59,6 @@ import {
   type Race,
 } from '../race/raceState.js';
 import {
-  goingBackwards,
   headingFrom,
   lapFraction,
   raceProgress,
@@ -1340,14 +1339,8 @@ export class OfficeState {
       if (lead) markFinalLap(this.race, lead.lap, lapFraction(track, lead.gate, lead.x, lead.y));
     }
     // Who is going the wrong way — asked every tick, of everyone, because it is a warning and a
-    // warning that arrives late is no warning.
-    for (const kart of this.karts.values()) {
-      kart.wrongWay =
-        kart.driverId !== null &&
-        kart.state === 'drive' &&
-        !kart.finished &&
-        goingBackwards(this.track, kart.gate, kart.x, kart.y, kart.vx, kart.vy);
-    }
+    // warning that arrives late is no warning. The car keeps the tally; see `updateWrongWay`.
+    for (const kart of this.karts.values()) updateWrongWay(kart, world, dt);
     const list = [...this.karts.values()];
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) bumpKarts(list[i], list[j]);
