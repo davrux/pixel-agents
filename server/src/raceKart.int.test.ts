@@ -31,6 +31,8 @@ import test from 'node:test';
 
 import {
   KART_FALL_SEC,
+  KART_RECOVER_SEC,
+  KART_STUCK_SEC,
   KART_MAX_SPEED_PX_PER_SEC,
   KART_TURN_RADIUS_PX,
 } from '@pixel/shared/office/constants.js';
@@ -483,3 +485,47 @@ test('a pit box puts tyres back, and only when you actually stop', () => {
   assert.ok(flying.tyre <= before, 'a car flying through the pit lane had its tyres changed');
 });
 
+test('a kart that holds full throttle into a wall is measured as wedged, and backs itself out', () => {
+  const { world: w } = world();
+  const kart = createKart(1, at(20, 7), 0);
+  kart.driverId = 1;
+  // Nose east, engine wide open, barrier at column 22. Exactly the shape the raceway produced: a
+  // car pinned in the east barrier from the first corner to the flag, eighty seconds at a
+  // standstill with no fall to show for it, because being stopped was what made its driver ask
+  // for more throttle.
+  let tripped = false;
+  let worstStuck = 0;
+  kart.input = { throttle: 1, steer: 0 };
+  for (let i = 0; i < Math.round(3 / DT); i++) {
+    updateKart(kart, DT, w);
+    worstStuck = Math.max(worstStuck, kart.stuckMs);
+    if (kart.recoverMs > 0) tripped = true;
+  }
+  assert.ok(tripped, 'held against a wall for three seconds and never called wedged');
+  // The accumulator is zeroed when it trips. Without that it stays over the threshold and trips
+  // again on the very next tick, which is a recovery that never ends.
+  assert.ok(
+    worstStuck < KART_STUCK_SEC * 1000 + 50,
+    `the stuck accumulator reached ${worstStuck.toFixed(0)} ms and is not being reset on the trip`,
+  );
+
+  // The countdown runs on its own and is deliberately NOT re-tested against the speed: a kart
+  // backing out IS moving, so a re-test would clear the jam and drive it straight back into the
+  // same wall at the same angle.
+  kart.recoverMs = KART_RECOVER_SEC * 1000;
+  const x0 = kart.x;
+  drive(kart, w, KART_RECOVER_SEC * 0.4, { throttle: -1, steer: -1 });
+  assert.ok(kart.recoverMs > 0, 'the recovery window ended as soon as the kart started moving');
+  drive(kart, w, KART_RECOVER_SEC, { throttle: -1, steer: -1 });
+  assert.equal(kart.recoverMs, 0, 'the recovery window never ends');
+  assert.ok(kart.x < x0 - TILE_SIZE * 0.5, `backing out covered only ${(x0 - kart.x).toFixed(1)} px`);
+});
+
+test('a coasting kart at a standstill is not wedged — only one asking for something is', () => {
+  const { world: w } = world();
+  const kart = createKart(1, at(12, 12), 0);
+  kart.driverId = 1;
+  drive(kart, w, KART_STUCK_SEC * 3, { throttle: 0 });
+  assert.equal(kart.stuckMs, 0, 'a parked kart with no throttle must never count as stuck');
+  assert.equal(kart.recoverMs, 0);
+});

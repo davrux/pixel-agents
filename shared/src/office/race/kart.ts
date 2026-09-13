@@ -40,7 +40,10 @@ import {
   KART_FALL_SEC,
   KART_MAX_REVERSE_PX_PER_SEC,
   KART_RADIUS_PX,
+  KART_RECOVER_SEC,
   KART_STEER_AT_REST,
+  KART_STUCK_SEC,
+  KART_STUCK_SPEED_PX_PER_SEC,
   KART_STEER_RAD_PER_SEC,
   PIT_SPEED_PX_PER_SEC,
   ROUGH_GRIP,
@@ -124,6 +127,22 @@ export interface Kart {
   /** Travelling the wrong way round the circuit. A world fact, so every viewer warns the same
    *  driver at the same moment. */
   wrongWay: boolean;
+  /**
+   * How long, in ms, the engine has been asking for something and the ground has not moved.
+   *
+   * Measured here and not by whoever is steering, because the wall is what took the movement and
+   * only the physics saw it happen. What to DO about it is the driver's business: a computer
+   * driver backs out (`recoverMs`), and a human is simply told nothing and reverses if they like.
+   */
+  stuckMs: number;
+  /**
+   * Counts down while a wedged kart backs itself out. Set when `stuckMs` crosses the threshold.
+   *
+   * Two numbers rather than one because this is a Schmitt trigger and a single accumulator cannot
+   * be one: the condition that STARTS the manoeuvre (jammed for a while) is not the condition that
+   * sustains it (moving backwards is moving, which would clear the jam and drive straight back in).
+   */
+  recoverMs: number;
 }
 
 export interface KartWorld {
@@ -154,6 +173,8 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     art: 0,
     sliding: false,
     wrongWay: false,
+    stuckMs: 0,
+    recoverMs: 0,
     tyre: 1,
     lapMs: 0,
     lastLapMs: 0,
@@ -325,6 +346,19 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     if (crossable(world, kart.x, kart.y, kart.x, kart.y + dy) && !solid(world, kart.x, kart.y + dy)) kart.y += dy;
     else kart.vy *= -0.15;
   }
+
+  // ── wedged ────────────────────────────────────────────────────────────────
+  // Asking for something and going nowhere. Counted after the move, which is the only place the
+  // wall's veto is visible: the velocity above says the kart is driving, and the position says it
+  // is not. The recovery is a COUNTDOWN and not a re-test, so backing out cannot cancel itself.
+  if (kart.recoverMs > 0) kart.recoverMs = Math.max(0, kart.recoverMs - dt * 1000);
+  else if (kart.driverId !== null && input.throttle !== 0 && Math.hypot(kart.vx, kart.vy) < KART_STUCK_SPEED_PX_PER_SEC) {
+    kart.stuckMs += dt * 1000;
+    if (kart.stuckMs >= KART_STUCK_SEC * 1000) {
+      kart.stuckMs = 0;
+      kart.recoverMs = KART_RECOVER_SEC * 1000;
+    }
+  } else kart.stuckMs = 0;
 
   // ── off the edge ──────────────────────────────────────────────────────────
   if (!onTrack(world, kart.x, kart.y)) {

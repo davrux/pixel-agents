@@ -152,6 +152,13 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   while (recover < -Math.PI) recover += Math.PI * 2;
 
   const speed = Math.hypot(kart.vx, kart.vy);
+  // Wedged against something, and the physics has said so. Back out, swinging the nose towards
+  // the gate while doing it — reversing steers the other way round (see `updateKart`), so the sign
+  // is flipped, and a reverse that came straight back out would re-enter the same wall at the same
+  // angle. This is the one place a computer driver reverses on purpose.
+  if (kart.recoverMs > 0) {
+    return { throttle: -1, steer: recover > 0 ? -1 : 1 };
+  }
   // ALREADY off the road: drive back towards the next gate and never mind the probe, which sees
   // no road from out here and would brake for ever. Measured: one car per race sat in the grass
   // at a standstill until the flag, with nothing wrong except that it could not see a way on.
@@ -174,7 +181,12 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   const lift = (look * 0.62) * (1.25 - 0.45 * level);
   const crawl = KART_MAX_SPEED_PX_PER_SEC * (0.2 + 0.14 * level);
   const limit = tight ? KART_MAX_SPEED_PX_PER_SEC * (0.42 + 0.16 * level) : Infinity;
-  const throttle = (ahead >= lift && speed < limit) || speed < crawl ? 1 : ahead < look * 0.22 || speed > limit * 1.25 ? -1 : 0;
+  // The crawl floor keeps a cautious driver moving at all — but only where there is somewhere to
+  // move TO. Without that second clause it fires hardest exactly when the car is jammed against a
+  // wall, because being stopped is its whole trigger: full throttle, no ground, and the harder it
+  // pushes the longer it stays. That is how a car spends a whole race in the barrier.
+  const floor = speed < crawl && ahead > 0.5;
+  const throttle = (ahead >= lift && speed < limit) || floor ? 1 : ahead < look * 0.22 || speed > limit * 1.25 ? -1 : 0;
 
   return { throttle, steer: diff > 0.05 ? 1 : diff < -0.05 ? -1 : 0 };
 }

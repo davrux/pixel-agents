@@ -421,6 +421,26 @@ export const KART_BOARD_REACH_TILES = 3;
 
 export const KART_FALL_SEC = 1.2;
 
+/**
+ * When a kart counts as WEDGED: asking for thrust and going nowhere for this long.
+ *
+ * A wall takes the movement and leaves the car pointing into it, so a driver whose only answer is
+ * "more throttle" holds it there for the rest of the race — measured on the raceway, one car per
+ * field nose-first into the east barrier from the first corner to the flag, eighty seconds at a
+ * standstill with full throttle and no fall to show for it. The physics measures this rather than
+ * the driver, because only the physics knows whether the ground actually moved underneath.
+ */
+export const KART_STUCK_SEC = 0.8;
+/** Below this, with the engine asking for something, a kart is not moving in any useful sense. */
+export const KART_STUCK_SPEED_PX_PER_SEC = 14;
+/**
+ * How long a wedged kart backs out for.
+ *
+ * Long enough to clear the bodywork off the wall at the reverse cap (55 px/s covers most of a tile)
+ * and to swing the nose round while doing it — a reverse that ends the instant the car moves would
+ * put it back into the same wall at the same angle, which is a slower way of staying stuck.
+ */
+export const KART_RECOVER_SEC = 1.1;
 /** Simulation rate for a zone whose map is a race track. Steering at 20 Hz feels like posting
  *  letters; the tick costs 19 µs (measured on uponu with 300 agents), so a race room can afford
  *  three times as many of them, and the PATCH rate stays 20 Hz either way — this buys input
