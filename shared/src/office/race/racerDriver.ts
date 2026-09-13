@@ -28,8 +28,20 @@ import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
 import { isRough, nextPoint } from './track.js';
 
-/** How far ahead a perfect driver looks, in tiles. Scaled by skill. */
-const LOOK_TILES = 13;
+/**
+ * How far ahead a perfect driver looks — as a TIME, and converted to tiles at the speed it is
+ * actually doing. Scaled by skill on top.
+ *
+ * It was a fixed thirteen tiles, and that is the third number in this model to have been a
+ * distance pretending to be a constant (see PIT_REACH_TILES and TYRE_SLIDE_REF_PX_PER_SEC). At
+ * 260 px/s thirteen tiles is 0.8 s of warning; at 370 it is half a second, which is less than the
+ * car needs to shed the speed — so raising the top speed stopped working long before the road ran
+ * out of width. Measured: with the fixed look, a 13-tile road and a 170 px turn radius put nobody
+ * round a single corner in 200 seconds; with this one the same geometry races.
+ */
+const LOOK_SECONDS = 1.15;
+const LOOK_TILES_MIN = 7;
+const LOOK_TILES_MAX = 34;
 /**
  * How far away a pit box is still worth pulling into, in tiles. Beyond it, carry on and take it
  * next lap — a detour across the circuit costs more than a worn set.
@@ -141,7 +153,13 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
     if (box) return towards(kart, world, box);
   }
   const level = Math.max(0, Math.min(1, skill.level));
-  const look = Math.max(4, Math.round(LOOK_TILES * (0.55 + 0.45 * level)));
+  // From the speed it is CARRYING, not from the speed it could reach: a car crawling out of a
+  // spin does not need to plan a third of the circuit.
+  const reach = (Math.max(Math.hypot(kart.vx, kart.vy), KART_MAX_SPEED_PX_PER_SEC * 0.35) * LOOK_SECONDS) / TILE_SIZE;
+  const look = Math.max(
+    LOOK_TILES_MIN,
+    Math.min(LOOK_TILES_MAX, Math.round(reach * (0.55 + 0.45 * level))),
+  );
   // Where this car is going: the next gate, or the LINE if it is on a stage's final leg.
   const target = nextPoint(world.track, kart.gate);
   const toGate = Math.atan2(target.y - kart.y, target.x - kart.x);

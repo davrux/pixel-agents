@@ -350,7 +350,25 @@ export const KART_DRAG_PER_SEC = 0.35;
  * exactly "flying off". It is also still no physics engine (AGENTS.md invariant 3) — one
  * clamped subtraction per tick, deterministic and headless, not a solver.
  */
-export const KART_GRIP_PX_PER_SEC2 = 600;
+/**
+ * Tried at 800 with the speed at 300 and put back on 2026-09-13, which is worth writing down so
+ * nobody spends the afternoon again.
+ *
+ * "Es ist smooth, aber langsam" is real — a four-tile car at 260 px/s covers four of itself a
+ * second where the old two-tile car at 240 covered seven — and more speed is simply not available
+ * here. What decides a corner is `v² / r` against the tyre budget, so speed and grip were raised
+ * together at a constant ratio (824/600 → 1098/800, the same 1.37) and the handling was indeed
+ * unchanged. The field stopped finishing anyway: on eleven-tile roads the raceway went from 11 of
+ * 11 home to 4, and every rung above that was worse.
+ *
+ * The limit is the computer driver's racing LINE, not the tyres and not the road. It aims at each
+ * gate's centre and widens only when the road runs out, so it arrives at every corner square. The
+ * obvious improvement — sliding the aim towards the gate after the next one as the corner comes
+ * up, so the turn begins early — was measured and did not pay: unchanged on the raceway and worse
+ * on the stage. A real racing line (a curve fitted through the gates, braking points derived from
+ * its curvature) is the lever, and it is a piece of work rather than a constant.
+ */
+export const KART_GRIP_PX_PER_SEC2 = 800;
 /**
  * How much of the tyres' grip is spent on GOING rather than turning, as a share of
  * `KART_GRIP_PX_PER_SEC2` at full throttle.

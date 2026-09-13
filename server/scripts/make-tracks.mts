@@ -117,11 +117,16 @@ interface TrackSpec {
   /**
    * How wide the road is, in tiles.
    *
-   * Read against the CAR, which is four tiles long and two wide: nine is about two and a half car
-   * widths and takes two abreast with room to move, eleven is generous, seven is a stage you have
-   * to be tidy on. These were 5 and 7 when a car was two tiles long — the same numbers in tiles
-   * meant twice as much road per car, and scaling the car without scaling these would have left a
+   * Read against the CAR, which is four tiles long and two wide: eleven is about five car widths
+   * and takes two abreast with room to move, thirteen is generous, nine is a stage you have to be
+   * tidy on. These were 5 and 7 when a car was two tiles long — the same numbers in tiles meant
+   * twice as much road per car, and scaling the car without scaling these would have left a
    * circuit nobody could overtake on.
+   *
+   * There is a ceiling as well as a floor, and `raceway.int.test.ts` is what holds it: at
+   * thirteen the raceway could be driven flat out again, which is the complaint this circuit was
+   * rebuilt for in the first place. A road is wide enough when two cars fit side by side and
+   * narrow enough that a corner has to be braked for.
    */
   width: number;
   laps: number;
@@ -139,16 +144,16 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'raceway',
     label: 'Raceway',
     kind: 'ring',
-    cols: 168,
-    rows: 104,
-    width: 9,
+    cols: 140,
+    rows: 88,
+    width: 11,
     // Three, and the number follows the lap rather than taste: a lap of this circuit is about
     // thirty seconds and costs a quarter of a set of tyres, so three is a ninety-second race that
     // ends on a fifth of its rubber — the pit stop stays the decision it is meant to be, and a
     // fourth lap would make it compulsory. The panel can still set anything.
     laps: 3,
-    startCol: 92,
-    bridge: { from: 56, to: 104, width: 7 },
+    startCol: 78,
+    bridge: { from: 46, to: 88, width: 9 },
   },
   {
     // Shorter, wider and twice as many laps: a circuit you can actually race side by side on,
@@ -157,15 +162,15 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'speedway',
     label: 'Speedway',
     kind: 'ring',
-    cols: 128,
-    rows: 88,
-    width: 11,
+    cols: 108,
+    rows: 74,
+    width: 13,
     // Three, for the same arithmetic as the raceway: a 22-second lap costs a quarter of a set.
     laps: 3,
     // Far enough round that the grid fits BEHIND it: six rows five tiles apart need thirty tiles
     // of straight, and at 26 the last two rows fell off the west end of the map — measured as a
     // field of seven on a twelve-car grid.
-    startCol: 96,
+    startCol: 80,
     bridge: null,
   },
   {
@@ -181,9 +186,9 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'hillroad',
     label: 'Hill Road',
     kind: 'sprint',
-    cols: 168,
-    rows: 120,
-    width: 7,
+    cols: 140,
+    rows: 104,
+    width: 9,
     laps: 1,
     startCol: 0,
     bridge: null,
@@ -196,7 +201,7 @@ const TRACKS: readonly TrackSpec[] = [
      * six-tile hairpin is tighter than the tyres hold. The shoulders are what used to make four
      * unreadable, and STAGE_SAND is what fixed that.
      */
-    bands: 8,
+    bands: 6,
   },
 ];
 

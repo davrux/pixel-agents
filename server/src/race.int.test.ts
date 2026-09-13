@@ -562,6 +562,10 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
   // behind the direction you arrive in — 130° at the raceway's last one, and the cosine at
   // hillroad's hairpin is -0.65. Arriving there on the racing line and carrying on is correct
   // driving, and the old direction test called every one of them the wrong way.
+  // At least one committed track has to still HAVE a corner sharp enough to have triggered the
+  // old rule, or this test would quietly stop testing anything the day the maps got gentler —
+  // which is exactly what happened to hillroad when its hairpins were spread over a bigger map.
+  let anySharp = false;
   for (const [name, l] of [['raceway', layout], ['hillroad', stageLayout]] as const) {
     const t = raceTrack(l);
     assert.ok(t);
@@ -580,7 +584,7 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
         sharpest = i;
       }
     }
-    assert.ok(worst < -0.35, `${name}: no corner sharp enough to test with (worst cos ${worst.toFixed(2)})`);
+    if (worst < -0.35) anySharp = true;
     const prev = t.gates[(sharpest - 1 + t.gates.length) % t.gates.length];
     const arriving = Math.atan2(t.gates[sharpest].y - prev.y, t.gates[sharpest].x - prev.x);
     const through = carAt(sharpest, t.gates[sharpest], arriving);
@@ -592,6 +596,7 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
       `${name}: taking the sharpest corner on the racing line was called the wrong way`,
     );
   }
+  assert.ok(anySharp, 'no committed track has a corner the old direction rule would have failed on');
 });
 
 test('a running order is by progress, and progress is monotone within a leg', () => {
