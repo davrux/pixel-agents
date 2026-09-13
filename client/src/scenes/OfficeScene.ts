@@ -2337,6 +2337,12 @@ export class OfficeScene extends Phaser.Scene {
     // arrive standing next to a parked kart, and the hint that tells you the key exists would
     // otherwise wait for you to walk somewhere first. Eight karts and a distance each.
     this.updateKartPrompt();
+    // The race overlay, for the same reason and one the idle gate made worse: the setup panel is
+    // used while STANDING STILL on a track where nothing is moving, so `sceneBusy` is false and
+    // the early return below skipped the redraw entirely. Pressing + sent the change, the server
+    // applied it, the patch woke the loop — and the number on screen only caught up during the
+    // few frames of grace before it slept again. Reported as menus that react late.
+    this.updateRaceOverlay();
     const busy = this.sceneBusy(_time) || furnitureRebuilt;
     if (busy) this.idleFrames = 0;
     else this.idleFrames++;
@@ -2393,19 +2399,29 @@ export class OfficeScene extends Phaser.Scene {
       this.lastOverlayAt = _time;
       this.updateTooltip();
       this.updateNameLabels();
-      // Built the first time a race is actually shown: most zones have no track at all, and an
-      // overlay nobody will see is still three elements in the document.
-      const race = this.raceModel();
-      if (race && !this.raceHud) {
-        this.raceHud = new RaceHud(document.getElementById('game') ?? document.body, (type, payload) =>
-          this.room?.send(type, payload),
-        );
-      }
-      this.raceHud?.update(race);
-      this.updateRaceSound(race);
       this.updateChatBubbles();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
+  }
+
+  /**
+   * The race overlay — lights, HUD, results, the setup panel and the engine note.
+   *
+   * Run BEFORE the idle gate, unlike the other DOM overlays, because this is the one a viewer
+   * uses while nothing on screen is moving: standing on the grid pressing + on the lap count is
+   * a scene the idle throttle is right about and this panel is not. Built lazily, because most
+   * zones have no track at all and an overlay nobody will see is still three elements in the
+   * document.
+   */
+  private updateRaceOverlay(): void {
+    const race = this.raceModel();
+    if (race && !this.raceHud) {
+      this.raceHud = new RaceHud(document.getElementById('game') ?? document.body, (type, payload) =>
+        this.room?.send(type, payload),
+      );
+    }
+    this.raceHud?.update(race);
+    this.updateRaceSound(race);
   }
 
   /** Whether anything needs redrawing this frame: a moving/animating entity, an

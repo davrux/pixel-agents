@@ -587,10 +587,26 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // A race zone ticks faster, and only a race zone. Steering at 20 Hz feels like posting
     // letters; the alternative to a higher rate is client-side prediction, which invariant 2
     // rules out. A tick costs 19 µs (measured on uponu with 300 agents), so three times as many
-    // of them is affordable — and the PATCH rate is separate and stays 20 Hz, so this buys input
-    // latency and not bandwidth.
-    const hz = this.os.raceTrack() ? RACE_TICK_HZ : TICK_HZ;
+    // of them is affordable.
+    const race = this.os.raceTrack() !== null;
+    const hz = race ? RACE_TICK_HZ : TICK_HZ;
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / hz);
+    /**
+     * …and it PATCHES at the same rate, which this comment used to say it deliberately did not.
+     *
+     * The claim was that a higher tick buys input latency and not bandwidth, because the client
+     * interpolates. It does interpolate — towards the last position it was told about — and that
+     * is exactly the problem at 20 Hz: the target jumps 13 px at racing speed and then sits still
+     * for three frames while the car eases into it, so the drawn speed decays by a factor of 1.8
+     * between every pair of patches. Twenty times a second. Reported as "sehr hackelig, kein
+     * smoothes Fahren", and it is arithmetic rather than opinion.
+     *
+     * A walking world does not have this problem (2.5 px per patch, below the eye's notice), so
+     * only a race room pays: the wire is ~155 B/s per moving entity per viewer at 20 Hz
+     * (scripts/wire-load.sh), so three times that is 465 — a full grid seen by five people is
+     * 28 KB/s, against the 60 KB/s a single still `uponu` used to cost before protocol 15.
+     */
+    if (race) this.setPatchRate(1000 / RACE_TICK_HZ);
   }
 
   onDispose(): void {
@@ -1186,6 +1202,21 @@ export class SimRoom extends Room<{ state: RoomState }> {
         ...(msg?.countdownSec !== undefined ? { countdownSec: Number(msg.countdownSec) } : {}),
         ...(msg?.difficulty !== undefined ? { difficulty: msg.difficulty as never } : {}),
       });
+    });
+
+    /**
+     * Call the race off.
+     *
+     * Anyone may, like starting one — and for a sharper reason: a race that cannot be ended is a
+     * zone nobody else can use until it times out, and the only way to do it was a chat command
+     * that you had to know existed. Six minutes is a long time to stare at a track.
+     */
+    this.onMessage('raceStop', (client) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      if (this.os.raceInfo().phase === 'idle') return;
+      this.os.abandonRace();
+      this.broadcast('m', { type: 'system', text: `${authOf(client).username} called the race off.` });
     });
 
     this.onMessage('raceStart', (client) => {

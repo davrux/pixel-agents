@@ -145,6 +145,9 @@ const CSS = `
 .pa-race-setup button.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
 .pa-race-setup button.go{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;
   padding:0.35rem 1.1rem;font-size:1.1rem;}
+/* Destructive stays darker than primary, per the house tokens — calling a race off is not the
+   same kind of action as starting one. */
+.pa-race-setup button.stop{background:#7c2634;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
 .pa-race-setup .hint{color:#818586;font-size:0.8rem;text-align:center;white-space:nowrap;}
 
 .pa-race-board td.pts{color:#e7da00;}
@@ -219,9 +222,26 @@ export class RaceHud {
    * change the lap count would be silly.
    */
   private renderSetup(m: RaceHudModel): void {
-    if (m.phase !== 'idle' || !m.here || m.gridSlots === 0) {
+    if (!m.here || m.gridSlots === 0 || m.phase === 'done') {
       if (this.setup) this.setup.style.display = 'none';
       this.setupKey = '';
+      return;
+    }
+    // While one is RUNNING the panel is one button: the way out. A race that cannot be ended
+    // holds the track until it times out six minutes later, and the only way to do it was a chat
+    // command you had to know about.
+    if (m.phase !== 'idle') {
+      this.setup = this.el(this.setup, 'pa-race-setup');
+      this.setup.style.display = '';
+      const key = `running:${m.phase}`;
+      if (key === this.setupKey) return;
+      this.setupKey = key;
+      this.setup.innerHTML =
+        `<div class="f"><span>race under way</span>` +
+        `<button class="go stop" data-act="stop">Call it off</button></div>`;
+      for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
+        b.onclick = () => this.act(b.dataset.act ?? '', m);
+      }
       return;
     }
     this.setup = this.el(this.setup, 'pa-race-setup');
@@ -274,6 +294,7 @@ export class RaceHud {
   private act(action: string, m: RaceHudModel): void {
     const s = m.setup;
     if (action === 'start') return void this.send('raceStart');
+    if (action === 'stop') return void this.send('raceStop');
     if (action === 'laps-') return void this.send('raceSetup', { laps: s.laps - 1 });
     if (action === 'laps+') return void this.send('raceSetup', { laps: s.laps + 1 });
     if (action === 'bots-') return void this.send('raceSetup', { bots: s.bots - 1 });
