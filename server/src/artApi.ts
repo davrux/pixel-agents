@@ -29,7 +29,7 @@
  * crafted id can only miss.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Express, Request, Response } from 'express';
@@ -179,21 +179,36 @@ function effectSource(id: string): ArtSource | null {
  * an effect is the kind of vocabulary drift AGENTS.md spends a section preventing. The two rules
  * that keep a file-backed source safe are the effect ones — the id is looked up in a table and
  * never used as a path component, and the bytes are cached by id.
+ *
+ * Cached by id AND by what is on disk. Keyed by id alone it served the first bytes it ever read
+ * for the life of the process, so redrawing the cars and restarting nothing left every viewer
+ * being handed the old picture — with the new client sizing its frame from the new dimensions,
+ * which is a car drawn at a quarter of its frame. Reported exactly that way. A `stat` per request
+ * is a few microseconds against a route that already answers from memory, and it is what makes
+ * the art on disk the truth rather than the art at boot.
  */
-const vehicleBytes = new Map<string, Buffer>();
+const vehicleBytes = new Map<string, { png: Buffer; stamp: string }>();
 
 function vehicleSource(id: string): ArtSource | null {
   const sheet = VEHICLE_ART.find((v) => v.id === id);
   if (!sheet) return null;
-  let png = vehicleBytes.get(sheet.id);
-  if (!png) {
-    try {
-      png = readFileSync(join(ASSETS_ROOT, 'assets', 'vehicles', `${sheet.id}.png`));
-    } catch {
-      return null; // missing art is a 404, never a crash on a request
-    }
-    vehicleBytes.set(sheet.id, png);
+  const file = join(ASSETS_ROOT, 'assets', 'vehicles', `${sheet.id}.png`);
+  let stamp: string;
+  try {
+    const st = statSync(file);
+    stamp = `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null; // missing art is a 404, never a crash on a request
   }
+  const hit = vehicleBytes.get(sheet.id);
+  if (hit && hit.stamp === stamp) return { entry: { png: hit.png }, png: hit.png };
+  let png: Buffer;
+  try {
+    png = readFileSync(file);
+  } catch {
+    return null;
+  }
+  vehicleBytes.set(sheet.id, { png, stamp });
   return { entry: { png }, png };
 }
 

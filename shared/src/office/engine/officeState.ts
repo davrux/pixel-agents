@@ -2831,7 +2831,23 @@ export class OfficeState {
     this.footprintUids = footprint;
     this.surfaceUids = surface;
     const outside = this.walkableTiles.filter((t) => this.areaIdAt(t.col, t.row) === null);
-    this.spawnablePool = outside.length > 0 ? outside : this.walkableTiles;
+    /**
+     * Where a map SAYS people arrive, if it says so at all.
+     *
+     * A `spawnPoint` already set the zone's arrival tile; this makes the whole set of them the
+     * pool that an automatic placement draws from, rather than every walkable tile on the map.
+     * On an ordinary map nothing changes — there are no spawn points, so the pool is the floor.
+     *
+     * On a race track it is the difference between landing in the pit lane and landing in the
+     * middle of the circuit: the infield used to be VOID and therefore unspawnable, and
+     * landscaping it made it ordinary grass, so a join whose preferred tile was taken started
+     * dropping people inside the track with the cars a corner away. Seen in a browser, twice.
+     */
+    const declared = outside.filter((t) => {
+      const action = (this.layout.tileActions ?? [])[t.row * this.layout.cols + t.col] as { kind?: string } | null;
+      return action?.kind === 'spawnPoint';
+    });
+    this.spawnablePool = declared.length > 0 ? declared : outside.length > 0 ? outside : this.walkableTiles;
     this.buildTrack();
   }
 

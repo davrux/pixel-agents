@@ -425,12 +425,14 @@ export const KART_BUMP_MIN_PX_PER_SEC = 25;
 /**
  * How close a body must be to a kart's CENTRE to get in.
  *
- * Three tiles rather than two, and the difference is not taste: the art is a tile and a half wide,
- * so two tiles from the centre leaves barely a quarter-tile of standing room around the bodywork —
- * reported as "I can't get in", with nothing on screen saying why. Generous is the right side to
- * err on for a key that does nothing when it misses.
+ * Measured from the centre, so it has to carry HALF THE CAR before it buys any standing room at
+ * all. At two tiles of art that was three; the cars are four tiles long now, so the same three
+ * tiles put the whole reach inside the bodywork — a player standing at the grid's own arrival
+ * tile, beside the car, got no prompt at all. Five leaves about three tiles of room around a car
+ * whose half-length is two, which is the same margin the old number gave. Generous is the right
+ * side to err on for a key that does nothing when it misses.
  */
-export const KART_BOARD_REACH_TILES = 3;
+export const KART_BOARD_REACH_TILES = 5;
 
 export const KART_FALL_SEC = 1.2;
 

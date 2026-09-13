@@ -139,8 +139,8 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'raceway',
     label: 'Raceway',
     kind: 'ring',
-    cols: 76,
-    rows: 44,
+    cols: 100,
+    rows: 62,
     width: 9,
     // Four, not three: the wider road is quicker — measured, a lap fell from about 25 seconds to
     // 11.5 when the cars and the road grew together — and three of those is a race that is over
@@ -148,8 +148,8 @@ const TRACKS: readonly TrackSpec[] = [
     // set, so five makes the pit stop compulsory where four leaves it the decision it is meant to
     // be. The panel can still set anything.
     laps: 4,
-    startCol: 40,
-    bridge: { from: 26, to: 46, width: 7 },
+    startCol: 55,
+    bridge: { from: 34, to: 62, width: 7 },
   },
   {
     // Shorter, wider and twice as many laps: a circuit you can actually race side by side on,
@@ -158,14 +158,17 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'speedway',
     label: 'Speedway',
     kind: 'ring',
-    cols: 48,
-    rows: 34,
+    cols: 76,
+    rows: 52,
     width: 11,
-    laps: 6,
+    // Five: the bigger map made the lap longer (11.3 s), and six of them costs more than a set of
+    // tyres — measured, the field came home on 4 %, which makes the pit stop compulsory rather
+    // than a decision.
+    laps: 5,
     // Far enough round that the grid fits BEHIND it: six rows five tiles apart need thirty tiles
     // of straight, and at 26 the last two rows fell off the west end of the map — measured as a
     // field of seven on a twelve-car grid.
-    startCol: 38,
+    startCol: 58,
     bridge: null,
   },
   {
@@ -181,8 +184,8 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'hillroad',
     label: 'Hill Road',
     kind: 'sprint',
-    cols: 88,
-    rows: 50,
+    cols: 100,
+    rows: 72,
     width: 7,
     laps: 1,
     startCol: 0,
@@ -196,7 +199,7 @@ const TRACKS: readonly TrackSpec[] = [
      * six-tile hairpin is tighter than the tyres hold. The shoulders are what used to make four
      * unreadable, and STAGE_SAND is what fixed that.
      */
-    bands: 4,
+    bands: 6,
   },
 ];
 
@@ -546,7 +549,7 @@ if (spec.kind === 'sprint') {
 
 const ground = new Array(COLS * ROWS).fill(0);
 const collision = new Array(COLS * ROWS).fill(0);
-const rough: Array<{ col: number; row: number }> = [];
+const roughLayer = new Array(COLS * ROWS).fill(0);
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
     const i = row * COLS + col;
@@ -576,12 +579,12 @@ for (let row = 0; row < ROWS; row++) {
     } else if (isRunOff(col, row)) {
       // Sand: off the racing surface, slow, and it eats tyres — but you can drive out of it.
       ground[i] = sandAt(col, row);
-      rough.push({ col, row });
+      roughLayer[i] = COLLISION_GID;
     } else if (isOutfield(col, row)) {
       // Grass, past the barrier. Nothing can reach it, so it is landscape — and landscape is the
       // whole point: a circuit in a black square reads as a diagram of a circuit.
       ground[i] = grassAt(col, row);
-      rough.push({ col, row });
+      roughLayer[i] = COLLISION_GID;
     }
   }
 }
@@ -701,10 +704,13 @@ for (let i = 0; i < RING_GRID_ROWS; i++) {
  * have just completed, which is what makes the decision a real one.
  */
 for (let col = START_LINE_COL + 3; col <= START_LINE_COL + 10; col++) {
-  objects.push(pit(col, INNER.bottom + 1));
+  // One row OFF the inner barrier, not against it: a car is now wider than a tile, so a box on
+  // the innermost row is a box no car can physically stand on — measured, the driver aimed at one
+  // for seventy seconds, wedging and backing out, and never finished the lap.
+  objects.push(pit(col, INNER.bottom + 2));
 }
 // The timing screen: one board at the end of the pit lane shows what this track has been lapped in.
-objects.push(records(START_LINE_COL + 12, INNER.bottom + 1));
+objects.push(records(START_LINE_COL + 12, INNER.bottom + 2));
 
 } else {
   /**
@@ -728,11 +734,6 @@ objects.push(records(START_LINE_COL + 12, INNER.bottom + 1));
   objects.push(records(Math.round(board.x), Math.round(board.y) - Math.ceil(HALF) - 1));
 }
 
-// Every sand and grass cell is marked off-surface, so the physics and the computer drivers both
-// know the road from the scenery.
-for (const cell of rough) objects.push(marker(cell.col, cell.row, [
-  { name: 'actionKind', type: 'string', value: 'raceRough' },
-]));
 
 
 // Arrive IN the grid, down the lane between its two rows — not wherever the free-tile search
@@ -770,6 +771,15 @@ const map = {
       properties: [{ name: 'occludes', type: 'bool', value: true }],
     },
     tileLayer(2, 'Collision', 'CollisionLayer', collision),
+    // What the ground DOES: every sand and grass cell is off the racing surface, so the physics
+    // and the computer drivers both know the road from the scenery. One painted layer rather than
+    // one Action object per cell — the same fact, and on the raceway it is 1945 objects against a
+    // list of numbers.
+    {
+      ...tileLayer(5, 'Rough', 'SurfaceLayer', roughLayer),
+      visible: false,
+      properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'rough' }],
+    },
     {
       draworder: 'topdown',
       id: 3,
@@ -782,7 +792,7 @@ const map = {
       y: 0,
     },
   ],
-  nextlayerid: 5,
+  nextlayerid: 6,
   nextobjectid: objectId,
   orientation: 'orthogonal',
   properties: [

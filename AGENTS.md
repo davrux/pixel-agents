@@ -842,6 +842,18 @@ check asks: is the release present in the code that acquires?
   distance, and a viewer's own avatar must never leave its own view.
   `entryFor` also memoizes per placement (a WeakMap), because every non-default placement built
   a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
+- **A RACE TRACK is the exception, and it was measured before it was taken (2026-09-13).** The
+  three circuits are 100×62, 76×52 and 100×72, the largest of them 7200 cells — about one and a
+  half times the "twice a screen" below. The reason is scale rather than ambition: a car drawn at
+  the size of a car in this world is four tiles long, and a circuit whose corners a four-tile car
+  can take needs roads nine to eleven tiles wide, which leaves a lap of no length at all on a map
+  the size of `uponu`. What it costs, measured in headless Chromium at minimum zoom with the perf
+  overlay: **0.08 ms of frame time on the 7200-cell map against 0.08 on uponu's 3192** — the
+  renderer's per-cell GameObjects are not what decides a frame here — and a join payload of 310 KB
+  of JSON, 11 KB deflated, stringified in 0.44 ms. Both are within a factor of two of `uponu`,
+  which is the map the numbers below were taken from. If a map ever DOES get slow, the first thing
+  to measure is still the one named below (the renderer has no viewport culling), and the trigger
+  to revisit is frame time, not cell count.
 - **A zone map stays at most about twice a screen, decided 2026-09-09** — and the existing
   `MAX_COLS`/`MAX_ROWS` = 100 already says so: 10 000 cells against the ~4350 tiles (87×50) a
   1400×813 canvas shows at minimum zoom. `uponu` at 56×57 is roughly one screen. **Both ways in
