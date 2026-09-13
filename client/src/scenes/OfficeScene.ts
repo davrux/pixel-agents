@@ -32,6 +32,7 @@ import { loadVehicleSheets } from '../art/vehicles.js';
 import { RaceHud, raceTime, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
 import { EngineSound, finishChime, lightsBeep } from '../raceSound.js';
 import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
+import { RACE_DIFFICULTIES } from '@pixel/shared/office/race/racerNames.js';
 import {
   CAMERA_TURN_RAD_PER_SEC,
   type ViewCamera,
@@ -1233,7 +1234,10 @@ export class OfficeScene extends Phaser.Scene {
     // you learn the circuit — and a practice lap with no lap time, no tyre bar and no idea which
     // lap you are on is just driving in circles. Reported as "ich habe kein HUD", and it was: the
     // overlay only existed once somebody had run /race.
-    if (phase === 'idle' && !mine) return null;
+    // A model is built even with nobody in a kart now: the setup panel is the thing you use
+    // BEFORE getting in, so "no HUD until you are driving" would hide the one control that tells
+    // you how to start. A zone with no track has no grid slots, and answers null exactly as before.
+    if (phase === 'idle' && !mine && !((race.gridSlots as number) > 0)) return null;
     const timerMs = (race.timerMs as number) ?? 0;
     // The lamps are read off the same clock the engine releases the cars on, so the light and the
     // launch are one instant rather than two that nearly agree.
@@ -1243,6 +1247,17 @@ export class OfficeScene extends Phaser.Scene {
       timerMs,
       laps: (race.laps as number) ?? 0,
       sprint: !!race.sprint,
+      setup: {
+        laps: (race.setupLaps as number) ?? 0,
+        bots: (race.setupBots as number) ?? 0,
+        countdownSec: (race.setupCountdown as number) ?? 0,
+        difficulty: RACE_DIFFICULTIES[(race.setupDifficulty as number) ?? 1] ?? 'medium',
+      },
+      gridSlots: (race.gridSlots as number) ?? 0,
+      humansInKarts: [...this.karts.values()].filter(
+        (k) => k.driverId !== 0 && this.characters.get(k.driverId)?.controller !== ControllerKind.RACER,
+      ).length,
+      here: this.myPlayerId !== null,
       entries: (race.entries as number) ?? 0,
       lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
       go: phase === 'countdown' && secs <= 0,
@@ -2381,7 +2396,11 @@ export class OfficeScene extends Phaser.Scene {
       // Built the first time a race is actually shown: most zones have no track at all, and an
       // overlay nobody will see is still three elements in the document.
       const race = this.raceModel();
-      if (race && !this.raceHud) this.raceHud = new RaceHud(document.getElementById('game') ?? document.body);
+      if (race && !this.raceHud) {
+        this.raceHud = new RaceHud(document.getElementById('game') ?? document.body, (type, payload) =>
+          this.room?.send(type, payload),
+        );
+      }
       this.raceHud?.update(race);
       this.updateRaceSound(race);
       this.updateChatBubbles();

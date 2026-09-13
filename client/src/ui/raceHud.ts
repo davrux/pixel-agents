@@ -22,6 +22,11 @@
  *    is created lazily and hidden rather than rebuilt.
  */
 import { TYRE_WARN } from '@pixel/shared/office/constants.js';
+import {
+  RACE_COUNTDOWN_CHOICES,
+  RACE_MAX_LAPS,
+  RACE_MIN_LAPS,
+} from '@pixel/shared/office/constants.js';
 import { raceClock } from '@pixel/shared/office/race/raceState.js';
 import { RACE_PHASES, type RacePhase } from '@pixel/shared/office/race/raceState.js';
 
@@ -48,6 +53,15 @@ export interface RaceHudModel {
   laps: number;
   /** One run from end to end, not N laps — what the overlay counts instead of laps. */
   sprint: boolean;
+  /** What the NEXT race is set to, and the room to hold it — the panel's whole contents. */
+  setup: { laps: number; bots: number; countdownSec: number; difficulty: string };
+  /** Starting slots on this track: the ceiling for drivers. */
+  gridSlots: number;
+  /** People already sitting in a kart. The panel adds the bots to this for "how many drivers". */
+  humansInKarts: number;
+  /** Is this viewer standing on the track (rather than just watching)? Only then is the panel
+   *  theirs to use — pressing start from another zone's tab would be somebody else's race. */
+  here: boolean;
   entries: number;
   /** Lamps lit, 0-3, and whether it is green. */
   lit: number;
@@ -112,6 +126,26 @@ const CSS = `
 .pa-race-hud tr.me td.p,.pa-race-hud tr.me td.g{color:#e7da00;}
 .pa-race-hud tr.out td{color:#818586;}
 
+.pa-race-setup{position:absolute;left:50%;bottom:2.2rem;transform:translateX(-50%);z-index:49;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.6rem 0.8rem;
+  box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
+  font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;display:flex;gap:1rem;align-items:flex-end;}
+.pa-race-setup .f{display:flex;flex-direction:column;gap:0.25rem;}
+.pa-race-setup .f>span{color:#818586;font-size:0.8rem;}
+.pa-race-setup .row{display:flex;align-items:center;gap:0.3rem;}
+.pa-race-setup .val{min-width:2.2rem;text-align:center;font-size:1.1rem;}
+.pa-race-setup .total{color:#adb0b2;}
+.pa-race-setup .total b{color:#e7da00;font-weight:normal;}
+.pa-race-setup button{font:inherit;color:#f1efec;background:#242220;border:2px solid #0a0908;
+  border-radius:0.35rem;padding:0.15rem 0.5rem;cursor:pointer;
+  box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+.pa-race-setup button:hover{background:#37342f;}
+.pa-race-setup button:disabled{color:#818586;cursor:default;background:#1c1a19;}
+.pa-race-setup button.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
+.pa-race-setup button.go{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;
+  padding:0.35rem 1.1rem;font-size:1.1rem;}
+.pa-race-setup .hint{color:#818586;font-size:0.8rem;}
+
 .pa-race-board{position:absolute;left:50%;top:18%;transform:translateX(-50%);z-index:49;pointer-events:none;
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.8rem 1.1rem;min-width:22rem;
   box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
@@ -127,13 +161,26 @@ const CSS = `
 
 export class RaceHud {
   private lights: HTMLDivElement | null = null;
+  private setup: HTMLDivElement | null = null;
+  /** What the panel last drew, so a tick that changed nothing does not rebuild it — the buttons
+   *  are real DOM and a rebuild under the cursor eats the click. */
+  private setupKey = '';
   private banner: HTMLDivElement | null = null;
   private hud: HTMLDivElement | null = null;
   private board: HTMLDivElement | null = null;
   /** What the banner last said, so it is only rewritten when it changes. */
   private bannerText = '';
 
-  constructor(private readonly host: HTMLElement) {
+  /**
+   * `send` is how the panel asks for a change. It ASKS: the server clamps every number and answers
+   * through the synced state, so nothing here is authoritative and the buttons redraw from what
+   * came back rather than from what they sent (§ Security, and it is also what makes two people
+   * fiddling with the same panel behave sensibly).
+   */
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly send: (type: string, payload?: unknown) => void = () => {},
+  ) {
     if (!document.getElementById('pa-race-style')) {
       const style = document.createElement('style');
       style.id = 'pa-race-style';
@@ -157,10 +204,82 @@ export class RaceHud {
     this.renderBanner(m);
     this.renderHud(m);
     this.renderBoard(m);
+    this.renderSetup(m);
+  }
+
+  /**
+   * The panel you use before a race: how many laps, how many computer drivers, how hard they try,
+   * how long the lights are on — and the button.
+   *
+   * Shown while the track is idle and you are standing on it, in a kart or not. Not in a kart is
+   * the case it exists for (it was asked for in exactly those words) but there is no reason to
+   * take it away once you get in: you can still be the one who decides, and walking back out to
+   * change the lap count would be silly.
+   */
+  private renderSetup(m: RaceHudModel): void {
+    if (m.phase !== 'idle' || !m.here || m.gridSlots === 0) {
+      if (this.setup) this.setup.style.display = 'none';
+      this.setupKey = '';
+      return;
+    }
+    this.setup = this.el(this.setup, 'pa-race-setup');
+    this.setup.style.display = '';
+    const s = m.setup;
+    const drivers = Math.min(m.gridSlots, m.humansInKarts + s.bots);
+    // Rebuilt only when something it shows has changed: these are real buttons, and replacing the
+    // one under the pointer between mousedown and mouseup swallows the click.
+    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}`;
+    if (key === this.setupKey) return;
+    this.setupKey = key;
+    const stepper = (label: string, value: string, dec: string, inc: string, canDec: boolean, canInc: boolean): string =>
+      `<div class="f"><span>${label}</span><div class="row">` +
+      `<button data-act="${dec}"${canDec ? '' : ' disabled'}>−</button>` +
+      `<span class="val">${value}</span>` +
+      `<button data-act="${inc}"${canInc ? '' : ' disabled'}>+</button></div></div>`;
+    const laps = m.sprint
+      // A stage has no lap count to set, and showing a disabled stepper would suggest it has one
+      // that happens to be locked. It says what the race IS instead.
+      ? `<div class="f"><span>distance</span><div class="row"><span class="val">one run</span></div></div>`
+      : stepper('laps', String(s.laps), 'laps-', 'laps+', s.laps > RACE_MIN_LAPS, s.laps < RACE_MAX_LAPS);
+    const bots = stepper(
+      'computer drivers', String(s.bots), 'bots-', 'bots+',
+      s.bots > 0, m.humansInKarts + s.bots < m.gridSlots,
+    );
+    const diff = `<div class="f"><span>difficulty</span><div class="row">` +
+      ['easy', 'medium', 'hard']
+        .map((d) => `<button data-act="diff:${d}" class="${d === s.difficulty ? 'on' : ''}">${d}</button>`)
+        .join('') +
+      `</div></div>`;
+    const count = `<div class="f"><span>lights</span><div class="row">` +
+      RACE_COUNTDOWN_CHOICES.map(
+        (c) => `<button data-act="count:${c}" class="${c === s.countdownSec ? 'on' : ''}">${c}s</button>`,
+      ).join('') +
+      `</div></div>`;
+    const ready = m.humansInKarts > 0;
+    const go = `<div class="f"><span class="total">on the grid <b>${drivers}</b>/${m.gridSlots}</span>` +
+      `<button class="go" data-act="start"${ready ? '' : ' disabled'}>Start</button></div>`;
+    const hint = ready ? '' : `<div class="hint">get in a kart (E)</div>`;
+    this.setup.innerHTML = `${laps}${bots}${diff}${count}${go}${hint}`;
+    for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
+      b.onclick = () => this.act(b.dataset.act ?? '', m);
+    }
+  }
+
+  /** One button press, as a request to the server. Nothing is applied locally. */
+  private act(action: string, m: RaceHudModel): void {
+    const s = m.setup;
+    if (action === 'start') return void this.send('raceStart');
+    if (action === 'laps-') return void this.send('raceSetup', { laps: s.laps - 1 });
+    if (action === 'laps+') return void this.send('raceSetup', { laps: s.laps + 1 });
+    if (action === 'bots-') return void this.send('raceSetup', { bots: s.bots - 1 });
+    if (action === 'bots+') return void this.send('raceSetup', { bots: s.bots + 1 });
+    if (action.startsWith('diff:')) return void this.send('raceSetup', { difficulty: action.slice(5) });
+    if (action.startsWith('count:')) return void this.send('raceSetup', { countdownSec: Number(action.slice(6)) });
   }
 
   private hide(): void {
-    for (const el of [this.lights, this.banner, this.hud, this.board]) if (el) el.style.display = 'none';
+    for (const el of [this.lights, this.banner, this.hud, this.board, this.setup]) if (el) el.style.display = 'none';
+    this.setupKey = '';
   }
 
   private el(current: HTMLDivElement | null, cls: string): HTMLDivElement {

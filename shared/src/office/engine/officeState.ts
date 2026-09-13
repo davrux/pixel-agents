@@ -22,6 +22,10 @@ import {
   SPAWN_PROBE_TRIES,
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
+  RACE_COUNTDOWN_CHOICES,
+  RACE_DEFAULT_COUNTDOWN_SEC,
+  RACE_MAX_LAPS,
+  RACE_MIN_LAPS,
 } from '../constants.js';
 import { isPlayerAvatarSkin, agentCount } from '../../protocol.js';
 import {
@@ -44,7 +48,7 @@ import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, updateWrongWay, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
 import { racerInput } from '../race/racerDriver.js';
-import { DIFFICULTY, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
+import { DEFAULT_DIFFICULTY, DIFFICULTY, isDifficulty, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
 import {
   completeLap,
   createRace,
@@ -53,10 +57,12 @@ import {
   type RaceNotice,
   retireKart,
   standings,
+  RACE_GREEN_MS,
   startRace,
   stopRace,
   tickRace,
   type Race,
+  type RaceSetup,
 } from '../race/raceState.js';
 import {
   headingFrom,
@@ -256,6 +262,16 @@ export class OfficeState {
   /** How hard the computer drivers are in the RUNNING race — set when it starts, so changing it
    *  cannot alter one already under way. */
   private difficulty: RaceDifficulty = 'medium';
+  /**
+   * What the NEXT race is set to — laps, how many computer drivers join, how long the lights are
+   * on and how hard they try.
+   *
+   * It lives on the world rather than on whoever presses start, because everybody standing on the
+   * track has to see the same thing before it happens: two people reading different lap counts
+   * off the same panel is worse than not having a panel. Defaulted from the map when the track is
+   * built, so a zone that nobody configures behaves exactly as it did before this existed.
+   */
+  private setup: RaceSetup = { laps: 3, bots: 0, countdownSec: RACE_DEFAULT_COUNTDOWN_SEC, difficulty: 'medium' };
   private nextKartId = 3_000_000;
 
   // ── Pets ──────────────────────────────────────────────────
@@ -1157,6 +1173,43 @@ export class OfficeState {
     return ch?.folderName ?? '';
   }
 
+  /** What the next race is set to. A copy, so nobody mutates the world's own record. */
+  raceSetup(): RaceSetup {
+    return { ...this.setup };
+  }
+
+  /**
+   * Change what the next race will be — clamped here, because this is where a value from outside
+   * lands (§ Security: the panel's own bounds are UX, this is the gate).
+   *
+   * A partial patch, so the panel sends the one thing that changed rather than restating all four
+   * and racing another viewer's edit of a different field.
+   */
+  setRaceSetup(patch: Partial<RaceSetup>): RaceSetup {
+    if (this.race.phase !== 'idle') return this.raceSetup();
+    const slots = this.track?.grid.length ?? 1;
+    if (patch.laps !== undefined) {
+      this.setup.laps = Math.max(RACE_MIN_LAPS, Math.min(RACE_MAX_LAPS, Math.floor(Number(patch.laps) || 1)));
+    }
+    if (patch.bots !== undefined) {
+      // Never more than the grid can hold. The humans already in karts take their slots first, so
+      // the real cap is applied again at the start — this one only keeps the stored number sane.
+      this.setup.bots = Math.max(0, Math.min(slots, Math.floor(Number(patch.bots) || 0)));
+    }
+    if (patch.countdownSec !== undefined) {
+      const want = Math.floor(Number(patch.countdownSec) || 0);
+      // One of the offered lengths or the default: a countdown is a choice, not a free number, so
+      // an unknown one is not clamped into the nearest — it is simply not accepted.
+      this.setup.countdownSec = (RACE_COUNTDOWN_CHOICES as readonly number[]).includes(want)
+        ? want
+        : RACE_DEFAULT_COUNTDOWN_SEC;
+    }
+    if (patch.difficulty !== undefined) {
+      this.setup.difficulty = isDifficulty(patch.difficulty) ? patch.difficulty : DEFAULT_DIFFICULTY;
+    }
+    return this.raceSetup();
+  }
+
   /**
    * Put the lights on for everyone currently in a seat.
    *
@@ -1165,18 +1218,22 @@ export class OfficeState {
    * refused rather than arbitrated. Karts are gathered onto the grid in the order they happen to
    * be in, which is as fair as anything else and does not need a qualifying session.
    */
-  startRace(difficulty: RaceDifficulty = 'medium', records = { lapMs: 0, raceMs: 0 }): boolean {
+  startRace(difficulty: RaceDifficulty = this.setup.difficulty, records = { lapMs: 0, raceMs: 0 }): boolean {
     if (!this.track) return false;
     const driven = [...this.karts.values()].filter((k) => k.driverId !== null);
     if (driven.length === 0) return false;
     this.difficulty = difficulty;
-    // Fill the rest of the grid with computer drivers. A race with nobody in it is not a race:
-    // bumping has nothing to bump, a position is a number with no one behind it, and a lap time
-    // is a stopwatch. They exist only while the race does — see `clearRacers`.
+    // Fill the grid with as many computer drivers as the setting asks for — no longer "all the
+    // empty slots", which was the only answer before anybody could say otherwise. A race with
+    // nobody else in it is still allowed (bots 0), and is simply a time trial with company you
+    // brought yourself. They exist only while the race does — see `clearRacers`.
+    let bots = this.setup.bots;
     for (const kart of this.karts.values()) {
       if (kart.driverId !== null) continue;
+      if (bots <= 0) break;
       const id = this.addRacer();
       if (id === null) break;
+      bots--;
       kart.driverId = id;
       kart.state = 'drive';
       driven.push(kart);
@@ -1187,7 +1244,15 @@ export class OfficeState {
       // results board they have finished with.
       human: k.driverId !== null && !this.racers.has(k.driverId),
     }));
-    if (!startRace(this.race, this.track, entrants, records)) return false;
+    if (
+      !startRace(this.race, this.track, entrants, records, {
+        laps: this.setup.laps,
+        // The lamps are the last three seconds whatever the length, plus the beat of green.
+        countdownMs: this.setup.countdownSec * 1000 + RACE_GREEN_MS,
+      })
+    ) {
+      return false;
+    }
     const heading = headingFrom(this.track, this.track.gates[0]);
     driven.forEach((kart, i) => {
       const slot = this.track!.grid[i % this.track!.grid.length];
@@ -2771,6 +2836,14 @@ export class OfficeState {
    */
   private buildTrack(): void {
     this.track = raceTrack(this.layout);
+    // The map's own numbers become the defaults — a full grid of computer drivers and the lap
+    // count the mapper drew — and anything anybody had set for the PREVIOUS track goes with it.
+    this.setup = {
+      laps: this.track?.laps ?? 3,
+      bots: Math.max(0, (this.track?.grid.length ?? 1) - 1),
+      countdownSec: RACE_DEFAULT_COUNTDOWN_SEC,
+      difficulty: DEFAULT_DIFFICULTY,
+    };
     // The finish line of a point-to-point race, as cells — read once with the map rather than
     // walked per car per tick.
     this.finishTiles = new Set<string>();

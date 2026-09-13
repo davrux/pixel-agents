@@ -463,6 +463,25 @@ export const KART_RECOVER_SEC = 1.1;
  *  latency, not bandwidth. */
 export const RACE_TICK_HZ = 60;
 
+/**
+ * What a race can be set to before it starts, and the bounds every one of those numbers is
+ * clamped to.
+ *
+ * A race used to be whatever the MAP said: the lap count came off the .tmj, the grid was filled
+ * with computer drivers to the last slot, and the countdown was a constant. All three are
+ * decisions somebody standing on the track should be able to make — how long, how many, and how
+ * long until the lights go out — so they are settings now, with the map's own numbers as the
+ * defaults. The bounds live here because they are read on BOTH sides: the panel offers them and
+ * the server clamps to them, and a panel offering something the server refuses is a panel that
+ * lies (see § Security — the client's copy is UX, this is the gate).
+ */
+export const RACE_MIN_LAPS = 1;
+export const RACE_MAX_LAPS = 30;
+/** How long the lights are on, in seconds. A short list rather than a free number: it is a
+ *  countdown, and three choices cover "get on with it" to "let me get settled". */
+export const RACE_COUNTDOWN_CHOICES = [3, 5, 10] as const;
+export const RACE_DEFAULT_COUNTDOWN_SEC = 5;
+
 // ── A race, as opposed to a track ─────────────────────────────────────────────
 /**
  * The lights, in milliseconds: three lamps a second apart and then a beat of green.

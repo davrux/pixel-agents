@@ -25,7 +25,7 @@ import { CharacterSync, KartSync, PetSync, RoomState } from '@pixel/shared/schem
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
 import { RACE_PHASES, raceClock } from '@pixel/shared/office/race/raceState.js';
-import { isDifficulty, DEFAULT_DIFFICULTY } from '@pixel/shared/office/race/racerNames.js';
+import { isDifficulty, RACE_DIFFICULTIES } from '@pixel/shared/office/race/racerNames.js';
 import { allRaceRecords, offerRecord, raceRecords, type RaceRecords } from '../raceRecordStore.js';
 import { scoreFinish, seasonTable } from '../championshipStore.js';
 import { pointsFor } from '@pixel/shared/office/race/championship.js';
@@ -1158,6 +1158,35 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // monitor, link-manager kiosk, arcade cabinet, and any iframe/
     // meetingRoom action attached to plain furniture. The item is
     // identified by its own anchor tile (stable, shared with the client).
+    /**
+     * Change what the next race is set to, and start it.
+     *
+     * Anyone in the zone may do either, deliberately and for the same reason `/race` already let
+     * anyone start one: this is a game in a room, not an event with an organiser. What is NOT
+     * trusted is the numbers — `setRaceSetup` clamps every one of them, because the panel's own
+     * bounds are UX and this is the gate (§ Security). A patch rather than the whole record, so
+     * two people nudging different fields do not overwrite each other.
+     */
+    this.onMessage('raceSetup', (client, msg: Record<string, unknown>) => {
+      if (this.players.get(client.sessionId) === undefined) return;
+      if (!this.os.raceTrack()) return;
+      this.os.setRaceSetup({
+        ...(msg?.laps !== undefined ? { laps: Number(msg.laps) } : {}),
+        ...(msg?.bots !== undefined ? { bots: Number(msg.bots) } : {}),
+        ...(msg?.countdownSec !== undefined ? { countdownSec: Number(msg.countdownSec) } : {}),
+        ...(msg?.difficulty !== undefined ? { difficulty: msg.difficulty as never } : {}),
+      });
+    });
+
+    this.onMessage('raceStart', (client) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const sys = (text: string): void => client.send('m', { type: 'system', text });
+      if (!this.os.raceTrack()) return void sys('There is no race track in this zone.');
+      if (this.os.raceInfo().phase !== 'idle') return void sys('A race is already under way.');
+      this.startConfiguredRace(client, authOf(client).username);
+    });
+
     this.onMessage('actionApproach', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
@@ -1817,25 +1846,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
         return;
       }
       if (this.os.raceInfo().phase !== 'idle') return void sys('A race is already under way.');
-      const difficulty = isDifficulty(args[0]) ? args[0] : DEFAULT_DIFFICULTY;
       if (args[0] && !isDifficulty(args[0]) && args[0] !== 'stop') {
         return void sys('Difficulty is easy, medium or hard.');
       }
-      const laps = this.os.raceTrack()?.laps ?? 0;
-      this.records = raceRecords(this.zone.id, laps);
-      if (!this.os.startRace(difficulty, { lapMs: this.records.lapMs, raceMs: this.records.raceMs })) {
-        return void sys('Nobody is in a kart — get in one first (E).');
-      }
-      this.broadcast('m', {
-        type: 'system',
-        text:
-          `${me.username} started a ${difficulty} race — ` +
-          // A stage is one run, so saying "1 laps" would be both ungrammatical and wrong about
-          // what the race IS.
-          (this.os.raceTrack()?.sprint ? 'one run to the line' : `${laps} laps`) +
-          (this.records.raceMs ? `, record ${raceClock(this.records.raceMs)} by ${this.records.raceBy}` : '') +
-          '!',
-      });
+      if (args[0] && isDifficulty(args[0])) this.os.setRaceSetup({ difficulty: args[0] });
+      this.startConfiguredRace(client, me.username);
       return;
     }
     if (spec.name === 'afk') {
@@ -2319,6 +2334,42 @@ export class SimRoom extends Room<{ state: RoomState }> {
     r.recordRaceMs = Math.max(0, Math.min(0xffffffff, Math.round(race.recordRaceMs) || 0));
     r.recordLapBy = this.records.lapBy.slice(0, 64);
     r.recordRaceBy = this.records.raceBy.slice(0, 64);
+    const setup = this.os.raceSetup();
+    r.setupLaps = Math.min(255, setup.laps);
+    r.setupBots = Math.min(255, setup.bots);
+    r.setupCountdown = Math.min(255, setup.countdownSec);
+    r.setupDifficulty = Math.max(0, RACE_DIFFICULTIES.indexOf(setup.difficulty));
+    r.gridSlots = Math.min(255, this.os.raceTrack()?.grid.length ?? 0);
+  }
+
+  /**
+   * Start the race the zone is currently set to, and say so.
+   *
+   * One place, used by `/race` and by the panel's Start button — which is not tidiness: the
+   * records are kept PER LAP COUNT (`raceRecords(zone, laps)`), so a five-lap race has to be
+   * measured against five-lap records, and a second copy of this would be the one that forgot.
+   */
+  private startConfiguredRace(client: Client, who: string): boolean {
+    const setup = this.os.raceSetup();
+    const sprint = this.os.raceTrack()?.sprint === true;
+    const laps = sprint ? 1 : setup.laps;
+    this.records = raceRecords(this.zone.id, laps);
+    if (!this.os.startRace(setup.difficulty, { lapMs: this.records.lapMs, raceMs: this.records.raceMs })) {
+      client.send('m', { type: 'system', text: 'Nobody is in a kart — get in one first (E).' });
+      return false;
+    }
+    this.broadcast('m', {
+      type: 'system',
+      text:
+        `${who} started a ${setup.difficulty} race — ` +
+        // A stage is one run, so saying "1 laps" would be both ungrammatical and wrong about
+        // what the race IS.
+        (sprint ? 'one run to the line' : `${laps} laps`) +
+        (setup.bots > 0 ? `, ${setup.bots} computer driver${setup.bots === 1 ? '' : 's'}` : ', nobody else') +
+        (this.records.raceMs ? `, record ${raceClock(this.records.raceMs)} by ${this.records.raceBy}` : '') +
+        '!',
+    });
+    return true;
   }
 
   /**

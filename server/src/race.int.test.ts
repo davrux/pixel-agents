@@ -27,6 +27,7 @@ import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import {
   FINAL_LAP_AT,
+  RACE_GREEN_MS,
   RACE_PHASES,
   completeLap,
   createRace,
@@ -225,6 +226,10 @@ test('starting a race gathers every driven kart onto the grid and holds it there
 
   assert.equal(os.startRace(), true);
   assert.equal(os.raceInfo().phase, 'countdown');
+  // How long the lights are on is a SETTING now, so it is read off the race rather than from the
+  // constant — a test that hardcodes it passes only for whatever the default happens to be.
+  const countdownMs = os.raceInfo().timerMs;
+  assert.equal(countdownMs, os.raceSetup().countdownSec * 1000 + RACE_GREEN_MS, 'the lights ignore the setting');
   // Three humans, and the rest of the grid filled with computer drivers — a race with nobody in
   // it is not a race.
   assert.equal(os.raceInfo().entries.size, track.grid.length, 'the grid was not filled out');
@@ -238,7 +243,7 @@ test('starting a race gathers every driven kart onto the grid and holds it there
   // Held: the throttle is not connected until the lights go out.
   for (const kart of karts.slice(0, 3)) kart.input = { throttle: 1, steer: 0 };
   const before = { x: karts[0].x, y: karts[0].y };
-  for (let i = 0; i < Math.round((RACE_COUNTDOWN_MS / 1000 - 0.2) / DT); i++) os.update(DT);
+  for (let i = 0; i < Math.round((countdownMs / 1000 - 0.2) / DT); i++) os.update(DT);
   assert.equal(os.raceInfo().phase, 'countdown', 'the countdown ended early');
   assert.equal(karts[0].x, before.x, 'a kart moved before the lights');
   assert.equal(karts[0].y, before.y, 'a kart moved before the lights');

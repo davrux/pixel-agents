@@ -203,6 +203,22 @@ export class RaceSync extends Schema {
   /** Who holds them. Empty while unset. */
   @type('string') recordLapBy = '';
   @type('string') recordRaceBy = '';
+  /**
+   * What the NEXT race is set to, and how big the grid is — the five numbers the setup panel
+   * shows and nothing else.
+   *
+   * Synced rather than kept per client, and that is the whole reason they are here: everyone
+   * standing on the track is looking at the same pending race, so two people must not be able to
+   * read different lap counts off the same panel and press start. The client may ASK to change
+   * one (§ Security); the answer arrives back through these.
+   */
+  @type('uint8') setupLaps = 0;
+  @type('uint8') setupBots = 0;
+  @type('uint8') setupCountdown = 0;
+  /** An index into RACE_DIFFICULTIES, which is append-only for exactly this reason. */
+  @type('uint8') setupDifficulty = 0;
+  /** How many starting slots this track has — the ceiling the panel counts up to. */
+  @type('uint8') gridSlots = 0;
 }
 
 /**

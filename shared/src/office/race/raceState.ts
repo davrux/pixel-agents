@@ -23,6 +23,7 @@
  *    driver who wanders off into the pit keeps a zone in `racing` forever, and nobody else can
  *    start the next one.
  */
+import type { RaceDifficulty } from './racerNames.js';
 import { RACE_COUNTDOWN_MS, RACE_GRACE_MS, RACE_MAX_MS, RACE_RESULTS_MS } from '../constants.js';
 import type { RaceTrack } from './track.js';
 
@@ -64,6 +65,21 @@ export interface RaceEntry {
   lastLapMs: number;
   /** 0 until a lap has been completed. */
   bestLapMs: number;
+}
+
+/**
+ * What a race is set to before it starts. Four decisions that used to be the map's alone.
+ *
+ * Deliberately not part of `Race`: a `Race` is one that is HAPPENING, and these outlive it — they
+ * are what the zone will do next, and they survive a race ending so the next one starts the same
+ * way rather than reverting under whoever set them.
+ */
+export interface RaceSetup {
+  laps: number;
+  /** How many computer drivers join. 0 is legal and means "just us". */
+  bots: number;
+  countdownSec: number;
+  difficulty: RaceDifficulty;
 }
 
 export interface Race {
@@ -132,12 +148,19 @@ export function startRace(
   track: RaceTrack,
   entrants: readonly { kartId: number; human: boolean }[],
   records: { lapMs: number; raceMs: number } = { lapMs: 0, raceMs: 0 },
+  /**
+   * What this particular race was set to. Omitted, the map decides — which is what every caller
+   * meant before a race could be configured, and what the tests still say.
+   */
+  opts: { laps?: number; countdownMs?: number } = {},
 ): boolean {
   if (race.phase !== 'idle' && race.phase !== 'done') return false;
   if (entrants.length === 0) return false;
   race.phase = 'countdown';
-  race.timerMs = RACE_COUNTDOWN_MS;
-  race.laps = track.sprint ? 1 : track.laps;
+  race.timerMs = opts.countdownMs ?? RACE_COUNTDOWN_MS;
+  // A stage is one run whatever anybody set; otherwise the setting wins and the map is the
+  // default it started from.
+  race.laps = track.sprint ? 1 : Math.max(1, Math.floor(opts.laps ?? track.laps));
   race.sprint = track.sprint;
   race.finished = 0;
   race.finalLap = false;

@@ -45,6 +45,10 @@ export const DIFFICULTY: Record<RaceDifficulty, number> = {
   hard: 1.16,
 };
 
+/** Wire order, and therefore APPEND-ONLY: the setting travels as an index so it fits in a byte
+ *  beside the other three, and reordering this would change what a stored or in-flight one means. */
+export const RACE_DIFFICULTIES: readonly RaceDifficulty[] = ['easy', 'medium', 'hard'];
+
 /** The one a `/race` with no argument runs. */
 export const DEFAULT_DIFFICULTY: RaceDifficulty = 'medium';
 
