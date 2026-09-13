@@ -7,9 +7,12 @@
  * file rather than a redraw. The strip existed because a top-down kart drawn by hand has to be
  * drawn per angle; a rendered car does not.
  *
- * The art is Dust Racing 2D's, under CC BY-SA 3.0 — see `assets/third-party/dust-racing/README.md`, which
- * carries the attribution and the share-alike obligation. It is the one part of this repository
- * that is not MIT, and it is confined to those image files.
+ * The art is a KART again, drawn by `scripts/draw-karts.sh` from a shape description rather than
+ * cut from a pack. Dust Racing's cars were the right call for "make it look like the original" and
+ * the wrong one for what this is: a race in this world is meant to be funny before it is meant to
+ * be accurate, which was asked for in those words. What the cars DID get right is kept — one
+ * picture per vehicle, rotated by the heading, instead of the sixteen hand-drawn headings the
+ * first kart strip carried, because sixteen discrete angles is a kart that snaps as it turns.
  *
  * Order is the WIRE order: `KartSync.art` is an index into this list, so append only. A kart takes
  * the colour of its grid slot, which is what makes a field of eight tell itself apart.
@@ -18,38 +21,35 @@
 export interface VehicleArt {
   /** Served as `/art/vehicle/<id>` and the sheet-store key. */
   id: string;
-  /** The file under `assets/vehicles/dust/` it is built from. */
-  source: string;
   /** Game-scale size in pixels. */
   w: number;
   h: number;
 }
 
 /**
- * FOUR tiles long, which is the size of a car in this world.
+ * Two and a half tiles long, and that is a KART rather than a shrunken car.
  *
- * It was two, and that was wrong against everything around it: uponu parks its cars as 64×48 and
- * 48×80 furniture, a character is 16×32, and a race car at 34×18 came out shorter than a person
- * is tall. Reported in those words — "die Autos sind viel zu klein", next to the cars already
- * standing in the world.
+ * A go-kart is about half the length of a car, and drawing one at a car's size would be a car
+ * with the roof off. Against the world it still reads correctly — a character is 16×32, so a kart
+ * is a little over two of them long, which is what a kart is.
  *
- * The aspect is the source's own (175×93), so this is the render scaled up rather than restyled.
- * Everything geometric follows it: the collision radius is half the width, the turn radius scales
- * with the car, and the roads were widened to match — see KART_TURN_RADIUS_PX for why the top
- * speed does NOT simply scale with it.
+ * It buys back the thing the big cars cost: the sense of speed is length per second, and 260 px/s
+ * is four car-lengths but six and a half kart-lengths. Everything geometric follows the number —
+ * the collision radius is half the width, and the roads did not have to change because a smaller
+ * vehicle on the same road is more room, not less.
  */
-const W = 64;
-const H = 34;
+const W = 40;
+const H = 32;
 
 export const VEHICLE_ART: readonly VehicleArt[] = [
-  { id: 'car-red', source: 'carRed.png', w: W, h: H },
-  { id: 'car-blue', source: 'carBlue.png', w: W, h: H },
-  { id: 'car-yellow', source: 'carYellow.png', w: W, h: H },
-  { id: 'car-green', source: 'carGreen.png', w: W, h: H },
-  { id: 'car-orange', source: 'carOrange.png', w: W, h: H },
-  { id: 'car-violet', source: 'carViolet.png', w: W, h: H },
-  { id: 'car-cyan', source: 'carCyan.png', w: W, h: H },
-  { id: 'car-pink', source: 'carPink.png', w: W, h: H },
+  { id: 'car-red', w: W, h: H },
+  { id: 'car-blue', w: W, h: H },
+  { id: 'car-yellow', w: W, h: H },
+  { id: 'car-green', w: W, h: H },
+  { id: 'car-orange', w: W, h: H },
+  { id: 'car-violet', w: W, h: H },
+  { id: 'car-cyan', w: W, h: H },
+  { id: 'car-pink', w: W, h: H },
 ];
 
 /** The art for a wire index — anything this build does not know is the first car, never nothing. */

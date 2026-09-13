@@ -1,11 +1,15 @@
 # Art from Dust Racing 2D
 
 The PNGs in this directory are from **[Dust Racing 2D](https://github.com/juzzlin/DustRacing2D)**
-by Jussi Lind and contributors, taken from `data/images/`:
+by Jussi Lind and contributors, taken from `data/images/`: the **scenery** this
+world's tracks are landscaped with — `grass.png`, `sand.png`, `tree.png`,
+`rock.png`, `plant.png`.
 
-- the eight **cars** (`car*.png`), and
-- the **scenery** this world's tracks are landscaped with — `grass.png`, `sand.png`,
-  `tree.png`, `rock.png`, `plant.png`.
+Its eight **cars** were here too and are not any more: the race went back to
+hand-drawn karts on 2026-09-13 (`scripts/draw-karts.sh`), which owe Dust Racing
+nothing, so the files and the script that cut them are gone with them. Nothing
+derived from them survives in `assets/vehicles/`. Git still has them if the
+question is ever reopened.
 
 ## Licence — read this before touching them
 
@@ -21,7 +25,6 @@ travel with them:
 - **Share-alike.** A modified version stays CC BY-SA 3.0. Everything generated
   from these files IS a modified version and carries the same licence, and so
   would any repaint of them:
-  - `assets/vehicles/car-*.png` — `scripts/make-vehicles.sh`
   - `assets/tiled/png/src/scenery.png` and `assets/tiled/scenery.tsj` — the ground
     a track is landscaped with, from `scripts/make-scenery.sh`
   - `assets/tiled/png/src/decal/race-*.png` and `assets/tiled/decal-race.tsj` —
@@ -32,21 +35,11 @@ files, not to the code that loads them.
 
 **Dust Racing 2D's own CODE is GPLv3 and none of it is used here.** The handling
 model in `shared/src/office/race/` was written from standard vehicle dynamics;
-what was taken from that project is what this file lists — pictures of cars — and
-one idea that is not copyrightable (a camera that leads the car by its speed).
+what was taken from that project is what this file lists — pictures of ground and
+plants — and one idea that is not copyrightable (a camera that leads the car by
+its speed).
 
 ## What was changed
-
-**Cars** — `scripts/make-vehicles.sh` turns each 175×93 source into a game-scale
-sprite:
-
-- **The pure green (0, 255, 0) is replaced with dark glass.** It is a mask in the
-  original — exactly 2864 pixels of it in every car, identical across colours —
-  and left alone it renders as a bright green windscreen.
-- **Scaled down by area average** to roughly two tiles long, because this world
-  is 16 px tiles and a 175 px car is eleven of them.
-- The sprite points EAST at heading 0, which is the convention the kart model
-  uses (`race/kart.ts`).
 
 **Scenery** — `scripts/make-scenery.sh` cuts the ground textures into 16 px tiles
 and the plants into decals:

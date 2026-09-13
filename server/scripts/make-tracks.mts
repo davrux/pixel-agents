@@ -117,16 +117,16 @@ interface TrackSpec {
   /**
    * How wide the road is, in tiles.
    *
-   * Read against the CAR, which is four tiles long and two wide: eleven is about five car widths
-   * and takes two abreast with room to move, thirteen is generous, nine is a stage you have to be
-   * tidy on. These were 5 and 7 when a car was two tiles long — the same numbers in tiles meant
-   * twice as much road per car, and scaling the car without scaling these would have left a
-   * circuit nobody could overtake on.
+   * Read against the VEHICLE, never on its own. A kart is two tiles wide across its tyres, so
+   * seven tiles is three and a half kart widths — two abreast with room to move, and the same
+   * road-per-vehicle the five-tile original had when a kart was smaller still.
    *
-   * There is a ceiling as well as a floor, and `raceway.int.test.ts` is what holds it: at
-   * thirteen the raceway could be driven flat out again, which is the complaint this circuit was
-   * rebuilt for in the first place. A road is wide enough when two cars fit side by side and
-   * narrow enough that a corner has to be braked for.
+   * The number moved three times in a day and the ratio never did, which is the lesson: it went
+   * 5 → 9 when the karts became four-tile cars, 9 → 11 and 13 when those needed room, and back
+   * to 7 when the cars became karts again. A road is wide enough when two vehicles fit side by
+   * side and narrow enough that a corner has to be braked for, and `raceway.int.test.ts` holds
+   * the second half — at eight tiles a kart could be driven flat out from flag to flag, which is
+   * the complaint this circuit was rebuilt for in the first place.
    */
   width: number;
   laps: number;
@@ -146,7 +146,7 @@ const TRACKS: readonly TrackSpec[] = [
     kind: 'ring',
     cols: 140,
     rows: 88,
-    width: 11,
+    width: 7,
     // Three, and the number follows the lap rather than taste: a lap of this circuit is about
     // thirty seconds and costs a quarter of a set of tyres, so three is a ninety-second race that
     // ends on a fifth of its rubber — the pit stop stays the decision it is meant to be, and a
@@ -164,7 +164,7 @@ const TRACKS: readonly TrackSpec[] = [
     kind: 'ring',
     cols: 108,
     rows: 74,
-    width: 13,
+    width: 9,
     // Three, for the same arithmetic as the raceway: a 22-second lap costs a quarter of a set.
     laps: 3,
     // Far enough round that the grid fits BEHIND it: six rows five tiles apart need thirty tiles
@@ -188,7 +188,7 @@ const TRACKS: readonly TrackSpec[] = [
     kind: 'sprint',
     cols: 140,
     rows: 104,
-    width: 9,
+    width: 6,
     laps: 1,
     startCol: 0,
     bridge: null,

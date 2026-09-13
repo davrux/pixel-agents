@@ -432,8 +432,8 @@ export const KART_STEER_AT_REST = 0.35;
  * 260²/82 = 824 now. The choice in a corner is the same choice it always was.
  */
 export const KART_TURN_RADIUS_PX = 82;
-/** Collision radius in pixels — half the car's width, so two bodies touch when the pictures do. */
-export const KART_RADIUS_PX = 17;
+/** Collision radius in pixels — half the kart's width, so two bodies touch when the pictures do. */
+export const KART_RADIUS_PX = 13;
 /** What the RAMMER gives away, as a share of the closing speed. Under 1 so a collision costs
  *  both of them something, which is what makes ramming a trade rather than a free win. */
 export const KART_BUMP_TRANSFER = 0.7;
