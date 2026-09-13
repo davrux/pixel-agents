@@ -2,8 +2,21 @@
 export const TILE_SIZE = 16;
 export const DEFAULT_COLS = 20;
 export const DEFAULT_ROWS = 11;
-export const MAX_COLS = 100;
-export const MAX_ROWS = 100;
+/**
+ * The hard ceiling on a zone map, raised from 100×100 on 2026-09-13.
+ *
+ * 100 was the number that said "about twice a screen", and it was the right ceiling for a world
+ * you walk across. A race track is not: a car drawn at the size of a car in this world is four
+ * tiles long, the roads that suit it are nine to eleven tiles wide, and a circuit at 100 columns
+ * came out with a lap you could see the whole of at once — reported twice, in those words.
+ *
+ * Raised rather than removed, and the guidance next to it in AGENTS.md still holds for ordinary
+ * zones. What a bigger map costs is measured there rather than assumed: the renderer makes one
+ * GameObject per painted cell and has no viewport culling, and `layoutLoaded` is stringified per
+ * join. Both were measured again at this ceiling before it was taken.
+ */
+export const MAX_COLS = 200;
+export const MAX_ROWS = 160;
 
 // ── Character Animation ─────────────────────────────────────
 // 2x the original pace (48 px/s, 0.15s/frame) — WorkAdventure-style brisker
