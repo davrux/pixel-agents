@@ -1888,6 +1888,25 @@ export class OfficeScene extends Phaser.Scene {
     this.applyCameraBounds();
   }
 
+  /**
+   * How far out the wheel may go: far enough to see the whole map, and never past 1 on a map that
+   * already fits.
+   *
+   * The floor was a flat 1, which is 1:1 pixels — right for a world you walk across, where the
+   * camera shows more than the whole of it anyway, and wrong the moment a map is bigger than the
+   * canvas. A race track at 168×104 is 2688×1664 px against a 1400×813 view, so half of it could
+   * never be on screen at once and there was no way to look at the circuit you were about to
+   * drive. Reported as not being able to zoom the whole map.
+   *
+   * Recomputed rather than stored because it depends on the window as much as on the map, and
+   * both change. The hard floor is there so a pathological map cannot zoom out to nothing.
+   */
+  private minZoom(): number {
+    if (this.officeW <= 0 || this.officeH <= 0) return 1;
+    const fit = Math.min(this.scale.width / this.officeW, this.scale.height / this.officeH);
+    return Math.max(0.2, Math.min(1, fit));
+  }
+
   /** Pan bounds: the map plus half the currently visible world area on each
    *  side — lets you push any map edge to roughly the middle of the screen
    *  instead of stopping a fixed, window-size-oblivious distance past it.
@@ -1896,8 +1915,15 @@ export class OfficeScene extends Phaser.Scene {
    *  centering are left alone so a resize doesn't yank anyone's view. */
   private applyCameraBounds(): void {
     const cam = this.cameras.main;
-    const marginX = this.scale.width / cam.zoom / 2;
-    const marginY = this.scale.height / cam.zoom / 2;
+    const viewW = this.scale.width / cam.zoom;
+    const viewH = this.scale.height / cam.zoom;
+    // Once the view is WIDER than the map there is nothing out there to pan to, and the generous
+    // margin below stops being a convenience: it lets the follow-camera sit on the map's edge with
+    // half the screen showing nothing, which is what "I can't zoom the whole map" looks like after
+    // the zoom floor is fixed. Bounds tighter than the viewport make Phaser centre the content, so
+    // zooming right out frames the whole circuit instead of a corner of it.
+    const marginX = viewW >= this.officeW ? 0 : viewW / 2;
+    const marginY = viewH >= this.officeH ? 0 : viewH / 2;
     cam.setBounds(-marginX, -marginY, this.officeW + marginX * 2, this.officeH + marginY * 2);
   }
 
@@ -1915,7 +1941,7 @@ export class OfficeScene extends Phaser.Scene {
     // they clamp the scroll we just set.
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
       const before = cam.zoom;
-      const after = Phaser.Math.Clamp(before * (dy > 0 ? 0.9 : 1.1), 1, 14);
+      const after = Phaser.Math.Clamp(before * (dy > 0 ? 0.9 : 1.1), this.minZoom(), 14);
       if (after === before) return;
       const halfW = cam.width / 2;
       const halfH = cam.height / 2;
