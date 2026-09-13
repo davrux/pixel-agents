@@ -227,6 +227,21 @@
           "name": "meetingRoomName",
           "type": "string",
           "value": ""
+        },
+        {
+          "name": "actionGate",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "actionSlot",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "actionDir",
+          "type": "int",
+          "value": -1
         }
       ]
     },
@@ -248,7 +263,13 @@
         "portal",
         "toggle",
         "spawnPoint",
-        "talkingObject"
+        "talkingObject",
+        "raceGate",
+        "raceStart",
+        "racePit",
+        "raceRough",
+        "raceFinish",
+        "raceRecords"
       ]
     },
     {

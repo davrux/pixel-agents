@@ -170,6 +170,14 @@ export function sanitizeAction(raw: unknown): Action | null {
       return { kind: 'toggle' };
     case 'spawnPoint':
       return { kind: 'spawnPoint' };
+    // Both of these were readable by the Tiled import and not writable by this allow-list, so a
+    // pushed map carrying either lost it the moment anything saved the layout — silently, which
+    // is the same way every gate on the first race map disappeared. `tiledActionKinds.int.test.ts`
+    // now compares the two lists in both directions so the next one cannot hide.
+    case 'petScores':
+      return { kind: 'petScores' };
+    case 'talkingObject':
+      return { kind: 'talkingObject' };
     // A gate's number and a grid slot's order are the payload, and both are clamped here because
     // this runs on EVERY write path — the numbers index a lap order and fill a starting grid, so
     // a fractional or negative one would sort into nonsense. The cap is deliberately generous
