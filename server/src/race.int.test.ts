@@ -47,15 +47,20 @@ import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 let layout: OfficeLayout;
+let stageLayout: OfficeLayout;
 
 before(async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
   const registry = loadTiledRegistry(ROOT);
-  const tmj = JSON.parse(readFileSync(join(ROOT, 'assets', 'tiled', 'zones', 'raceway.tmj'), 'utf8'));
-  layout = importTmjToLayout(tmj, registry, () => null).layout;
+  const read = (zone: string): OfficeLayout =>
+    importTmjToLayout(JSON.parse(readFileSync(join(ROOT, 'assets', 'tiled', 'zones', `${zone}.tmj`), 'utf8')), registry, () => null)
+      .layout;
+  layout = read('raceway');
+  stageLayout = read('hillroad');
 });
 
 const world = (): OfficeState => new OfficeState(layout as never);
+const stage = (): OfficeState => new OfficeState(stageLayout as never);
 const DT = 1 / RACE_TICK_HZ;
 
 // ── the machine, with no world at all ────────────────────────────────────────
@@ -426,6 +431,35 @@ test('the flag comes out for the LEADER, and stays out', () => {
   assert.equal(race.finalLap, true, 'the flag went away again');
 });
 
+test('on a stage the flag waits for the line, not for the start', () => {
+  // A one-lap CIRCUIT flies the flag from the green, because the only lap is the final one. A
+  // stage is one "lap" of the gate ring and means the opposite — measured live before this
+  // existed, the chequered banner was up sixteen seconds into a fifty-second run, and it said
+  // FINAL LAP on a road that does not loop.
+  const race = createRace();
+  const track = raceTrack(stageLayout);
+  assert.ok(track);
+  assert.equal(track.sprint, true);
+  startRace(race, track, [{ kartId: 1, human: true }]);
+  while (race.phase === 'countdown') tickRace(race, 100);
+  assert.equal(race.laps, 1, 'a stage is one run');
+  markFinalLap(race, 0, 0.2);
+  assert.equal(race.finalLap, false, 'the flag came out a fifth of the way down the stage');
+  markFinalLap(race, 0, FINAL_LAP_AT);
+  assert.equal(race.finalLap, true, 'the flag never came out on the stage');
+
+  // …and the one-lap circuit keeps its old answer, which is the case this exception is carved out
+  // of rather than replacing.
+  const oneLap = createRace();
+  const circuit = raceTrack({ ...layout, laps: 1 } as never);
+  assert.ok(circuit);
+  assert.equal(circuit.sprint, false);
+  startRace(oneLap, circuit, [{ kartId: 1, human: true }]);
+  while (oneLap.phase === 'countdown') tickRace(oneLap, 100);
+  markFinalLap(oneLap, 0, 0);
+  assert.equal(oneLap.finalLap, true, 'a one-lap circuit stopped flying the flag from the green');
+});
+
 test('a record is measured against what STOOD, and announced once', () => {
   const race = createRace();
   const track = raceTrack(layout);
@@ -537,4 +571,85 @@ test('the winner starts a clock: nobody waits for a driver who has given up', ()
   // drives the machine directly and never does.)
   assert.equal(race.entries.get(2)!.finishedMs, null);
   assert.equal(race.entries.get(1)!.place, 1);
+});
+
+// ── a stage, where the line is the only way home ─────────────────────────────
+
+/**
+ * The centre of one TILE the gate covers — not the gate's own centre.
+ *
+ * A gate's `x`/`y` is the average of its tiles, and on a stage a gate crosses the road at an angle,
+ * so that average can land on a tile the gate does not occupy. Carrying a kart there passes
+ * nothing, which reads in a failure as "the gates were not walked in order".
+ */
+function onGate(gate: { tiles: ReadonlySet<string> }): { x: number; y: number } {
+  const [col, row] = [...gate.tiles][0].split(',').map(Number);
+  return { x: col * 16 + 8, y: row * 16 + 8 };
+}
+
+/** Put the kart on a point and let one tick see it there. Carried rather than driven: what is
+ *  under test is what the ENGINE counts, and an autopilot would add its own ability to that. */
+function carryTo(os: OfficeState, kart: { x: number; y: number; vx: number; vy: number; input: unknown }, p: { x: number; y: number }): void {
+  kart.x = p.x;
+  kart.y = p.y;
+  kart.vx = 0;
+  kart.vy = 0;
+  kart.input = { throttle: 0, steer: 0 };
+  os.update(1 / RACE_TICK_HZ);
+}
+
+test('a stage is won at the line, and only after every gate', () => {
+  const os = stage();
+  const track = os.raceTrack();
+  assert.ok(track);
+  assert.equal(track.sprint, true, 'hillroad stopped being a stage');
+  assert.ok(track.finish);
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Rally', undefined, 'rally');
+  const ch = os.characters.get(driver);
+  assert.ok(ch);
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  assert.equal(os.startRace(), true);
+  while (os.raceInfo().phase === 'countdown') os.update(1 / RACE_TICK_HZ);
+
+  // Straight across the landscape to the line, passing nothing. This is the whole reason the gate
+  // check exists: the finish used to be judged from the TILE alone, so a stage was won by ignoring
+  // the course — which no circuit could ever allow, because a lap is guarded by the gate ring.
+  carryTo(os, kart, track.finish);
+  assert.equal(kart.finished, false, 'a stage was won by driving straight to the line');
+  assert.equal(os.raceInfo().finished, 0);
+
+  // Now the course, gate by gate, and then the line.
+  for (const gate of track.gates) carryTo(os, kart, onGate(gate));
+  assert.equal(kart.gate, track.gates.length - 1, 'the gates were not walked in order');
+  assert.equal(kart.finished, false, 'the last gate ended the race by itself');
+  carryTo(os, kart, track.finish);
+  assert.equal(kart.finished, true, 'crossing the line after every gate did not finish the stage');
+  assert.equal(os.raceInfo().finished, 1);
+});
+
+test('crossing the start line again never finishes a stage', () => {
+  const os = stage();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Wanderer', undefined, 'wanderer');
+  const ch = os.characters.get(driver);
+  assert.ok(ch);
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  assert.equal(os.startRace(), true);
+  while (os.raceInfo().phase === 'countdown') os.update(1 / RACE_TICK_HZ);
+
+  // Round the gates and back over gate 0 — which is what the wrapping gate ring used to send
+  // finishers off to do. `race.laps` is 1 on a stage, so the LAP path scored that as the last lap
+  // and classified them as home sixty tiles from the line.
+  for (const gate of track.gates) carryTo(os, kart, onGate(gate));
+  carryTo(os, kart, onGate(track.gates[0]));
+  assert.equal(kart.lap, 1, 'the lap counter stopped counting — the carry did not cross the line');
+  assert.equal(kart.finished, false, 'a stage was finished by recrossing the START line');
+  assert.equal(os.raceInfo().finished, 0);
 });

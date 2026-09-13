@@ -46,6 +46,8 @@ export interface RaceHudModel {
   phase: RacePhase;
   timerMs: number;
   laps: number;
+  /** One run from end to end, not N laps — what the overlay counts instead of laps. */
+  sprint: boolean;
   entries: number;
   /** Lamps lit, 0-3, and whether it is green. */
   lit: number;
@@ -59,6 +61,8 @@ export interface RaceHudModel {
   /** This viewer, when they are in the race. */
   own: {
     lap: number;
+    /** How far round the whole race, in laps — on a stage that IS the fraction done. */
+    progress: number;
     place: number;
     lastLapMs: number;
     bestLapMs: number;
@@ -207,14 +211,14 @@ export class RaceHud {
       text = '⟲ WRONG WAY';
       cls = ' bad';
     } else if (m.phase === 'countdown') {
-      text = m.go ? 'GO!' : `${m.laps} laps`;
+      text = m.go ? 'GO!' : m.sprint ? 'Sprint' : `${m.laps} laps`;
       cls = m.go ? ' warn' : '';
     } else if (m.phase === 'racing' && m.own && m.own.tyre < TYRE_WARN) {
       // Worth a line because it is actionable: there is a pit lane and you can use it.
       text = m.own.tyre < 0.15 ? '◍ TYRES GONE — PIT' : '◍ WATCH YOUR TYRES';
       cls = ' warn';
     } else if (m.phase === 'racing' && m.finalLap) {
-      text = '🏁 FINAL LAP';
+      text = m.sprint ? '🏁 FINAL STRETCH' : '🏁 FINAL LAP';
       cls = ' warn';
     }
     if (!text) {
@@ -257,7 +261,7 @@ export class RaceHud {
           `${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
         : '<div class="rec">no record yet — /race to set one</div>';
       this.hud.innerHTML =
-        `<div class="top"><span class="lap">Practice · lap ${m.own.lap + 1}</span>` +
+        `<div class="top"><span class="lap">${m.sprint ? 'Practice' : `Practice · lap ${m.own.lap + 1}`}</span>` +
         `<span class="clock">${raceTime(m.own.lastLapMs)}</span></div>` +
         `<div class="times">best ${raceTime(m.own.bestLapMs)}</div>` +
         this.tyreBar(m.own.tyre) +
@@ -269,10 +273,14 @@ export class RaceHud {
     const own = m.own;
     const head = own
       ? `<div class="top"><span class="pos">P${own.place || '–'}<small>/${m.entries}</small></span>` +
-        `<span class="lap">Lap ${Math.min(own.lap + 1, m.laps)}/${m.laps}</span>` +
+        // A stage has no laps to count, so it counts the road instead: how much of it is behind
+        // you. `progress` is already in laps and a stage is one, so the fraction is the answer.
+        `<span class="lap">${m.sprint
+          ? `Stage ${Math.round(Math.max(0, Math.min(1, own.progress)) * 100)}%`
+          : `Lap ${Math.min(own.lap + 1, m.laps)}/${m.laps}`}</span>` +
         `<span class="clock">${raceTime(m.timerMs)}</span></div>` +
         `<div class="times">last ${raceTime(own.lastLapMs)} · best ${raceTime(own.bestLapMs)}</div>`
-      : `<div class="top"><span class="lap">${m.laps} laps</span>` +
+      : `<div class="top"><span class="lap">${m.sprint ? 'Sprint' : `${m.laps} laps`}</span>` +
         `<span class="clock">${raceTime(m.timerMs)}</span></div>`;
     const tyre = own ? this.tyreBar(own.tyre) : '';
     const rec = m.recordLapMs

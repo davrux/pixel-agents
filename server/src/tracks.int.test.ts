@@ -61,9 +61,16 @@ test('every track is shaped like one', () => {
     for (const gate of track.gates) {
       assert.ok(gate.tiles.size >= 3, `${id} gate ${gate.index} is ${gate.tiles.size} tiles wide`);
     }
-    // A pit lane, because tyres wear on every track and a circuit with nowhere to change them is
-    // a circuit where the mechanic is a punishment rather than a choice.
-    assert.ok(track.pit.size > 0, `${id} has no pit lane`);
+    // A CIRCUIT needs a pit lane, because tyres wear and a circuit with nowhere to change them is
+    // a circuit where the mechanic is a punishment rather than a choice. A stage is the other
+    // answer to the same problem and needs the absence just as firmly: one run, one set of tyres,
+    // and a pit lane on a road you pass once would be a lane nobody could ever use twice.
+    if (track.sprint) {
+      assert.equal(track.pit.size, 0, `${id} is a stage with a pit lane`);
+      assert.ok(track.finish, `${id} is a sprint with no finish line`);
+    } else {
+      assert.ok(track.pit.size > 0, `${id} has no pit lane`);
+    }
   }
 });
 
@@ -94,16 +101,26 @@ test('a computer driver gets round every track, and the grid fits', () => {
       walls: (os as unknown as { walls: unknown }).walls,
       track,
     };
+    // "Got round" means a lap on a circuit and the far end on a stage — the same question asked
+    // of two shapes. A stage is measured by the LAST GATE rather than by the line, because the
+    // line only ends a RACE and this drive is practice: nothing here has started one.
     const laps = track.laps;
+    const lastGate = track.gates.length - 1;
+    const home = (): boolean => (track.sprint ? kart.gate === lastGate : kart.lap >= laps);
     let ticks = 0;
     const cap = Math.round(300 / DT);
-    while (kart.lap < laps && ticks < cap) {
+    while (!home() && ticks < cap) {
       kart.input = racerInput(kart, world as never, { level: 0.8 });
       os.update(DT);
       ticks++;
     }
-    assert.ok(kart.lap >= laps, `${id}: only reached lap ${kart.lap} of ${laps} in ${(ticks * DT).toFixed(0)} s`);
+    assert.ok(
+      home(),
+      track.sprint
+        ? `${id}: only reached gate ${kart.gate} of ${lastGate} in ${(ticks * DT).toFixed(0)} s`
+        : `${id}: only reached lap ${kart.lap} of ${laps} in ${(ticks * DT).toFixed(0)} s`,
+    );
     const seconds = ticks * DT;
-    assert.ok(seconds > 5, `${id}: ${laps} laps in ${seconds.toFixed(1)} s — the gates cannot be in order`);
+    assert.ok(seconds > 5, `${id}: finished in ${seconds.toFixed(1)} s — the gates cannot be in order`);
   }
 });

@@ -1282,7 +1282,14 @@ export class OfficeState {
       }
       // A computer driver decides here, once per tick, from the track and nothing else — no
       // knowledge of where anybody else is, so it can be bumped, blocked and out-braked.
-      if (kart.driverId !== null && this.racers.has(kart.driverId) && !kart.finished) {
+      //
+      // Asked even once it has FINISHED, and that is not a detail: skipping it left the car's last
+      // input frozen — full throttle and whatever lock it happened to hold — for the rest of the
+      // race. On a circuit that passed for a cool-down lap by accident; on a stage the gate after
+      // the last is the first, so three finishers turned round and drove back down the course into
+      // the cars still racing. What to do after the flag is the driver's decision, so it is made
+      // where every other one is.
+      if (kart.driverId !== null && this.racers.has(kart.driverId)) {
         const ch = this.characters.get(kart.driverId);
         kart.input = racerInput(kart, world, { level: ch?.racerSkill ?? 0.6 });
       }
@@ -1290,10 +1297,22 @@ export class OfficeState {
       // A lap always counts on the ring — it is how a car knows where it is, and a free-roam lap
       // tally is pleasant. What a lap MEANS is the race's business, and with none running it
       // means nothing at all, which is the whole of "drive as long as you like".
-      if (lapped && completeLap(this.race, kart.id, kart.lap)) kart.finished = true;
+      // …but never on a STAGE. `race.laps` is 1 there, so a car that crossed gate 0 again — which
+      // is what the wrapping gate ring used to send the finishers off to do — completed "the last
+      // lap" and was classified as home without ever seeing the finish line. On a stage the line
+      // is the only way to finish, which is the whole meaning of the word.
+      if (lapped && !this.track.sprint && completeLap(this.race, kart.id, kart.lap)) kart.finished = true;
       // A sprint ends at the line rather than after N of them: crossing the finish is the whole
       // race, so it is asked for separately and not as "a lap, but the last one".
-      if (this.track.sprint && !kart.finished && this.race.phase === 'racing') {
+      //
+      // And the line only counts for a car that has walked the whole ring of gates — `kart.gate`
+      // is the LAST one passed, and gates may only be passed in order, so requiring the final one
+      // is the same protection a lap has. Without it a sprint is won by driving straight across
+      // the landscape to the line, which no circuit could ever allow and which nothing caught
+      // until a map actually used this: laps are guarded by `updateKart`'s gate logic, and this
+      // branch was reading only the tile.
+      if (this.track.sprint && !kart.finished && this.race.phase === 'racing' &&
+          kart.gate === this.track.gates.length - 1) {
         const cell = `${Math.floor(kart.x / TILE_SIZE)},${Math.floor(kart.y / TILE_SIZE)}`;
         if (this.finishTiles.has(cell) && completeLap(this.race, kart.id, this.race.laps)) {
           kart.finished = true;

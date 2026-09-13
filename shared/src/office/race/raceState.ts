@@ -262,7 +262,12 @@ export function completeLap(race: Race, kartId: number, lap: number): boolean {
  */
 export function markFinalLap(race: Race, leaderLap: number, fraction: number): void {
   if (race.finalLap || race.phase !== 'racing') return;
-  if (leaderLap >= race.laps - 1 && (race.laps === 1 || fraction >= FINAL_LAP_AT)) {
+  // `laps === 1` means the flag is out from the start, because on a one-lap CIRCUIT the only lap
+  // is the final one. A stage is also one "lap" and means the opposite: the fraction is how much
+  // of the road is behind you, so the flag belongs near the line. Without the exception the
+  // chequered banner was up sixteen seconds into a fifty-second run — and saying "FINAL LAP" on a
+  // road that does not loop was wrong twice over.
+  if (leaderLap >= race.laps - 1 && ((race.laps === 1 && !race.sprint) || fraction >= FINAL_LAP_AT)) {
     race.finalLap = true;
     race.notices.push({ kind: 'finalLap', kartId: 0, ms: 0, place: 0 });
   }

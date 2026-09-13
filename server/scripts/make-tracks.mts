@@ -103,21 +103,34 @@ interface TrackSpec {
   /** The zone id and the file name. */
   id: string;
   label: string;
+  /**
+   * A closed circuit driven N times, or a stage driven once from one end to the other.
+   *
+   * The two share everything below this line — the same road, kerbs, run-off, barrier, landscape
+   * and grid — and differ only in the SHAPE that decides which cell is which. That is the whole
+   * reason a point-to-point race needed no new engine concept: gates are a ring walked in order,
+   * and a stage is that ring with a finish line at the far end instead of a lap counter.
+   */
+  kind: 'ring' | 'sprint';
   cols: number;
   rows: number;
   /** How wide the road is, in tiles. Five is quick and unforgiving; seven is friendlier. */
   width: number;
   laps: number;
-  /** Where the finish line sits, as a column. */
+  /** Where the finish line sits, as a column. Rings only. */
   startCol: number;
   /** A stretch of the far straight with no barrier and a drop either side, or none. */
   bridge: { from: number; to: number; width: number } | null;
+  /** How many straight runs a stage is folded into. One more run is one more hairpin and about a
+   *  quarter more road; the runs get closer together, so the hairpins get tighter. Sprints only. */
+  bands?: number;
 }
 
 const TRACKS: readonly TrackSpec[] = [
   {
     id: 'raceway',
     label: 'Raceway',
+    kind: 'ring',
     cols: 76,
     rows: 44,
     width: 5,
@@ -131,12 +144,43 @@ const TRACKS: readonly TrackSpec[] = [
     // hazard shared by every track would make them the same track with different numbers.
     id: 'speedway',
     label: 'Speedway',
+    kind: 'ring',
     cols: 48,
     rows: 34,
     width: 7,
     laps: 6,
     startCol: 26,
     bridge: null,
+  },
+  {
+    /**
+     * A STAGE, not a circuit: one run from the west end to the east, and the line at the far end
+     * is the whole race.
+     *
+     * Asked for in as many words — "es müssen nicht unbedingt Runden sein" — and the engine has
+     * been able to express it since gates became a ring walked in order; what was missing was a
+     * map that used it. Narrow (five tiles) and with no pit lane at all, so a set of tyres has to
+     * last the run: that is what a stage has instead of a pit strategy.
+     */
+    id: 'hillroad',
+    label: 'Hill Road',
+    kind: 'sprint',
+    cols: 88,
+    rows: 50,
+    width: 5,
+    laps: 1,
+    startCol: 0,
+    bridge: null,
+    /**
+     * FOUR runs, and the count is a racing decision rather than a spacing one. Three leaves the
+     * runs eighteen tiles apart, so the hairpins that join them have a nine-tile radius — wider
+     * than a kart's own turning circle at full speed, which means nothing on the stage ever has to
+     * be braked for: measured, the whole field came home within two seconds of each other in
+     * fourteen, with three quarters of the tyres left. Four puts the runs twelve apart, and a
+     * six-tile hairpin is tighter than the tyres hold. The shoulders are what used to make four
+     * unreadable, and STAGE_SAND is what fixed that.
+     */
+    bands: 4,
   },
 ];
 
@@ -176,6 +220,177 @@ const BRIDGE = spec.bridge
 const onBridge = (col: number, row: number): boolean =>
   col >= BRIDGE.from && col <= BRIDGE.to && row >= BRIDGE.top && row <= BRIDGE.bottom;
 const overBridgeSpan = (col: number): boolean => col >= BRIDGE.from && col <= BRIDGE.to;
+
+/**
+ * The STAGE: a centreline laid out as a serpentine, and a distance field around it.
+ *
+ * A ring is stated as two rectangles because that is what a rectangle-shaped circuit IS. A stage
+ * has no inside and no outside, so it is stated the other way round — as a LINE, with every cell
+ * classified by how far it is from that line. Road, kerb, sand, barrier and grass are then the
+ * same five bands they are on a circuit, just measured from a curve instead of from an edge.
+ *
+ * Straight runs joined by HAIRPINS, rather than the sine it started as, and both reasons are
+ * measured. Length: a snake inside a box is limited by how close two passes may come, and a sine
+ * reaches its limit early — 140 tiles of road on this map, a seventeen-second race, which next to
+ * three laps of the raceway is not a race. Laid out as four runs and three hairpins the same box
+ * holds 290. And character: a sine is one corner radius repeated, so nothing on it ever has to be
+ * braked for, while a hairpin at half the band spacing is tighter than the tyres can hold at
+ * speed — which is the one place this handling model has anything to say.
+ *
+ * The first stretch is straight by construction (a run, not a bend), which is what the grid needs:
+ * a starting grid laid out along a bend is a grid where the inside row is half a car length ahead
+ * before anybody moves.
+ */
+const HALF = spec.width / 2;
+const STAGE_BANDS = spec.bands ?? 4;
+const STAGE_PAD = 7;
+const STAGE_GAP = (ROWS - 1 - 2 * STAGE_PAD) / (STAGE_BANDS - 1);
+/** A hairpin is half the band spacing, because the two runs it joins are one spacing apart. That
+ *  makes the radius a consequence of the layout rather than a number to tune: pack the runs closer
+ *  and the corners get tighter on their own. */
+const STAGE_TURN = STAGE_GAP / 2;
+/**
+ * A narrow sand verge, and then the road is simply over.
+ *
+ * A circuit is a road with a wall round it; a stage is a road through a landscape, and the
+ * difference is what the two are FOR. Two versions of this map got it wrong in opposite
+ * directions: barriers between the runs made it a slab of red and white kerb, and sand wide enough
+ * to meet between them made it a beige field. A tile and a half of sand and then grass leaves the
+ * meadow — the thing this round exists to put on the map — visible between every pair of runs, and
+ * a car that slides off gets the run-off, then the grass, then nothing worse.
+ *
+ * Nothing stops a car cutting straight across from one run to the next, and nothing needs to: the
+ * gates are a ring walked IN ORDER, with one at every hairpin, so a cut misses them and buys a
+ * slower route to the same place.
+ */
+const STAGE_SAND = 1.5;
+/**
+ * How far the runs reach — DERIVED, because every part of it is already decided elsewhere: the
+ * hairpin bulges one radius past the end of the run, the road carries its half-width plus two of
+ * sand and one of barrier, and a tile of grass outside that keeps the circuit from being welded to
+ * the edge of the world. Written as a number instead, it is a number that silently stops being
+ * right the moment the band count changes.
+ */
+const STAGE_EDGE = Math.ceil(STAGE_TURN + HALF + STAGE_SAND + 3);
+const STAGE_LEFT = STAGE_EDGE;
+const STAGE_RIGHT = COLS - 1 - STAGE_EDGE;
+
+const stagePts: Array<{ x: number; y: number }> = [];
+if (spec.kind === 'sprint') {
+  const push = (x: number, y: number): void => {
+    const last = stagePts[stagePts.length - 1];
+    if (!last || Math.hypot(x - last.x, y - last.y) > 0.02) stagePts.push({ x, y });
+  };
+  for (let b = 0; b < STAGE_BANDS; b++) {
+    const y = STAGE_PAD + b * STAGE_GAP;
+    const east = b % 2 === 0;
+    const from = east ? STAGE_LEFT : STAGE_RIGHT;
+    const to = east ? STAGE_RIGHT : STAGE_LEFT;
+    const steps = Math.round(Math.abs(to - from) * 8);
+    for (let i = 0; i <= steps; i++) push(from + ((to - from) * i) / steps, y);
+    if (b === STAGE_BANDS - 1) break;
+    // The hairpin, as a half circle centred one radius below the end just reached: it starts at
+    // the top of that circle (the run's end), bulges outwards past the map's working edge, and
+    // comes back at the start of the run below. East turns sweep one way, west turns the other.
+    const cx = to;
+    const cy = y + STAGE_TURN;
+    const arc = Math.max(24, Math.round(Math.PI * STAGE_TURN * 8));
+    for (let i = 1; i <= arc; i++) {
+      const a = -Math.PI / 2 + (east ? 1 : -1) * (Math.PI * i) / arc;
+      push(cx + Math.cos(a) * STAGE_TURN, cy + Math.sin(a) * STAGE_TURN);
+    }
+  }
+}
+/** Distance along the line to each sample, so a gate can be placed at "so many tiles in" rather
+ *  than at a fraction of an index — the samples are denser through the hairpins. */
+const stageRun: number[] = [0];
+for (let i = 1; i < stagePts.length; i++) {
+  stageRun.push(stageRun[i - 1] + Math.hypot(stagePts[i].x - stagePts[i - 1].x, stagePts[i].y - stagePts[i - 1].y));
+}
+const STAGE_LENGTH = stageRun[stageRun.length - 1] ?? 0;
+/** The point this far along the road, and which way it points there. */
+const stageAt = (run: number): { x: number; y: number; dir: number } => {
+  const want = Math.max(0, Math.min(STAGE_LENGTH, run));
+  let lo = 0;
+  let hi = stageRun.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (stageRun[mid] < want) lo = mid + 1;
+    else hi = mid;
+  }
+  const p = stagePts[lo];
+  const a = stagePts[Math.max(0, lo - 3)];
+  const b = stagePts[Math.min(stagePts.length - 1, lo + 3)];
+  return { x: p.x, y: p.y, dir: Math.atan2(b.y - a.y, b.x - a.x) };
+};
+/** Distance from every cell centre to the centreline, in tiles, and HOW FAR ALONG the road the
+ *  nearest point of it was. Built by walking the LINE and touching the cells near it, not by asking
+ *  every cell about every sample. */
+const stageDist = new Float64Array(COLS * ROWS).fill(Infinity);
+const stageNear = new Float64Array(COLS * ROWS).fill(-1);
+/**
+ * Where a wall goes on a stage: between two stretches of road that are CLOSE on the map and far
+ * apart along the road.
+ *
+ * That is the definition of a short cut, so it is the definition of where a barrier belongs — and
+ * deriving it beats placing it. A barrier hugging the whole road turns a landscape into corridors;
+ * no barrier at all lets the field drive straight across the meadow from one run to the next, and
+ * that is not a theory: with the walls taken out the whole field came home in 27 seconds instead
+ * of 47, cutting every hairpin. This walls exactly the gaps a cut would use — the strips between
+ * the runs and the inside of each hairpin — and leaves the outside open to the landscape.
+ */
+const STAGE_CUT_RUN = 15;
+const stageWall = new Uint8Array(COLS * ROWS);
+if (spec.kind === 'sprint') {
+  const reach = Math.ceil(HALF + STAGE_GAP);
+  const touch = (fn: (cell: number, d: number, run: number) => void): void => {
+    for (let i = 0; i < stagePts.length; i++) {
+      const p = stagePts[i];
+      for (let r = Math.max(0, Math.floor(p.y) - reach); r <= Math.min(ROWS - 1, Math.ceil(p.y) + reach); r++) {
+        for (let c = Math.max(0, Math.floor(p.x) - reach); c <= Math.min(COLS - 1, Math.ceil(p.x) + reach); c++) {
+          fn(r * COLS + c, Math.hypot(p.x - c, p.y - r), stageRun[i]);
+        }
+      }
+    }
+  };
+  touch((cell, d, run) => {
+    if (d < stageDist[cell]) {
+      stageDist[cell] = d;
+      stageNear[cell] = run;
+    }
+  });
+  // A second pass, once every cell knows its own nearest stretch: anything off the road that a
+  // DISTANT stretch also reaches is a gap between two passes of the course.
+  touch((cell, d, run) => {
+    if (stageDist[cell] <= HALF + STAGE_SAND) return;
+    // Measured against HALF THE BAND SPACING plus a little, not against the shoulder width: the
+    // midline between two runs is exactly half a spacing from each, and where that lands between
+    // two integer rows neither of them is within a tighter bound — so a tighter test walled one
+    // gap of three and left the others open, which is worse than walling none.
+    if (d <= STAGE_GAP / 2 + 0.6 && Math.abs(run - stageNear[cell]) > STAGE_CUT_RUN) stageWall[cell] = 1;
+  });
+}
+const distAt = (col: number, row: number): number =>
+  col < 0 || row < 0 || col >= COLS || row >= ROWS ? Infinity : stageDist[row * COLS + col];
+const onStageRoad = (col: number, row: number): boolean => distAt(col, row) <= HALF;
+const onStageRunOff = (col: number, row: number): boolean => {
+  const d = distAt(col, row);
+  return d > HALF && d <= HALF + STAGE_SAND;
+};
+/**
+ * The only wall on a stage is the edge of the world.
+ *
+ * A circuit's barrier follows the road, one tile outside it, because the road is the whole map. A
+ * stage's landscape is the map, so a barrier hugging the road would cut it into corridors — and
+ * that is exactly what it did. One frame, right around the outside, so nobody drives off into
+ * nothing and everything inside it is somewhere to be.
+ */
+const onStageBarrier = (col: number, row: number): boolean =>
+  col === 0 || row === 0 || col === COLS - 1 || row === ROWS - 1 ||
+  (col > 0 && row > 0 && col < COLS && row < ROWS && stageWall[row * COLS + col] === 1);
+const onStageOutfield = (col: number, row: number): boolean =>
+  col > 0 && row > 0 && col < COLS - 1 && row < ROWS - 1 &&
+  distAt(col, row) > HALF + STAGE_SAND && stageWall[row * COLS + col] !== 1;
 
 const onRing = (col: number, row: number): boolean => {
   const inOuter = col >= OUTER.left && col <= OUTER.right && row >= OUTER.top && row <= OUTER.bottom;
@@ -241,37 +456,112 @@ const onOutfield = (col: number, row: number): boolean => {
   return true;
 };
 
+/**
+ * The five bands, whichever shape this map is. Everything below this line paints, plants and
+ * emits from these four questions and nothing else — which is what makes a stage and a circuit
+ * the same generator rather than two that drift apart.
+ */
+const RING = spec.kind === 'ring';
+/** Six rows of two behind the line. Twelve is the field Dust Racing runs, and both shapes use it. */
+const RING_GRID_ROWS = 6;
+const isRoad = RING ? onRing : onStageRoad;
+const isBarrier = RING ? onBarrier : onStageBarrier;
+const isRunOff = RING ? onRunOff : onStageRunOff;
+const isOutfield = RING ? onOutfield : onStageOutfield;
+
+/**
+ * A stage's gates, grid, finish and chequered paint — all of it read off the centreline.
+ *
+ * A gate is the perpendicular across the road at one point of the curve, which is exactly what a
+ * gate is on a circuit too; the difference is that a circuit's four are hand-placed at the ends of
+ * its straights and a stage's are spaced along it, because a stage has no straights to name. The
+ * LAST one is also the finish: `raceFinish` is what makes `raceTrack` call the map a sprint, and
+ * putting it on the final gate means the line you must cross and the line that ends the race
+ * cannot drift apart.
+ */
+/** One checkpoint roughly every eighteen tiles of road, so a hairpin cannot be skipped by
+ *  cutting from one run to the next across the grass. */
+const STAGE_GATES = Math.max(6, Math.round(STAGE_LENGTH / 18));
+/** The grid needs this much straight road behind the start line, and the finish line sits this
+ *  far back from the very end so it is on road rather than at the point it runs out. */
+const STAGE_GRID_RUN = 14;
+const STAGE_FINISH_RUN = 2.5;
+const stageGateCells: Array<Array<{ col: number; row: number }>> = [];
+const chequered = new Set<string>();
+const stageGrid: Array<{ col: number; row: number; slot: number; dir?: number }> = [];
+const stageSpawns: Array<{ col: number; row: number }> = [];
+if (spec.kind === 'sprint') {
+  // The gates stop short of the end: the finish line is a ring of cells of its own, past the last
+  // gate. One cell carries one Action, so a finish painted on top of a gate simply DELETES that
+  // gate — which is how the first version of this map ended up with fifteen gates and a finish
+  // that could be reached without passing the fifteenth.
+  const lastGateRun = STAGE_LENGTH - STAGE_FINISH_RUN - 6;
+  for (let g = 0; g <= STAGE_GATES; g++) {
+    const run = g === STAGE_GATES
+      ? STAGE_LENGTH - STAGE_FINISH_RUN
+      : STAGE_GRID_RUN + ((lastGateRun - STAGE_GRID_RUN) * g) / (STAGE_GATES - 1);
+    const p = stageAt(run);
+    const nx = -Math.sin(p.dir);
+    const ny = Math.cos(p.dir);
+    const cells = new Map<string, { col: number; row: number }>();
+    for (let u = -HALF - 1; u <= HALF + 1; u += 0.25) {
+      const col = Math.round(p.x + nx * u);
+      const row = Math.round(p.y + ny * u);
+      if (onStageRoad(col, row)) cells.set(`${col},${row}`, { col, row });
+    }
+    stageGateCells.push([...cells.values()]);
+  }
+  // The line at either end is painted: the start you set off from and the one that ends it.
+  for (const c of stageGateCells[0]) chequered.add(`${c.col},${c.row}`);
+  for (const c of stageGateCells[STAGE_GATES]) chequered.add(`${c.col},${c.row}`);
+  // Six rows of two on the straight that leads to the line, and the beacon on slot 0 pointing
+  // east — which is the way every stage runs, because the centreline is a function of x.
+  let gslot = 0;
+  for (let i = 0; i < RING_GRID_ROWS; i++) {
+    // Behind the line, down the first run — which is straight, so the two columns are level.
+    const p = stageAt(STAGE_GRID_RUN - 2 - i * 2);
+    const col = Math.round(p.x);
+    for (const row of [Math.round(p.y) - 1, Math.round(p.y) + 1]) {
+      stageGrid.push({ col, row, slot: gslot, ...(gslot++ === 0 ? { dir: 0 } : {}) });
+    }
+    stageSpawns.push({ col, row: Math.round(p.y) });
+  }
+}
+
 const ground = new Array(COLS * ROWS).fill(0);
 const collision = new Array(COLS * ROWS).fill(0);
 const rough: Array<{ col: number; row: number }> = [];
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
     const i = row * COLS + col;
-    if (onRing(col, row)) {
-      // A kerb stripe on the inner lane, so the edge of the pit is visible before you are in it.
-      const inner =
-        (row === INNER.top - 1 || row === INNER.bottom + 1) && col >= INNER.left - 1 && col <= INNER.right + 1;
-      const innerSide =
-        (col === INNER.left - 1 || col === INNER.right + 1) && row >= INNER.top - 1 && row <= INNER.bottom + 1;
-      // The start-finish band: a chequered column across the bottom straight, on the same tiles
-      // gate 0 covers, so what the eye reads and what the engine counts are the same line.
-      const onStartLine = col === START_LINE_COL && row >= INNER.bottom + 1 && row <= OUTER.bottom;
+    if (isRoad(col, row)) {
+      // A kerb stripe on the inner lane of a circuit, so the edge is visible before you are over
+      // it; on a stage, the outermost tile of the road either side, which reads the same way.
+      const inner = RING
+        ? ((row === INNER.top - 1 || row === INNER.bottom + 1) && col >= INNER.left - 1 && col <= INNER.right + 1) ||
+          ((col === INNER.left - 1 || col === INNER.right + 1) && row >= INNER.top - 1 && row <= INNER.bottom + 1)
+        : distAt(col, row) > HALF - 1;
+      // The start-finish band: a chequered line on the same tiles a gate covers, so what the eye
+      // reads and what the engine counts are the same line.
+      const onStartLine = RING
+        ? col === START_LINE_COL && row >= INNER.bottom + 1 && row <= OUTER.bottom
+        : chequered.has(`${col},${row}`);
       ground[i] = onStartLine
-        ? row % 2 === 0
+        ? (RING ? row : col) % 2 === 0
           ? gidOf('chequerA')
           : gidOf('chequerB')
-        : inner || innerSide
+        : inner
           ? kerbAt(col, row)
           : roadAt(col, row);
-    } else if (onBarrier(col, row)) {
+    } else if (isBarrier(col, row)) {
       // Ground under the barrier as well: it is a wall, not a hole.
       ground[i] = kerbAt(col, row);
       collision[i] = COLLISION_GID;
-    } else if (onRunOff(col, row)) {
+    } else if (isRunOff(col, row)) {
       // Sand: off the racing surface, slow, and it eats tyres — but you can drive out of it.
       ground[i] = sandAt(col, row);
       rough.push({ col, row });
-    } else if (onOutfield(col, row)) {
+    } else if (isOutfield(col, row)) {
       // Grass, past the barrier. Nothing can reach it, so it is landscape — and landscape is the
       // whole point: a circuit in a black square reads as a diagram of a circuit.
       ground[i] = grassAt(col, row);
@@ -298,10 +588,10 @@ for (let row = 0; row < ROWS; row++) {
  */
 const decal = new Array(COLS * ROWS).fill(0);
 const roomForTree = (col: number, row: number): boolean =>
-  onOutfield(col, row) && onOutfield(col, row - 1) && onOutfield(col + 1, row) && onOutfield(col + 1, row - 1);
+  isOutfield(col, row) && isOutfield(col, row - 1) && isOutfield(col + 1, row) && isOutfield(col + 1, row - 1);
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
-    if (!onOutfield(col, row)) continue;
+    if (!isOutfield(col, row)) continue;
     // 0-31 from the cell's own coordinates. The bands below are the density: about one cell in
     // eight is a tree, one in sixteen a rock, one in eight a tuft — enough to read as a meadow
     // with things in it, sparse enough that the circuit stays the thing you look at.
@@ -355,6 +645,10 @@ const start = (col: number, row: number, slot: number, dir?: number) =>
   ]);
 
 const objects: ReturnType<typeof marker>[] = [];
+const finish = (col: number, row: number) =>
+  marker(col, row, [{ name: 'actionKind', type: 'string', value: 'raceFinish' }]);
+
+if (RING) {
 /** Gate 0 across the bottom straight; then right, top, left — anticlockwise. */
 const bottomRow = { from: INNER.bottom + 1, to: OUTER.bottom };
 for (let row = bottomRow.from; row <= bottomRow.to; row++) objects.push(gate(START_LINE_COL, row, 0));
@@ -373,8 +667,8 @@ for (let col = OUTER.left; col <= INNER.left - 1; col++) objects.push(gate(col, 
  * this one is seventy tiles long and there is no reason to leave four cars in the garage.
  */
 let slot = 0;
-const GRID_ROWS = 6;
-for (let i = 0; i < GRID_ROWS; i++) {
+
+for (let i = 0; i < RING_GRID_ROWS; i++) {
   const col = START_LINE_COL - 6 - i * 3;
   // These circuits run anticlockwise, so the grid on the bottom straight faces EAST (0°).
   for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot, slot++ === 0 ? 0 : undefined));
@@ -394,17 +688,40 @@ for (let col = START_LINE_COL + 3; col <= START_LINE_COL + 10; col++) {
 // The timing screen: one board at the end of the pit lane shows what this track has been lapped in.
 objects.push(records(START_LINE_COL + 12, INNER.bottom + 1));
 
+} else {
+  /**
+   * A stage places the same four kinds of marker and one more.
+   *
+   * No pit lane at all, and that is the stage's own rule rather than an omission: a run is short
+   * enough that one set of tyres covers it, so what a circuit gives you as a strategic choice a
+   * stage gives you as a constraint. Tyres still wear — driving it tidily is the only pit stop
+   * there is.
+   */
+  for (let g = 0; g < STAGE_GATES; g++) {
+    for (const c of stageGateCells[g]) objects.push(gate(c.col, c.row, g));
+  }
+  // The far end is a LINE, not a point: every one of its cells ends the race, so crossing it
+  // anywhere on the road counts. A single tile would be a finish you could miss by a metre.
+  for (const c of stageGateCells[STAGE_GATES]) objects.push(finish(c.col, c.row));
+  for (const g of stageGrid) objects.push(start(g.col, g.row, g.slot, g.dir));
+  for (const sp of stageSpawns) objects.push(spawn(sp.col, sp.row));
+  // The timing screen stands on the sand beside the grid, where you walk past it on the way in.
+  const board = stageAt(2);
+  objects.push(records(Math.round(board.x), Math.round(board.y) - Math.ceil(HALF) - 1));
+}
+
 // Every sand and grass cell is marked off-surface, so the physics and the computer drivers both
 // know the road from the scenery.
 for (const cell of rough) objects.push(marker(cell.col, cell.row, [
   { name: 'actionKind', type: 'string', value: 'raceRough' },
 ]));
 
+
 // Arrive IN the grid, down the lane between its two rows — not wherever the free-tile search
 // happens to land. On a ring this long that is the difference between getting in a kart and
 // walking half a lap to find one, and it was measured: a spawn seven tiles up the straight is
-// already out of reach of every kart on it.
-for (let i = 0; i < GRID_ROWS; i++) objects.push(spawn(START_LINE_COL - 6 - i * 3, INNER.bottom + 3));
+// already out of reach of every kart on it. A stage places its own, beside its own grid.
+if (RING) for (let i = 0; i < RING_GRID_ROWS; i++) objects.push(spawn(START_LINE_COL - 6 - i * 3, INNER.bottom + 3));
 
 const tileLayer = (id: number, name: string, cls: string, data: number[]) => ({
   data,

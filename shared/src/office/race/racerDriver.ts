@@ -26,7 +26,7 @@ import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC, TYRE_WARN } from '../constan
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
-import { isRough, nextGate } from './track.js';
+import { isRough, nextPoint } from './track.js';
 
 /** How far ahead a perfect driver looks, in tiles. Scaled by skill. */
 const LOOK_TILES = 9;
@@ -116,6 +116,13 @@ function room(kart: Kart, world: KartWorld, heading: number, maxTiles: number): 
  * corner drives the track backwards at the reverse cap. That was a real afternoon.
  */
 export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): KartInput {
+  // Home on a STAGE: slow down and stop. The gates are a ring, so the one after the last is the
+  // first — and on a circuit that is exactly right, it is the cool-down lap. On a point-to-point
+  // it turned the finishers round and sent them back down the course into the cars still racing,
+  // which is what a ring means when the road does not actually loop.
+  if (kart.finished && world.track.sprint) {
+    return { throttle: Math.hypot(kart.vx, kart.vy) > 25 ? -1 : 0, steer: 0 };
+  }
   // Worn out and a pit box is right there: pull in. OPPORTUNISTIC on purpose — it stops only at
   // one it is about to drive past, with clear road the whole way, and otherwise carries on and
   // takes it next lap. The first version aimed at the nearest box from anywhere on the circuit,
@@ -128,7 +135,8 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   }
   const level = Math.max(0, Math.min(1, skill.level));
   const look = Math.max(4, Math.round(LOOK_TILES * (0.55 + 0.45 * level)));
-  const target = nextGate(world.track, kart.gate);
+  // Where this car is going: the next gate, or the LINE if it is on a stage's final leg.
+  const target = nextPoint(world.track, kart.gate);
   const toGate = Math.atan2(target.y - kart.y, target.x - kart.x);
 
   // Widen the line until the road holds, smallest correction first.

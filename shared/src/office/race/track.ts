@@ -65,6 +65,16 @@ export interface RaceTrack {
    * line would stop meaning anything.
    */
   rough: ReadonlySet<string>;
+  /**
+   * Where a stage ENDS, as a pixel point — the centre of its finish line, or null on a circuit.
+   *
+   * The gates are a ring and `nextGate` wraps, which is exactly right for a lap and exactly wrong
+   * for the last gate of a point-to-point: the thing after it is the LINE, not the start. Kept
+   * here so that everything which asks "where am I heading" gets one answer — the driver, the
+   * standings and the respawn all used to ask `nextGate` and would have sent a car back down the
+   * course.
+   */
+  finish: { x: number; y: number } | null;
   /** `"col,row"` of every pit box. Empty on a track with no pit lane, which simply means tyres
    *  cannot be changed there — not that they do not wear. */
   pit: ReadonlySet<string>;
@@ -138,6 +148,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     startHeading,
     laps: Math.max(1, Math.floor(layout.laps ?? DEFAULT_LAPS)),
     sprint: finish !== null,
+    finish,
     rough,
     pit,
   };
@@ -195,11 +206,20 @@ export function headingFrom(track: RaceTrack, gate: RaceGate): number {
 }
 
 /**
+ * What a kart that has just passed `gate` is heading for: the next gate, or — for the last gate of
+ * a stage — the finish line. One answer, asked by the driver and by the standings alike.
+ */
+export function nextPoint(track: RaceTrack, gate: number): { x: number; y: number } {
+  if (track.sprint && track.finish && gate === track.gates.length - 1) return track.finish;
+  return nextGate(track, gate);
+}
+
+/**
  * How far along the lap a kart is, as one comparable number: gates passed, minus how much of the
  * way to the next gate is left. Used for standings, never for lap counting.
  */
 export function raceProgress(track: RaceTrack, lap: number, gate: number, x: number, y: number): number {
-  const target = nextGate(track, gate);
+  const target = nextPoint(track, gate);
   const d = Math.hypot(target.x - x, target.y - y);
   const span = Math.max(1, Math.hypot(target.x - track.gates[gate].x, target.y - track.gates[gate].y));
   // Clamped at both ends: a kart that has overshot its next gate sideways can measure FARTHER than
@@ -230,7 +250,7 @@ export function lapFraction(track: RaceTrack, gate: number, x: number, y: number
 export function goingBackwards(track: RaceTrack, gate: number, x: number, y: number, vx: number, vy: number): boolean {
   const speed = Math.hypot(vx, vy);
   if (speed < 30) return false;
-  const target = nextGate(track, gate);
+  const target = nextPoint(track, gate);
   const tx = target.x - x;
   const ty = target.y - y;
   const len = Math.hypot(tx, ty);

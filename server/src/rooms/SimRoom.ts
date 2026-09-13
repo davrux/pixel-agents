@@ -1829,7 +1829,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.broadcast('m', {
         type: 'system',
         text:
-          `${me.username} started a ${difficulty} race — ${laps} laps` +
+          `${me.username} started a ${difficulty} race — ` +
+          // A stage is one run, so saying "1 laps" would be both ungrammatical and wrong about
+          // what the race IS.
+          (this.os.raceTrack()?.sprint ? 'one run to the line' : `${laps} laps`) +
           (this.records.raceMs ? `, record ${raceClock(this.records.raceMs)} by ${this.records.raceBy}` : '') +
           '!',
       });
@@ -2303,6 +2306,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // of milliseconds is 49 days, but a NaN would pass quietly and a negative would wrap.
     r.timerMs = Math.max(0, Math.min(0xffffffff, Math.round(race.timerMs) || 0));
     r.laps = Math.min(255, race.laps);
+    // From the TRACK, not from the race: whether this map is a stage or a circuit is true before
+    // anybody starts anything, and the practice HUD is exactly the case with no race to ask. Read
+    // off the race it said "Practice · lap 1" on a hill climb, which is the overlay counting laps
+    // of a road that does not loop.
+    r.sprint = this.os.raceTrack()?.sprint ?? false;
     r.entries = Math.min(255, race.entries.size);
     r.finalLap = race.finalLap;
     // The records as they stand THIS instant, including one set a moment ago — the board is meant
@@ -2328,7 +2336,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const who = n.kartId ? this.os.kartDriverName(n.kartId) || 'a driver' : '';
       const t = raceClock(n.ms);
       if (n.kind === 'finalLap') {
-        this.broadcast('m', { type: 'system', text: '🏁 Final lap!' });
+        this.broadcast('m', {
+          type: 'system',
+          text: this.os.raceTrack()?.sprint ? '🏁 Final stretch!' : '🏁 Final lap!',
+        });
       } else if (n.kind === 'lapRecord') {
         if (offerRecord(this.zone.id, laps, 'lap', n.ms, who)) {
           this.records = raceRecords(this.zone.id, laps);

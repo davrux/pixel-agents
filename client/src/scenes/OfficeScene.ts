@@ -1242,6 +1242,7 @@ export class OfficeScene extends Phaser.Scene {
       phase,
       timerMs,
       laps: (race.laps as number) ?? 0,
+      sprint: !!race.sprint,
       entries: (race.entries as number) ?? 0,
       lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
       go: phase === 'countdown' && secs <= 0,
@@ -1253,6 +1254,7 @@ export class OfficeScene extends Phaser.Scene {
       own: mine
         ? {
             lap: mine.lap,
+            progress: mine.progress / 100,
             place: mine.place,
             lastLapMs: mine.lastLapMs,
             bestLapMs: mine.bestLapMs,

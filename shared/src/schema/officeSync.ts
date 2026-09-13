@@ -184,6 +184,14 @@ export class RaceSync extends Schema {
   /** Counts DOWN in a countdown and in the results, UP while racing. Milliseconds. */
   @type('uint32') timerMs = 0;
   @type('uint8') laps = 0;
+  /**
+   * A point-to-point stage rather than N laps of a circuit.
+   *
+   * Synced rather than derived: the client has no track, so it cannot tell a one-lap circuit from
+   * a stage — and the difference is everything the HUD says. "Lap 1/1" on a hill climb is not a
+   * cosmetic slip, it is the overlay claiming the race is something it is not.
+   */
+  @type('boolean') sprint = false;
   /** How many karts are in it — the denominator for "P2 of 4". */
   @type('uint8') entries = 0;
   /** The leader is on the last lap and nearly home: the chequered flag is out. */

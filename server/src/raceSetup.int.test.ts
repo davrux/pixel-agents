@@ -13,7 +13,7 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 
-import { raceTrack } from '@pixel/shared/office/race/track.js';
+import { nextGate, nextPoint, raceTrack } from '@pixel/shared/office/race/track.js';
 import type { Action, OfficeLayout } from '@pixel/shared/office/types';
 
 const COLS = 20;
@@ -122,4 +122,30 @@ test('a map with one gate is not a track, beacon or no beacon', () => {
     ]),
   );
   assert.equal(one, null);
+});
+
+test('a stage aims at its LINE after the last gate, not back at the first', () => {
+  // The gates are a ring and `nextGate` wraps — which is exactly right for a lap and exactly wrong
+  // for the last gate of a point-to-point. Measured before this existed: three finishers turned
+  // round at the far end and drove the whole stage back into the cars still racing, and one of
+  // them crossed gate 0 on the way, which the lap path then scored as finishing the race.
+  const track = raceTrack(
+    layoutWith([...ring(0), { col: 4, row: 10, action: { kind: 'raceFinish' } }]),
+  );
+  assert.ok(track);
+  assert.ok(track.sprint);
+  assert.ok(track.finish, 'a sprint with no finish point');
+  const last = track.gates.length - 1;
+  assert.deepEqual(nextPoint(track, last), track.finish, 'the final leg does not aim at the line');
+  // Every other leg is unchanged, and a circuit is unchanged everywhere — the wrap is still what
+  // a lap is made of.
+  for (let g = 0; g < last; g++) {
+    assert.deepEqual(nextPoint(track, g), nextGate(track, g), `leg ${g} stopped following the gates`);
+  }
+  const circuit = raceTrack(layoutWith(ring(0)));
+  assert.ok(circuit);
+  assert.equal(circuit.finish, null, 'a circuit invented a finish point');
+  for (let g = 0; g < circuit.gates.length; g++) {
+    assert.deepEqual(nextPoint(circuit, g), nextGate(circuit, g), 'a circuit stopped wrapping');
+  }
 });
