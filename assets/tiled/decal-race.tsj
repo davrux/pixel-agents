@@ -1,0 +1,69 @@
+{
+  "columns": 0,
+  "name": "decal-race",
+  "tilecount": 3,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.10",
+  "tiles": [
+    {
+      "id": 0,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_TREE.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_TREE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Race tree"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_ROCK.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_ROCK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Race rock"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_PLANT.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_PLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Race plant"
+        }
+      ]
+    }
+  ]
+}

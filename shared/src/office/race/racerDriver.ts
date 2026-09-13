@@ -26,7 +26,7 @@ import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC, TYRE_WARN } from '../constan
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
-import { nextGate } from './track.js';
+import { isRough, nextGate } from './track.js';
 
 /** How far ahead a perfect driver looks, in tiles. Scaled by skill. */
 const LOOK_TILES = 9;
@@ -93,8 +93,13 @@ function towards(kart: Kart, world: KartWorld, to: { x: number; y: number }): Ka
 function room(kart: Kart, world: KartWorld, heading: number, maxTiles: number): number {
   const px = -Math.sin(heading) * KART_RADIUS_PX;
   const py = Math.cos(heading) * KART_RADIUS_PX;
-  const ok = (x: number, y: number): boolean =>
-    isWalkable(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE), world.tileMap, world.blockedTiles);
+  // ROAD, not merely ground: grass is drivable and a driver that probed for "somewhere I can go"
+  // would cut every corner across it, and the racing line would stop meaning anything.
+  const ok = (x: number, y: number): boolean => {
+    const col = Math.floor(x / TILE_SIZE);
+    const row = Math.floor(y / TILE_SIZE);
+    return isWalkable(col, row, world.tileMap, world.blockedTiles) && !isRough(world.track, col, row);
+  };
   for (let t = 1; t <= maxTiles * 2; t++) {
     const x = kart.x + Math.cos(heading) * t * (TILE_SIZE / 2);
     const y = kart.y + Math.sin(heading) * t * (TILE_SIZE / 2);
@@ -140,8 +145,22 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   let diff = want - kart.heading;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
+  // The straight line back to the next gate, for a car that is off the road — the widened line
+  // above is chosen from the ROAD, and out here there is none to choose from.
+  let recover = toGate - kart.heading;
+  while (recover > Math.PI) recover -= Math.PI * 2;
+  while (recover < -Math.PI) recover += Math.PI * 2;
 
   const speed = Math.hypot(kart.vx, kart.vy);
+  // ALREADY off the road: drive back towards the next gate and never mind the probe, which sees
+  // no road from out here and would brake for ever. Measured: one car per race sat in the grass
+  // at a standstill until the flag, with nothing wrong except that it could not see a way on.
+  if (isRough(world.track, Math.floor(kart.x / TILE_SIZE), Math.floor(kart.y / TILE_SIZE))) {
+    return {
+      throttle: speed < KART_MAX_SPEED_PX_PER_SEC * 0.35 ? 1 : 0,
+      steer: recover > 0.05 ? 1 : recover < -0.05 ? -1 : 0,
+    };
+  }
   const course = speed > 5 ? Math.atan2(kart.vy, kart.vx) : kart.heading;
   const ahead = room(kart, world, course, look + 1);
   // How much road there is BESIDE it. A clear view forward says nothing about a narrow bridge:

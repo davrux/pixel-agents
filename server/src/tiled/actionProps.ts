@@ -47,6 +47,7 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
     case 'raceGate':
       return { kind, gate: Math.max(0, Math.floor(Number(props[`${prefix}Gate`]) || 0)) };
     case 'racePit':
+    case 'raceRough':
     case 'raceFinish':
     case 'raceRecords':
       return { kind };

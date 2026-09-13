@@ -3,7 +3,7 @@
  * Turn Dust Racing 2D's car sprites into game-scale vehicles.
  *
  * The sources are CC BY-SA 3.0 and so is everything this writes — see
- * `assets/vehicles/dust/README.md`, which is the attribution and must stay beside them.
+ * `assets/third-party/dust-racing/README.md`, which is the attribution and must stay beside them.
  *
  * Three things happen, and each one is a fact about the source rather than a preference:
  *
@@ -31,7 +31,7 @@ import { VEHICLE_ART } from '@pixel/shared/office/race/kartArt.js';
 
 const WRITE_OPTIONS = { filterType: 0, deflateLevel: 9, deflateStrategy: 0 } as const;
 const REPO = path.join(import.meta.dirname, '..', '..');
-const SRC = path.join(REPO, 'assets', 'vehicles', 'dust');
+const SRC = path.join(REPO, 'assets', 'third-party', 'dust-racing');
 const OUT = path.join(REPO, 'assets', 'vehicles');
 const CHECK = process.argv.includes('--check');
 

@@ -7,7 +7,7 @@
  * file rather than a redraw. The strip existed because a top-down kart drawn by hand has to be
  * drawn per angle; a rendered car does not.
  *
- * The art is Dust Racing 2D's, under CC BY-SA 3.0 — see `assets/vehicles/dust/README.md`, which
+ * The art is Dust Racing 2D's, under CC BY-SA 3.0 — see `assets/third-party/dust-racing/README.md`, which
  * carries the attribution and the share-alike obligation. It is the one part of this repository
  * that is not MIT, and it is confined to those image files.
  *

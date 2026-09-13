@@ -56,6 +56,15 @@ export interface RaceTrack {
    * order, and a line at the far end.
    */
   sprint: boolean;
+  /**
+   * `"col,row"` of every cell that is off the racing surface but still ground — grass, sand, the
+   * run-off.
+   *
+   * The computer drivers steer by it as much as the physics does: their road probe stops at rough
+   * exactly as it stops at a drop, or they would cut every corner across the grass and the racing
+   * line would stop meaning anything.
+   */
+  rough: ReadonlySet<string>;
   /** `"col,row"` of every pit box. Empty on a track with no pit lane, which simply means tyres
    *  cannot be changed there — not that they do not wear. */
   pit: ReadonlySet<string>;
@@ -81,6 +90,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const byGate = new Map<number, { tiles: Set<string>; sx: number; sy: number; n: number }>();
   const grid: Array<{ slot: number; x: number; y: number; dir: number }> = [];
   const pit = new Set<string>();
+  const rough = new Set<string>();
   let finish: { x: number; y: number } | null = null;
   const actions = layout.tileActions ?? [];
   for (let i = 0; i < actions.length; i++) {
@@ -103,6 +113,8 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
       grid.push({ slot: action.slot, dir: action.dir ?? -1, ...centre(col, row) });
     } else if (action.kind === 'racePit') {
       pit.add(key(col, row));
+    } else if (action.kind === 'raceRough') {
+      rough.add(key(col, row));
     } else if (action.kind === 'raceFinish') {
       finish = centre(col, row);
     }
@@ -126,8 +138,14 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     startHeading,
     laps: Math.max(1, Math.floor(layout.laps ?? DEFAULT_LAPS)),
     sprint: finish !== null,
+    rough,
     pit,
   };
+}
+
+/** Is this tile off the racing surface — grass, sand, run-off? */
+export function isRough(track: RaceTrack, col: number, row: number): boolean {
+  return track.rough.has(key(col, row));
 }
 
 /** Is this tile a pit box? */

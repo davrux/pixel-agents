@@ -187,6 +187,8 @@ export function sanitizeAction(raw: unknown): Action | null {
       };
     case 'racePit':
       return { kind: 'racePit' };
+    case 'raceRough':
+      return { kind: 'raceRough' };
     case 'raceFinish':
       return { kind: 'raceFinish' };
     case 'raceRecords':

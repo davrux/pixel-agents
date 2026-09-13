@@ -420,6 +420,7 @@ export const KART_BUMP_MIN_PX_PER_SEC = 25;
 export const KART_BOARD_REACH_TILES = 3;
 
 export const KART_FALL_SEC = 1.2;
+
 /** Simulation rate for a zone whose map is a race track. Steering at 20 Hz feels like posting
  *  letters; the tick costs 19 µs (measured on uponu with 300 agents), so a race room can afford
  *  three times as many of them, and the PATCH rate stays 20 Hz either way — this buys input
@@ -479,5 +480,21 @@ export const TYRE_FIT_PER_SEC = 0.34;
 export const PIT_SPEED_PX_PER_SEC = 45;
 /** Below this the HUD warns, and a computer driver starts looking for the pit lane. */
 export const TYRE_WARN = 0.35;
+
+// ── Off the road ──────────────────────────────────────────────────────────────
+/**
+ * What the tyres find on grass and sand, as a share of what they find on tarmac.
+ *
+ * Leaving the road SLOWS you rather than ending you, which is how Dust Racing treats it and what
+ * lets a circuit sit in a landscape instead of a black square. Low enough that the racing line is
+ * the fast one and a driver who runs wide loses real time; high enough that a car in the run-off
+ * can be brought back, because a run-off you cannot drive out of is a wall with grass painted on
+ * it.
+ */
+export const ROUGH_GRIP = 0.45;
+/** What it does to the top speed, as a share. Grass is slower than tarmac even in a straight line. */
+export const ROUGH_SPEED = 0.62;
+/** And it eats tyres: a lap spent in the dirt costs a lap's wear several times over. */
+export const ROUGH_WEAR_FACTOR = 2.5;
 /** How long the result board stays up before the track is free again. */
 export const RACE_RESULTS_MS = 9000;

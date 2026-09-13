@@ -48,6 +48,21 @@ const CHECK = process.argv.includes('--check');
  */
 const TRACK_TILES = ['asphalt', 'asphaltB', 'kerbRed', 'kerbPale', 'chequerA', 'chequerB', 'edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight'] as const;
 type TrackTile = (typeof TRACK_TILES)[number];
+/**
+ * The landscape a circuit sits in — Dust Racing's ground, under CC BY-SA 3.0.
+ *
+ * Its own tileset rather than more rows in ours, because the two carry different licences and a
+ * file is the smallest thing a licence can attach to. See assets/third-party/dust-racing/README.md.
+ */
+const SCENERY_TILES = ['grassA', 'grassB', 'grassC', 'grassD', 'sandA', 'sandB', 'sandC', 'sandD'] as const;
+type SceneryTile = (typeof SCENERY_TILES)[number];
+/**
+ * What STANDS in that landscape — a tree, a rock, a tuft — in the order `decal-race.tsj` carries
+ * them. Grass alone is still a flat green rectangle; what makes a circuit read as a place is
+ * something with a height in it.
+ */
+const DECAL_TILES = ['RACE_TREE', 'RACE_ROCK', 'RACE_PLANT'] as const;
+type DecalTile = (typeof DECAL_TILES)[number];
 const COLLISION_GID = 7021;
 
 const src = JSON.parse(fs.readFileSync(SRC, 'utf8')) as Record<string, unknown>;
@@ -62,6 +77,18 @@ const lastCount = (JSON.parse(
 ) as { tilecount: number }).tilecount;
 const TRACK_FIRSTGID = last.firstgid + lastCount;
 const gidOf = (name: TrackTile): number => TRACK_FIRSTGID + TRACK_TILES.indexOf(name);
+const SCENERY_FIRSTGID = TRACK_FIRSTGID + TRACK_TILES.length;
+const sceneryGid = (name: SceneryTile): number => SCENERY_FIRSTGID + SCENERY_TILES.indexOf(name);
+const DECAL_FIRSTGID = SCENERY_FIRSTGID + SCENERY_TILES.length;
+const decalGid = (name: DecalTile): number => DECAL_FIRSTGID + DECAL_TILES.indexOf(name);
+/** A stable scatter, so a field of grass is not one tile repeated and `--check` still means
+ *  something: the cell's own coordinates pick the variant. */
+const variant = (col: number, row: number, of: number): number =>
+  Math.abs(Math.imul(col * 73856093 ^ row * 19349663, 2654435761)) % of;
+const grassAt = (col: number, row: number): number =>
+  sceneryGid(SCENERY_TILES[variant(col, row, 4)] as SceneryTile);
+const sandAt = (col: number, row: number): number =>
+  sceneryGid(SCENERY_TILES[4 + variant(col, row, 4)] as SceneryTile);
 
 /** Alternating pairs, along whichever axis the stripe runs — a real kerb, red and white. */
 const kerbAt = (col: number, row: number): number =>
@@ -113,7 +140,7 @@ const TRACKS: readonly TrackSpec[] = [
   },
 ];
 
-function buildTrack(spec: TrackSpec): { bytes: string; painted: number; markers: number } {
+function buildTrack(spec: TrackSpec): { bytes: string; painted: number; scenery: number; markers: number } {
 /**
  * The ring: a road FIVE tiles wide, and that number is the whole difficulty of the track.
  *
@@ -168,15 +195,55 @@ const onBarrier = (col: number, row: number): boolean => {
     [col, row + 1],
     [col, row - 1],
   ].some(([c, r]) => onRing(c, r));
-  // Only the OUTSIDE gets a barrier; the infield stays a pit, which is the whole point. And the
-  // bridge gets none at all — a barrier there would be a wall to bounce off instead of a drop.
-  const inInfield = col >= INNER.left && col <= INNER.right && row >= INNER.top && row <= INNER.bottom;
+  // BOTH sides get a barrier. The infield used to be left open as a drop, and that was wrong
+  // twice over: it made half the map black (1571 void cells of 3344 on the raceway — the thing
+  // that was reported as "everything except the track is black"), and a hole you can only fall
+  // into at its rim is a wall that ends your race instead of one you bounce off. The drop that
+  // was actually asked for is the BRIDGE, and the bridge still has none — a barrier there would
+  // be exactly the wall-instead-of-a-drop this whole hazard exists not to be.
   if (overBridgeSpan(col) && row < INNER.top) return false;
-  return touching && !inInfield;
+  return touching;
+};
+
+/**
+ * Where the landscape goes.
+ *
+ * The run-off is INSIDE the barrier and reachable: a two-tile apron of sand either side of the
+ * road, so running wide costs time rather than the race. The outfield is everything past the
+ * barrier, on BOTH sides — the frame around the circuit and the field in the middle of it — and
+ * none of it can be reached, which is what lets it be planted. It exists so the circuit sits in
+ * somewhere instead of in a black square.
+ *
+ * The one place that stays void is the air beside the BRIDGE. A hole has to look like one, and
+ * that is the only hole left.
+ */
+const onRunOff = (col: number, row: number): boolean => {
+  if (onRing(col, row) || onBarrier(col, row)) return false;
+  // No run-off beside the BRIDGE — that stretch is meant to have nothing either side, and a strip
+  // of sand there is a safety net under the one hazard the bridge exists for.
+  if (overBridgeSpan(col) && row < INNER.top) return false;
+  const inOuter = col >= OUTER.left && col <= OUTER.right && row >= OUTER.top && row <= OUTER.bottom;
+  if (!inOuter) return false;
+  // Inside the outer rectangle but off the road: only the two tiles nearest the road are sand,
+  // and the rest of the infield stays a pit.
+  for (let d = 1; d <= 2; d++) {
+    for (const [c, r] of [[col + d, row], [col - d, row], [col, row + d], [col, row - d]]) {
+      if (onRing(c, r)) return true;
+    }
+  }
+  return false;
+};
+const onOutfield = (col: number, row: number): boolean => {
+  if (onRing(col, row) || onBarrier(col, row) || onRunOff(col, row)) return false;
+  // The air beside the BRIDGE stays void. Landscaping it would quietly fill in the one hazard the
+  // whole bridge exists for: measured by looking at the map, the drop was gone — twice.
+  if (overBridgeSpan(col) && row < INNER.top) return false;
+  return true;
 };
 
 const ground = new Array(COLS * ROWS).fill(0);
 const collision = new Array(COLS * ROWS).fill(0);
+const rough: Array<{ col: number; row: number }> = [];
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
     const i = row * COLS + col;
@@ -200,7 +267,48 @@ for (let row = 0; row < ROWS; row++) {
       // Ground under the barrier as well: it is a wall, not a hole.
       ground[i] = kerbAt(col, row);
       collision[i] = COLLISION_GID;
+    } else if (onRunOff(col, row)) {
+      // Sand: off the racing surface, slow, and it eats tyres — but you can drive out of it.
+      ground[i] = sandAt(col, row);
+      rough.push({ col, row });
+    } else if (onOutfield(col, row)) {
+      // Grass, past the barrier. Nothing can reach it, so it is landscape — and landscape is the
+      // whole point: a circuit in a black square reads as a diagram of a circuit.
+      ground[i] = grassAt(col, row);
+      rough.push({ col, row });
     }
+  }
+}
+
+/**
+ * What stands where, on the grass past the barrier.
+ *
+ * Two rules, and both are about never letting scenery become a lie:
+ *
+ *  - **Only the outfield.** Nothing is planted on the sand run-off or anywhere else a kart can
+ *    reach. A decal never blocks (the CollisionLayer does that, see AGENTS.md), so a tree in the
+ *    run-off would be something you drive straight through — and a run-off you have to slalom
+ *    through is not a run-off. Past the barrier the question cannot come up.
+ *  - **A tree needs its own room.** The art is 32×32 and Tiled anchors an oversized tile at the
+ *    BOTTOM-LEFT of its cell, so it reaches one cell up and one cell right; both of those have to
+ *    be outfield too, or the crown hangs over the barrier and into the road.
+ *
+ * The scatter is the same coordinate hash the grass uses with a different salt, so it is stable —
+ * `--check` compares bytes, and a random layout would fail it every run.
+ */
+const decal = new Array(COLS * ROWS).fill(0);
+const roomForTree = (col: number, row: number): boolean =>
+  onOutfield(col, row) && onOutfield(col, row - 1) && onOutfield(col + 1, row) && onOutfield(col + 1, row - 1);
+for (let row = 0; row < ROWS; row++) {
+  for (let col = 0; col < COLS; col++) {
+    if (!onOutfield(col, row)) continue;
+    // 0-31 from the cell's own coordinates. The bands below are the density: about one cell in
+    // eight is a tree, one in sixteen a rock, one in eight a tuft — enough to read as a meadow
+    // with things in it, sparse enough that the circuit stays the thing you look at.
+    const roll = variant(col + 911, row + 733, 32);
+    if (roll < 4 && roomForTree(col, row)) decal[row * COLS + col] = decalGid('RACE_TREE');
+    else if (roll >= 4 && roll < 6) decal[row * COLS + col] = decalGid('RACE_ROCK');
+    else if (roll >= 6 && roll < 10) decal[row * COLS + col] = decalGid('RACE_PLANT');
   }
 }
 
@@ -286,6 +394,12 @@ for (let col = START_LINE_COL + 3; col <= START_LINE_COL + 10; col++) {
 // The timing screen: one board at the end of the pit lane shows what this track has been lapped in.
 objects.push(records(START_LINE_COL + 12, INNER.bottom + 1));
 
+// Every sand and grass cell is marked off-surface, so the physics and the computer drivers both
+// know the road from the scenery.
+for (const cell of rough) objects.push(marker(cell.col, cell.row, [
+  { name: 'actionKind', type: 'string', value: 'raceRough' },
+]));
+
 // Arrive IN the grid, down the lane between its two rows — not wherever the free-tile search
 // happens to land. On a ring this long that is the difference between getting in a kart and
 // walking half a lap to find one, and it was measured: a spawn seven tiles up the straight is
@@ -312,6 +426,14 @@ const map = {
   infinite: false,
   layers: [
     tileLayer(1, 'Ground', 'GroundLayer', ground),
+    // One decal layer, and it occludes: these are standing things, so they sort against whoever is
+    // beside them rather than lying under. That only ever matters where somebody can stand, and
+    // nobody can stand out here — so the honest reason to set it is that a tree IS an upright
+    // object, not that anything today can tell.
+    {
+      ...tileLayer(4, 'Scenery', 'DecalLayer', decal),
+      properties: [{ name: 'occludes', type: 'bool', value: true }],
+    },
     tileLayer(2, 'Collision', 'CollisionLayer', collision),
     {
       draworder: 'topdown',
@@ -325,7 +447,7 @@ const map = {
       y: 0,
     },
   ],
-  nextlayerid: 4,
+  nextlayerid: 5,
   nextobjectid: objectId,
   orientation: 'orthogonal',
   properties: [
@@ -335,7 +457,12 @@ const map = {
   renderorder: 'right-down',
   tiledversion: (src.tiledversion as string) ?? '1.11.0',
   tileheight: TILE,
-  tilesets: [...srcSets, { firstgid: TRACK_FIRSTGID, source: '../track.tsj' }],
+  tilesets: [
+    ...srcSets,
+    { firstgid: TRACK_FIRSTGID, source: '../track.tsj' },
+    { firstgid: SCENERY_FIRSTGID, source: '../scenery.tsj' },
+    { firstgid: DECAL_FIRSTGID, source: '../decal-race.tsj' },
+  ],
   tilewidth: TILE,
   type: 'map',
   version: (src.version as string) ?? '1.10',
@@ -345,6 +472,7 @@ const map = {
   return {
     bytes: JSON.stringify(map, null, 1) + '\n',
     painted: ground.filter((g) => g).length,
+    scenery: decal.filter((g) => g).length,
     markers: objects.length,
   };
 }
@@ -352,7 +480,7 @@ const map = {
 let differs = false;
 for (const spec of TRACKS) {
   const out = path.join(ZONES, `${spec.id}.tmj`);
-  const { bytes, painted, markers } = buildTrack(spec);
+  const { bytes, painted, scenery, markers } = buildTrack(spec);
   if (CHECK) {
     const onDisk = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
     if (onDisk !== bytes) {
@@ -364,7 +492,7 @@ for (const spec of TRACKS) {
   fs.writeFileSync(out, bytes);
   console.log(
     `wrote ${path.relative(REPO, out)} (${spec.cols}x${spec.rows}, ${painted} painted cells, ` +
-      `${markers} markers, ${spec.laps} laps)`,
+      `${scenery} scenery, ${markers} markers, ${spec.laps} laps)`,
   );
 }
 if (CHECK) {

@@ -43,6 +43,9 @@ import {
   KART_STEER_AT_REST,
   KART_STEER_RAD_PER_SEC,
   PIT_SPEED_PX_PER_SEC,
+  ROUGH_GRIP,
+  ROUGH_SPEED,
+  ROUGH_WEAR_FACTOR,
   TYRE_FIT_PER_SEC,
   TYRE_MIN_GRIP,
   TYRE_WEAR_ROLLING_PER_SEC,
@@ -52,7 +55,7 @@ import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
 import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
-import { gateAt, headingFrom, inPit, nextGate, wrapAngle, type RaceTrack } from './track.js';
+import { gateAt, headingFrom, inPit, isRough, nextGate, wrapAngle, type RaceTrack } from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
 export interface KartInput {
@@ -255,16 +258,22 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // has ONE budget for going and for turning (the friction circle), so this is subtracted from
   // what is left for the corner — which is the whole of "too much gas in a corner throws you off".
   const power = input.throttle !== 0 ? KART_POWER_GRIP_SHARE : 0;
-  if (input.throttle > 0) along += spec.accel * dt;
+  // Off the racing surface everything is worse: less grip, a lower ceiling, and tyres that go
+  // three times as fast. Slow rather than fatal — a run-off you cannot drive out of is a wall
+  // with grass painted on it.
+  const offRoad = isRough(world.track, tileOf(kart.x), tileOf(kart.y));
+  const surface = offRoad ? ROUGH_GRIP : 1;
+  if (input.throttle > 0) along += spec.accel * dt * (offRoad ? ROUGH_SPEED : 1);
   else if (input.throttle < 0) along -= spec.brake * dt;
   along -= along * Math.min(1, KART_DRAG_PER_SEC * dt);
-  along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(spec.maxSpeed, along));
+  const ceiling = spec.maxSpeed * (offRoad ? ROUGH_SPEED : 1);
+  along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(ceiling, along));
 
   // The tyres kill at most this much sideways speed this tick — a LIMIT, not a fraction. Beyond
   // it the kart slides, and that is the drift. Worn tyres have less of it, which is the whole of
   // why a pit stop can be worth the time it costs.
   const wear = TYRE_MIN_GRIP + (1 - TYRE_MIN_GRIP) * Math.max(0, Math.min(1, kart.tyre));
-  const lateral = spec.grip * wear * Math.sqrt(Math.max(0, 1 - power * power));
+  const lateral = spec.grip * wear * surface * Math.sqrt(Math.max(0, 1 - power * power));
   const bite = lateral * dt;
   side -= Math.sign(side) * Math.min(Math.abs(side), bite);
 
@@ -300,10 +309,9 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   } else if (kart.driverId !== null) {
     const pace = Math.min(1, Math.abs(along) / Math.max(1, spec.maxSpeed));
     const slide = Math.min(1, Math.abs(side) / 60);
-    kart.tyre = Math.max(
-      0,
-      kart.tyre - (TYRE_WEAR_ROLLING_PER_SEC * pace + TYRE_WEAR_SLIDING_PER_SEC * slide) * dt,
-    );
+    const rate = (TYRE_WEAR_ROLLING_PER_SEC * pace + TYRE_WEAR_SLIDING_PER_SEC * slide) *
+      (offRoad ? ROUGH_WEAR_FACTOR : 1);
+    kart.tyre = Math.max(0, kart.tyre - rate * dt);
   }
 
   // ── moving ────────────────────────────────────────────────────────────────

@@ -482,3 +482,4 @@ test('a pit box puts tyres back, and only when you actually stop', () => {
   updateKart(flying, DT, w);
   assert.ok(flying.tyre <= before, 'a car flying through the pit lane had its tyres changed');
 });
+

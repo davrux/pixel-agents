@@ -1,0 +1,15 @@
+{
+  "columns": 8,
+  "image": "png/src/scenery.png",
+  "imageheight": 18,
+  "imagewidth": 144,
+  "margin": 1,
+  "name": "scenery",
+  "spacing": 2,
+  "tilecount": 8,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.10"
+}
