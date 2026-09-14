@@ -508,6 +508,22 @@ export const KART_BOARD_REACH_TILES = 5;
 export const DRIVER_SEAT_OFFSET_PX = 4;
 
 export const KART_FALL_SEC = 1.2;
+/**
+ * How far a fallen kart may be put back, in tiles — the radius of the search for solid road.
+ *
+ * A respawn used to go to the last GATE, and on a circuit with four of them that is most of a lap:
+ * you clipped a bridge and were handed back the track twenty seconds behind. Coming back where you
+ * left is what a kart game does, and being sent home is a punishment out of all proportion to a
+ * wheel over a kerb. Asked for in those words — "einfach ein paar Felder zurück auf die
+ * Rennstrecke sollte reichen".
+ *
+ * Six is a radius rather than a distance travelled: it is how far the search may look for a cell
+ * that is road, is surrounded by ground on all eight sides (so a car is never put on a lip with
+ * half its body over the drop), and is no nearer the next gate than the point it fell from. Six
+ * covers the widest road here (nine tiles) from any point on it, and past that a gate is the
+ * honest answer because the map has nothing to offer.
+ */
+export const KART_RESPAWN_REACH_TILES = 6;
 
 /**
  * When a kart counts as WEDGED: asking for thrust and going nowhere for this long.

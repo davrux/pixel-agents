@@ -635,6 +635,31 @@ for (let row = 0; row < ROWS; row++) {
 const TILE = 16;
 let objectId = 1;
 /** A point object carrying an action, the shape mapBridge reads: position IS the data. */
+/**
+ * Which of the project's enums types each property — and why writing it matters.
+ *
+ * Tiled shows a DROPDOWN for a property only when the property itself carries `propertytype` in
+ * the map file. Declaring the member on the class in `Pixels.tiled-project` is not enough: a
+ * property written as a bare string SHADOWS the class member by name, and the editor then offers
+ * a free text box for a value that has exactly seventeen legal spellings. That is what made
+ * `actionKind` a text field on every generated race map while the same field was a dropdown on
+ * the hand-authored ones, which is where the difference was finally visible — Tiled writes the
+ * key itself when a human sets the value.
+ *
+ * Applied in `marker` rather than at the call sites, because a table every emitter has to
+ * remember is a table the next emitter forgets. `tiledActionKinds.int.test.ts` reads the committed
+ * maps back and fails on a property that has an enum in the project and no `propertytype` here.
+ */
+const ENUM_PROPS: Record<string, string> = {
+  actionKind: 'ActionKind',
+  actionPose: 'ApplianceKind',
+  sitFacing: 'SitFacing',
+  surface: 'SurfaceKind',
+};
+
+const typed = (props: Array<{ name: string; type: string; value: unknown }>) =>
+  props.map((p) => (ENUM_PROPS[p.name] ? { ...p, propertytype: ENUM_PROPS[p.name] } : p));
+
 const marker = (col: number, row: number, props: Array<{ name: string; type: string; value: unknown }>) => ({
   id: objectId++,
   name: '',
@@ -646,7 +671,7 @@ const marker = (col: number, row: number, props: Array<{ name: string; type: str
   height: 0,
   x: col * TILE + TILE / 2,
   y: row * TILE + TILE / 2,
-  properties: props,
+  properties: typed(props),
 });
 const records = (col: number, row: number) =>
   marker(col, row, [{ name: 'actionKind', type: 'string', value: 'raceRecords' }]);
@@ -731,6 +756,22 @@ objects.push(records(START_LINE_COL + 12, INNER.bottom + 2));
 // already out of reach of every kart on it. A stage places its own, beside its own grid.
 if (RING) for (let i = 0; i < RING_GRID_ROWS; i++) objects.push(spawn(START_LINE_COL - 8 - i * 5, INNER.bottom + 4));
 
+/** An unpainted tile layer's data: one zero per cell, which is what "nothing here" looks like in
+ *  a .tmj. */
+const empty = (): number[] => new Array<number>(COLS * ROWS).fill(0);
+
+const objectLayer = (id: number, name: string, objs: unknown[]) => ({
+  draworder: 'topdown',
+  id,
+  name,
+  objects: objs,
+  opacity: 1,
+  type: 'objectgroup',
+  visible: true,
+  x: 0,
+  y: 0,
+});
+
 const tileLayer = (id: number, name: string, cls: string, data: number[]) => ({
   data,
   height: ROWS,
@@ -746,11 +787,34 @@ const tileLayer = (id: number, name: string, cls: string, data: number[]) => ({
 });
 
 const map = {
+  // The map's own class, so Tiled offers `mapName` where a mapper would look for it rather than
+  // as a property they have to know to add. Same reason the empty layers are there.
+  class: 'Map',
   compressionlevel: -1,
   height: ROWS,
   infinite: false,
+  /**
+   * EVERY layer kind this world has, in draw order, whether or not this map paints on it.
+   *
+   * Asked for in those words — "jede Rennkarte sollte alle möglichen Layer enthalten, auch wenn
+   * sie leer sind, damit man weiß welche es gibt" — and it is the right answer for a generated
+   * map: what a layer IS lives in its class, the class is what the importer reads, and a mapper
+   * opening a track in Tiled otherwise has to know that `WallLatticeLayer` exists before they can
+   * find out that it exists. An empty layer is a menu.
+   *
+   * The cost is honest and small: an unpainted tile layer is `cols × rows` zeros, about 17 KB of
+   * JSON on the raceway, and it contributes nothing at all to the layout — the importer reads
+   * painted cells, so an empty layer produces no cells, no bytes on the wire and no work per tick.
+   */
   layers: [
     tileLayer(1, 'Ground', 'GroundLayer', ground),
+    // FLAT decoration: lies under everybody, never sorts. Empty here — a racing surface is the
+    // ground itself — and present so that "paint a puddle on the apex" is a thing you can see is
+    // possible.
+    {
+      ...tileLayer(6, 'Decal', 'DecalLayer', empty()),
+      properties: [{ name: 'occludes', type: 'bool', value: false }],
+    },
     // One decal layer, and it occludes: these are standing things, so they sort against whoever is
     // beside them rather than lying under. That only ever matters where somebody can stand, and
     // nobody can stand out here — so the honest reason to set it is that a tree IS an upright
@@ -759,6 +823,11 @@ const map = {
       ...tileLayer(4, 'Scenery', 'DecalLayer', decal),
       properties: [{ name: 'occludes', type: 'bool', value: true }],
     },
+    // Walls, both halves. A circuit fences itself with the CollisionLayer instead, because a
+    // barrier round a track is a boundary and not a building — but a mapper who wants a tunnel or
+    // a pit garage needs somewhere to draw one, and the two layers are what that somewhere is.
+    tileLayer(7, 'WallLattice', 'WallLatticeLayer', empty()),
+    tileLayer(8, 'WallFace', 'WallFaceLayer', empty()),
     tileLayer(2, 'Collision', 'CollisionLayer', collision),
     // What the ground DOES: every sand and grass cell is off the racing surface, so the physics
     // and the computer drivers both know the road from the scenery. One painted layer rather than
@@ -769,19 +838,12 @@ const map = {
       visible: false,
       properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'rough' }],
     },
-    {
-      draworder: 'topdown',
-      id: 3,
-      name: 'Actions',
-      objects,
-      opacity: 1,
-      type: 'objectgroup',
-      visible: true,
-      x: 0,
-      y: 0,
-    },
+    objectLayer(9, 'Furniture', []),
+    objectLayer(3, 'Actions', objects),
+    objectLayer(10, 'Text', []),
+    objectLayer(11, 'Images', []),
   ],
-  nextlayerid: 6,
+  nextlayerid: 12,
   nextobjectid: objectId,
   orientation: 'orthogonal',
   properties: [
@@ -804,7 +866,17 @@ const map = {
 };
 
   return {
-    bytes: JSON.stringify(map, null, 1) + '\n',
+    /**
+     * A tile layer's `data` goes on ONE line, which is how Tiled itself writes it.
+     *
+     * Two reasons, and the second is the one that matters. It is four times smaller — 8 584 cells
+     * at one number per line is 86 KB of layer, and with every layer kind present whether painted
+     * or not the raceway came to 494 KB against 128. And a map opened in Tiled and saved is
+     * rewritten in Tiled's format: a generator that pretty-prints differently turns the next human
+     * save into a diff of every cell on the map, which is exactly the trap AGENTS.md names for
+     * `sync-furniture-properties`.
+     */
+    bytes: JSON.stringify(map, null, 1).replace(/"data": \[[^\]]*\]/g, (m) => m.replace(/\s+/g, ' ')) + '\n',
     painted: ground.filter((g) => g).length,
     scenery: decal.filter((g) => g).length,
     markers: objects.length,

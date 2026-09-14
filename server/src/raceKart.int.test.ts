@@ -10,8 +10,9 @@
  *     which is the difference between a racer and a maze.
  *  3. **Leaving the ground is allowed and punished.** Everywhere else in this engine `canStep`
  *     refuses to leave the ground; a kart must be able to, because driving off a bridge is the
- *     point. It falls, waits, and comes back at the last gate FACING THE NEXT — which is what
- *     makes respawning need no extra authoring.
+ *     point. It falls, waits, and comes back on the ROAD IT LEFT, facing what it was heading for
+ *     — near enough that a wheel over a kerb is not most of a lap, and never nearer the next gate
+ *     than the point it fell from, or falling off would be a route.
  *  4. **Only the next gate counts.** Cutting the infield and driving backwards earn nothing, and
  *     the finish line only scores when the whole ring has been walked.
  *  5. **A bump is a trade with a direction.** The shove lands on the velocity VECTOR, so a kart
@@ -31,6 +32,7 @@ import test from 'node:test';
 
 import {
   KART_FALL_SEC,
+  KART_RESPAWN_REACH_TILES,
   KART_RADIUS_PX,
   KART_RECOVER_SEC,
   KART_STUCK_SEC,
@@ -38,7 +40,7 @@ import {
   KART_TURN_RADIUS_PX,
 } from '@pixel/shared/office/constants.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
-import { gateAt, headingFrom, raceProgress, raceTrack, type RaceTrack, wrapAngle } from '@pixel/shared/office/race/track.js';
+import { gateAt, isRough, nextPoint, raceProgress, raceTrack, type RaceTrack, wrapAngle } from '@pixel/shared/office/race/track.js';
 import { TILE_SIZE, TileType, type Action, type OfficeLayout } from '@pixel/shared/office/types';
 
 const COLS = 24;
@@ -216,7 +218,7 @@ test('a wall is slid along, not stopped at', () => {
   assert.ok(kart.y < 14 * TILE_SIZE, 'ended up inside the barrier');
 });
 
-test('driving off the road is a fall, and the respawn faces the next gate', () => {
+test('driving off the road is a fall, and the respawn is where you left it', () => {
   const { world: w, track } = world();
   // Placed ON the finish line and aimed north, straight at the infield pit two tiles away. Not
   // driven there from a distance: at 110 px/s a blind drive leaves the straight altogether, which
@@ -228,12 +230,25 @@ test('driving off the road is a fall, and the respawn faces the next gate', () =
   assert.equal(out.falls, 1, 'the kart stayed on a road that is not there');
   assert.equal(kart.state, 'fall');
 
-  // It comes back at the gate it last passed, pointing at the next one.
+  const fellAt = { x: kart.x, y: kart.y };
+  // It comes back on the ROAD it fell off, close to where it left, pointing at what it was
+  // heading for — not at the last gate, which on a real circuit is most of a lap away.
   drive(kart, w, KART_FALL_SEC + 0.2, { throttle: 0 });
   assert.notEqual(kart.state, 'fall', 'never came back');
-  assert.ok(Math.hypot(kart.x - track.gates[0].x, kart.y - track.gates[0].y) < 1, 'respawned somewhere else');
-  assert.ok(Math.abs(kart.heading - headingFrom(track, track.gates[0])) < 0.001, 'respawned facing the wrong way');
   assert.equal(Math.hypot(kart.vx, kart.vy), 0, 'kept its speed through the fall');
+  const moved = Math.hypot(kart.x - fellAt.x, kart.y - fellAt.y) / TILE_SIZE;
+  assert.ok(moved <= KART_RESPAWN_REACH_TILES, `put back ${moved.toFixed(1)} tiles from where it fell`);
+  const col = Math.floor(kart.x / TILE_SIZE);
+  const row = Math.floor(kart.y / TILE_SIZE);
+  assert.equal(isRough(track, col, row), false, 'put back on the grass rather than on the road');
+  // …and never nearer the next gate than the point it fell from, or falling off would be a route.
+  const target = nextPoint(track, kart.gate);
+  assert.ok(
+    Math.hypot(target.x - kart.x, target.y - kart.y) >= Math.hypot(target.x - fellAt.x, target.y - fellAt.y) - 0.001,
+    'the respawn gained ground on the next gate',
+  );
+  const want = Math.atan2(target.y - kart.y, target.x - kart.x);
+  assert.ok(Math.abs(wrapAngle(kart.heading) - wrapAngle(want)) < 0.001, 'respawned facing the wrong way');
 });
 
 test('only the next gate counts: cutting and reversing earn nothing', () => {

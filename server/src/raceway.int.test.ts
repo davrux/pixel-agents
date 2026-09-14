@@ -23,7 +23,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { before } from 'node:test';
 
-import { KART_MAX_SPEED_PX_PER_SEC, KART_RADIUS_PX, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
+import {
+  KART_MAX_SPEED_PX_PER_SEC,
+  KART_RADIUS_PX,
+  KART_RESPAWN_REACH_TILES,
+  RACE_TICK_HZ,
+} from '@pixel/shared/office/constants.js';
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import type { Kart } from '@pixel/shared/office/race/kart.js';
@@ -256,6 +261,68 @@ test('the bridge has no barrier: a shove there puts you in the air', () => {
   const safeCol = Math.floor(track.gates[0].x / TILE);
   const safeRow = Math.floor(track.gates[0].y / TILE);
   assert.equal(shoved(safeCol, safeRow, 1), false, 'the barrier let a kart through on the normal straight');
+});
+
+test('falling off the bridge costs seconds, not the lap', () => {
+  // The report this changed for: "man sollte nur im äußersten Notfall zurückgesetzt werden und
+  // dann auch nicht so weit weg". A respawn used to go to the last gate, and this circuit has
+  // four — so clipping the bridge handed the track back most of a lap behind, for a wheel over a
+  // kerb. What it must do instead is put the car back on the road it left.
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const kart = [...os.karts.values()][0];
+  const driver = os.addPlayer('char_0', 'Faller', undefined, 'faller');
+  const ch = os.characters.get(driver)!;
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+
+  // On the bridge, having just passed the gate there, shoved into the open air beside it — and
+  // ELEVEN TILES PAST the gate, which is what makes the two rules tell each other apart: the old
+  // one hands the car back at gate 2, the new one leaves it where it went off.
+  const bridge = track.gates[2];
+  const away = 11;
+  kart.gate = 2;
+  kart.x = bridge.x + away * TILE;
+  kart.y = bridge.y;
+  kart.heading = 0;
+  kart.vx = 0;
+  kart.vy = -420;
+  kart.state = 'drive';
+  const dt = 1 / RACE_TICK_HZ;
+  let fellAt: { x: number; y: number } | null = null;
+  for (let i = 0; i < Math.round(6 / dt); i++) {
+    kart.input = { throttle: 0, steer: 0 };
+    os.update(dt);
+    if (!fellAt && (kart.state as string) === 'fall') fellAt = { x: kart.x, y: kart.y };
+  }
+  assert.ok(fellAt, 'the shove did not put it off the bridge');
+  assert.notEqual(kart.state, 'fall', 'never came back');
+
+  const home = Math.hypot(kart.x - fellAt.x, kart.y - fellAt.y) / TILE;
+  assert.ok(home <= KART_RESPAWN_REACH_TILES, `put back ${home.toFixed(1)} tiles from where it fell`);
+  // …and NOT at the gate, which is the whole point: eleven tiles back up the bridge is the old
+  // rule, and it is further than the search is even allowed to look.
+  assert.ok(
+    Math.hypot(kart.x - bridge.x, kart.y - bridge.y) / TILE > KART_RESPAWN_REACH_TILES,
+    'the respawn went all the way back to the last gate',
+  );
+  // It may not have gained ground either — the drop beside a corner would otherwise be a route.
+  const next = track.gates[3];
+  assert.ok(
+    Math.hypot(next.x - kart.x, next.y - kart.y) >= Math.hypot(next.x - fellAt.x, next.y - fellAt.y) - 0.001,
+    'the respawn gained ground on the gate it was heading for',
+  );
+  // …and it is ON the road, not on the grass and not over the drop.
+  const col = Math.floor(kart.x / TILE);
+  const row = Math.floor(kart.y / TILE);
+  const inner = os as unknown as { tileMap: number[][] };
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      assert.notEqual(inner.tileMap[row + dr]?.[col + dc], -1, 'put back on the lip of the drop');
+    }
+  }
 });
 
 test('a kart cannot leave the map, barrier or no barrier', () => {

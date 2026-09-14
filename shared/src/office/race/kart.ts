@@ -38,6 +38,7 @@ import {
   KART_BUMP_TRANSFER,
   KART_DRAG_PER_SEC,
   KART_FALL_SEC,
+  KART_RESPAWN_REACH_TILES,
   KART_MAX_REVERSE_PX_PER_SEC,
   KART_RADIUS_PX,
   KART_RECOVER_SEC,
@@ -365,12 +366,81 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   return { lapped: false, fell: false };
 }
 
-/** Put a fallen kart back at the last gate it passed, pointing at the next one. */
+/**
+ * Solid road near a point, or null — where a fallen kart is put back.
+ *
+ * Four conditions, and each one is a way a respawn goes wrong:
+ *
+ *  - **Ground**, or the car is put back into the drop it just fell into.
+ *  - **Not rough**, because being handed back the grass is being handed back the accident. This
+ *    is what makes it "back on the track" rather than "back on the map".
+ *  - **Every one of the eight neighbours is ground**, so a car whose body is 26 px across a 16 px
+ *    cell cannot be set down on the lip of a bridge with half of itself over the edge.
+ *  - **No nearer the next gate than where it fell.** Without it, a drop beside a corner is a
+ *    shortcut: the nearest road across a void can be further round the lap than the road you left,
+ *    and falling off would become the fast way round.
+ *
+ * Searched nearest-first, so what comes back is the least the map can get away with.
+ */
+function roadNear(world: KartWorld, x: number, y: number, gate: number): { x: number; y: number } | null {
+  const col = tileOf(x);
+  const row = tileOf(y);
+  const target = nextPoint(world.track, gate);
+  const fellGap = Math.hypot(target.x - x, target.y - y);
+  const reach = KART_RESPAWN_REACH_TILES;
+  const solid = (c: number, r: number): boolean => {
+    if (!isWalkable(c, r, world.tileMap, world.blockedTiles)) return false;
+    if (isRough(world.track, c, r)) return false;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (!isWalkable(c + dc, r + dr, world.tileMap, world.blockedTiles)) return false;
+      }
+    }
+    return true;
+  };
+  const spots: Array<{ c: number; r: number; d: number }> = [];
+  for (let dr = -reach; dr <= reach; dr++) {
+    for (let dc = -reach; dc <= reach; dc++) {
+      const d = Math.hypot(dc, dr);
+      if (d > reach) continue;
+      spots.push({ c: col + dc, r: row + dr, d });
+    }
+  }
+  spots.sort((a, b) => a.d - b.d);
+  for (const spot of spots) {
+    if (!solid(spot.c, spot.r)) continue;
+    const px = spot.c * TILE_SIZE + TILE_SIZE / 2;
+    const py = spot.r * TILE_SIZE + TILE_SIZE / 2;
+    if (Math.hypot(target.x - px, target.y - py) < fellGap) continue;
+    return { x: px, y: py };
+  }
+  return null;
+}
+
+/**
+ * Put a fallen kart back on the road it fell off, pointing at what it was heading for.
+ *
+ * The last GATE is the fallback and not the rule any more. On a circuit with four gates that was
+ * most of a lap for a wheel over a kerb, which is a punishment out of all proportion — a kart game
+ * hands you back the track where you left it. The gate stays as the answer for a car that fell
+ * somewhere the map has no road within `KART_RESPAWN_REACH_TILES`, because there the alternative
+ * is nothing at all.
+ */
 export function respawn(kart: Kart, world: KartWorld): void {
-  const gate = world.track.gates[kart.gate] ?? world.track.gates[0];
-  kart.x = gate.x;
-  kart.y = gate.y;
-  kart.heading = headingFrom(world.track, gate);
+  const spot = roadNear(world, kart.x, kart.y, kart.gate);
+  if (spot) {
+    kart.x = spot.x;
+    kart.y = spot.y;
+    // At the thing it was driving towards — the next gate, or a stage's finish line. `headingFrom`
+    // is a property of a GATE and says nothing about a point halfway down a straight.
+    const target = nextPoint(world.track, kart.gate);
+    kart.heading = wrapAngle(Math.atan2(target.y - kart.y, target.x - kart.x));
+  } else {
+    const gate = world.track.gates[kart.gate] ?? world.track.gates[0];
+    kart.x = gate.x;
+    kart.y = gate.y;
+    kart.heading = headingFrom(world.track, gate);
+  }
   kart.vx = 0;
   kart.vy = 0;
   kart.fallTimer = 0;

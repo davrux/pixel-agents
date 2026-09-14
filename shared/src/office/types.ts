@@ -1013,6 +1013,14 @@ export interface WallEdges {
  * Append only: a kind is stored by name in a map, so a saved map keeps meaning what it meant.
  * Adding one is a value here, a row in the Tiled enum, and a branch wherever the physics reads it
  * — a kind nothing implements would be a surface that lies.
+ *
+ * **Why there is only one**, since the mechanism plainly takes more (asked directly): the list is
+ * short because the expensive part of a surface is not the enum, it is the ART. A cell that
+ * changes how a car behaves and looks exactly like the cell beside it is a trap, and the one
+ * surface that exists is free of that problem because it is painted on grass and sand — the
+ * picture already says "this is not the road". Ice, a boost strip and mud are each a value, a
+ * branch of three lines in `updateKart`, and a tile somebody has to draw that reads as ice, as a
+ * boost strip or as mud at 16 px. The drawing is the work; the plumbing is done.
  */
 export type SurfaceKind = 'rough';
 
