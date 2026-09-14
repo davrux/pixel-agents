@@ -361,12 +361,21 @@ export const KART_DRAG_PER_SEC = 0.35;
  * unchanged. The field stopped finishing anyway: on eleven-tile roads the raceway went from 11 of
  * 11 home to 4, and every rung above that was worse.
  *
- * The limit is the computer driver's racing LINE, not the tyres and not the road. It aims at each
- * gate's centre and widens only when the road runs out, so it arrives at every corner square. The
- * obvious improvement — sliding the aim towards the gate after the next one as the corner comes
- * up, so the turn begins early — was measured and did not pay: unchanged on the raceway and worse
- * on the stage. A real racing line (a curve fitted through the gates, braking points derived from
- * its curvature) is the lever, and it is a piece of work rather than a constant.
+ * The limit was the computer driver's racing LINE, not the tyres and not the road — and that has
+ * since been fixed, so this paragraph now says what it WAS and where the answer turned out to be.
+ * The driver probed the road along a straight ray; a car in a corner points at the outside of it,
+ * so the probe hit the kerb within a couple of tiles however wide the corner, and the driver read
+ * "the road is about to end" for as long as the corner lasted. Measured on the raceway: 49 % of
+ * this car's top speed, the brakes on for 30 % of all ticks. Probing the ARC it is about to drive
+ * instead (`racerDriver.ts`, the curvature from pure pursuit) gives 99 % and 65.6 s for three laps
+ * against 150.1. So the lever was never a number in this file, which is why raising the speed and
+ * the grip together could not find it.
+ *
+ * What is still unspent, if more pace is ever wanted: a line that CUTS — an apex, i.e. an aim
+ * point slid towards the inside of the coming corner rather than down the middle of the road. The
+ * earlier attempt at that (sliding the aim towards the gate after the next one) was measured and
+ * did not pay: unchanged on the raceway and worse on the stage. It is a piece of work rather than
+ * a constant, and today it would buy the last 1 %.
  */
 export const KART_GRIP_PX_PER_SEC2 = 800;
 /**
