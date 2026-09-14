@@ -129,6 +129,16 @@ export function injectPaSkin(): void {
       .pa-panel .pa-body{padding:0.85rem 0.9rem 1rem;}
       /* Segmented tabs + chips. */
       .pa-seg{display:flex;gap:0.35rem;padding:0.25rem;background:#141312;border:2px solid #0a0908;border-radius:0.5rem;margin-bottom:0.85rem;}
+      /* The helmet grid: sixty small discs, so it wraps and scrolls rather than stretching the
+         panel. Same tokens as every other control — inset well, 2px outline, red for the one
+         that is on. */
+      .pa-helmets{display:flex;flex-wrap:wrap;gap:0.3rem;padding:0.35rem;background:#141312;
+        border:2px solid #0a0908;border-radius:0.5rem;margin-bottom:0.85rem;max-height:9rem;overflow-y:auto;}
+      .pa-helmets .lid{width:1.5rem;height:1.5rem;border-radius:50%;border:2px solid #0a0908;
+        padding:0;cursor:pointer;background:#37342f;box-shadow:inset 0 2px 0 rgba(255,255,255,.22);}
+      .pa-helmets .lid.own{background:#242220;border-style:dashed;border-color:#818586;}
+      .pa-helmets .lid:hover{outline:2px solid #4998c0;outline-offset:1px;}
+      .pa-helmets .lid.on{outline:3px solid #c51a1b;outline-offset:1px;}
       .pa-seg .seg{flex:1;text-align:center;padding:0.45rem 0.3rem;cursor:pointer;border-radius:0.35rem;color:#adb0b2;font-size:0.95rem;border:0;background:transparent;font-family:inherit;}
       .pa-seg .seg.on{color:#fff;background:#37342f;box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35);}
       .pa-chips{display:flex;gap:0.4rem;margin-bottom:0.8rem;flex-wrap:wrap;}

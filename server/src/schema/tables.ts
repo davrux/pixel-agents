@@ -220,6 +220,9 @@ export const PREF_KINDS = {
   /** How the user's pawns leave and arrive — a `WarpStyleId`. Not a viewer setting: everyone
    *  else sees it, so it is resolved server-side and published on the pawn. */
   warpStyle: 'warp_style',
+  /** Which helmet the user wears when driving — a `HELMETS` id, or empty for "from my own head".
+   *  Same shape as the warp style and for the same reason: everyone else sees it. */
+  helmet: 'helmet',
 } as const;
 
 /** Lookup by table name, bounded by the constant list above. */

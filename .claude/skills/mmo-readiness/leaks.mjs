@@ -149,6 +149,16 @@ const BOUNDED_FIELDS = new Map([
     'one warp style per account that chose one, seeded from the store when the room starts — ' +
       'the same key space and the same bound as skinPrefs beside it, i.e. the users table',
   ],
+  [
+    'shared/src/office/engine/officeState.ts:helmetPrefs',
+    'one helmet per account that chose one, seeded from the store when the room starts — the ' +
+      'same key space and the same bound as warpStylePrefs above it, i.e. the users table',
+  ],
+  [
+    'client/src/render/helmetArt.ts:derivedCache',
+    'the colours read off one SHEET, keyed by skin id — bounded by the art a client has loaded, ' +
+      'and the answer never changes for a given sheet',
+  ],
   ['client/src/matrix/MatrixUI.ts:lastEncryptedState', 'one boolean per room opened — bounded by the room list'],
   ['client/src/matrix/MatrixUI.ts:membersCache', 'one member list per room whose member panel was opened; each open overwrites'],
   // Preferences the user set by hand, deliberately persisted across reconnects.

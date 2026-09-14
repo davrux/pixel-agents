@@ -13,6 +13,7 @@ import { Direction, type PlayerSpot } from '@pixel/shared/office/types.js';
 
 import { db } from './db.js';
 import { isWarpStyleId, type WarpStyleId } from '@pixel/shared/office/effects.js';
+import { DEFAULT_HELMET, isHelmetId } from '@pixel/shared/office/race/helmets.js';
 
 import { PREF_KINDS, userChildDdl } from './schema/tables.js';
 import { migrateUserBlobs } from './schema/migrateUserBlobs.js';
@@ -295,6 +296,33 @@ class AppStore {
     if (!isWarpStyleId(style)) return false;
     this.putPref(userId, PREF_KINDS.warpStyle, style);
     return true;
+  }
+
+  /**
+   * The helmet a driver wears, validated against the table on the way IN — and on the way out
+   * (`helmet`), because the row is reachable by a restore or a hand edit and it ends up on every
+   * viewer's screen.
+   */
+  setHelmet(userId: string, id: unknown): boolean {
+    if (!isHelmetId(id)) return false;
+    this.putPref(userId, PREF_KINDS.helmet, id as string);
+    return true;
+  }
+
+  /** Every stored helmet, for seeding a room — same shape as `getWarpStyles`. */
+  getHelmets(): Record<string, string> {
+    const rows = this.db
+      .prepare('SELECT user_id, value FROM user_prefs WHERE kind = ?')
+      .all(PREF_KINDS.helmet) as Array<{ user_id: string; value: string }>;
+    const out: Record<string, string> = {};
+    for (const r of rows) if (isHelmetId(r.value)) out[r.user_id] = r.value;
+    return out;
+  }
+
+  /** Somebody's chosen helmet, or the empty default when they have never picked one. */
+  helmet(userId: string): string {
+    const stored = this.pref(userId, PREF_KINDS.helmet);
+    return isHelmetId(stored) ? (stored as string) : DEFAULT_HELMET;
   }
 
   /** Remove a user's pinned skin (e.g. when that character was deleted). */

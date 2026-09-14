@@ -243,6 +243,9 @@ export class OfficeState {
   /** Per-user pinned character skin (folderName → skin id). */
   private skinPrefs = new Map<string, string>();
   private warpStylePrefs = new Map<string, WarpStyleId>();
+  /** Which helmet each account drives in. Keyed by the owner name, exactly like `warpStylePrefs`
+   *  and `skinPrefs` — see `setHelmetPref`. */
+  private helmetPrefs = new Map<string, string>();
   /**
    * The karts on this zone's track, and the track itself — both empty/null in every zone whose
    * map is not one. Derived with the layout (see `layoutDerived`), like every other answer about
@@ -1101,6 +1104,7 @@ export class OfficeState {
       // Out, and put the body beside the kart rather than inside it, so the next board is not
       // instant and the figure is not standing in the bodywork.
       already.driverId = null;
+      ch.helmet = '';
       already.state = 'idle';
       already.input = { throttle: 0, steer: 0 };
       ch.x = already.x + TILE_SIZE;
@@ -1125,6 +1129,10 @@ export class OfficeState {
     }
     if (!best) return false;
     best.driverId = characterId;
+    // The helmet is published on the PAWN when they get in, the way the warp style is published
+    // with its phase: it is only meaningful while driving, and resolving it here means one place
+    // decides rather than every viewer guessing.
+    ch.helmet = (ch.ownerId ? this.helmetPrefs.get(ch.ownerId) : undefined) ?? '';
     best.state = 'drive';
     // Stop whatever the body was doing: a walk path would otherwise keep being consumed under it.
     ch.path = [];
@@ -1622,6 +1630,12 @@ export class OfficeState {
 
   /** A user's chosen warp style, seeded when a room starts and updated when they change it.
    *  Keyed by the owner name, exactly like `skinPrefs`. */
+  /** A user's chosen helmet, seeded when a room starts and updated when they change it. Read
+   *  when they get into a kart, so a change takes effect the next time they drive. */
+  setHelmetPref(folderName: string, id: string): void {
+    this.helmetPrefs.set(folderName, id);
+  }
+
   setWarpStylePref(folderName: string, style: WarpStyleId): void {
     this.warpStylePrefs.set(folderName, style);
   }

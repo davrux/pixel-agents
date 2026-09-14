@@ -564,6 +564,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const [name, style] of Object.entries(appStore.getWarpStyles())) {
       this.os.setWarpStylePref(name, style);
     }
+    // …and their helmets, which everyone else sees the moment they get into a kart.
+    for (const [name, id] of Object.entries(appStore.getHelmets())) {
+      this.os.setHelmetPref(name, id);
+    }
 
     // Seed any agents that already exist (mock/feed started before this room),
     // but only those whose owner is currently viewing this zone.
@@ -715,7 +719,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // because the settings panel has to show which one is picked, and that is one round trip.
     const vs = userId ? appStore.getViewerSettings(userId) : defaultViewerSettings();
     const warpStyle = (userId ? appStore.getWarpStyle(userId) : null) ?? DEFAULT_WARP_STYLE;
-    client.send('m', { type: 'settingsLoaded', ...vs, warpStyle });
+    // …and the helmet, for the same reason: not a viewer setting, but the panel has to show it.
+    const helmet = userId ? appStore.helmet(userId) : '';
+    client.send('m', { type: 'settingsLoaded', ...vs, warpStyle, helmet });
   }
 
   onLeave(client: Client): void {
@@ -1652,6 +1658,17 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!appStore.setWarpStyle(userId, msg?.style)) return; // unknown id: refused silently
       this.os.setWarpStylePref(userId, msg!.style as WarpStyleId);
     });
+    /**
+     * The viewer's helmet, which is what everybody sees of them from above once they are driving.
+     * Same shape as the warp style above, and same reason it is not a viewer setting: it is not
+     * private, so the id is checked against the table here rather than trusted.
+     */
+    this.onMessage('setHelmet', (client, msg: { helmet?: unknown }) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      if (!appStore.setHelmet(userId, msg?.helmet)) return; // unknown id: refused silently
+      this.os.setHelmetPref(userId, String(msg!.helmet));
+    });
     this.onMessage('setAlwaysShowLabels', (client, msg: { enabled?: boolean }) => {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'alwaysShowLabels', !!msg?.enabled);
@@ -2259,6 +2276,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.matrixEffect = ch.matrixEffect ?? '';
       cs.matrixEffectTimer = ch.matrixEffectTimer;
       cs.warpStyle = ch.warpStyle ?? '';
+      cs.helmet = ch.helmet ?? '';
       cs.isSubagent = ch.isSubagent;
       cs.controller = ch.controller;
       cs.afk = ch.afk ?? false;

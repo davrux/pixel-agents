@@ -67,6 +67,7 @@ export function createCharacter(
     matrixEffect: null,
     matrixEffectTimer: 0,
     warpStyle: null,
+    helmet: '',
     inputTokens: 0,
     outputTokens: 0,
   };

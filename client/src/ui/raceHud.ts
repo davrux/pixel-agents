@@ -63,6 +63,9 @@ export interface RaceHudModel {
   /** Is this viewer standing on the track (rather than just watching)? Only then is the panel
    *  theirs to use — pressing start from another zone's tab would be somebody else's race. */
   here: boolean;
+  /** Whether sound effects are on, for the speaker button. The viewer's own setting; everything
+   *  else on this overlay is the world's. */
+  sound: boolean;
   entries: number;
   /** Lamps lit, 0-3, and whether it is green. */
   lit: number;
@@ -149,6 +152,8 @@ const CSS = `
    same kind of action as starting one. */
 .pa-race-setup button.stop{background:#7c2634;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
 .pa-race-setup .hint{color:#818586;font-size:0.8rem;text-align:center;white-space:nowrap;}
+.pa-race-setup button.lid{font-size:1.1rem;line-height:1;padding:0.25rem 0.45rem;}
+.pa-race-setup button.lid.on{background:#37342f;}
 
 .pa-race-board td.pts{color:#e7da00;}
 .pa-race-board{position:absolute;left:50%;top:18%;transform:translateX(-50%);z-index:49;pointer-events:none;
@@ -233,12 +238,13 @@ export class RaceHud {
     if (m.phase !== 'idle') {
       this.setup = this.el(this.setup, 'pa-race-setup');
       this.setup.style.display = '';
-      const key = `running:${m.phase}`;
+      const key = `running:${m.phase}:${m.sound}`;
       if (key === this.setupKey) return;
       this.setupKey = key;
       this.setup.innerHTML =
         `<div class="f"><span>race under way</span>` +
-        `<button class="go stop" data-act="stop">Call it off</button></div>`;
+        `<button class="go stop" data-act="stop">Call it off</button></div>` +
+        this.soundButton(m);
       for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
         b.onclick = () => this.act(b.dataset.act ?? '', m);
       }
@@ -250,7 +256,7 @@ export class RaceHud {
     const drivers = Math.min(m.gridSlots, m.humansInKarts + s.bots);
     // Rebuilt only when something it shows has changed: these are real buttons, and replacing the
     // one under the pointer between mousedown and mouseup swallows the click.
-    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}`;
+    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}|${m.sound}`;
     if (key === this.setupKey) return;
     this.setupKey = key;
     const stepper = (label: string, value: string, dec: string, inc: string, canDec: boolean, canInc: boolean): string =>
@@ -284,10 +290,25 @@ export class RaceHud {
       `<button class="go" data-act="start"${ready ? '' : ' disabled'}>Start</button>` +
       (ready ? '' : `<span class="hint">get in a kart (E)</span>`) +
       `</div>`;
-    this.setup.innerHTML = `${laps}${bots}${diff}${count}${go}`;
+    this.setup.innerHTML = `${laps}${bots}${diff}${count}${go}${this.soundButton(m)}`;
     for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
       b.onclick = () => this.act(b.dataset.act ?? '', m);
     }
+  }
+
+  /**
+   * The speaker, beside the rest of the race controls.
+   *
+   * On the track rather than in a menu, because that is where the noise is and where somebody
+   * decides they have had enough of it — the engine note is the loudest thing this world makes
+   * and it was reported as the thing you cannot turn off without hunting for a panel.
+   */
+  private soundButton(m: RaceHudModel): string {
+    return (
+      `<div class="f"><span>sound</span>` +
+      `<button class="lid ${m.sound ? 'on' : ''}" data-act="sound" ` +
+      `title="${m.sound ? 'Sound effects on' : 'Sound effects off'}">${m.sound ? '🔊' : '🔇'}</button></div>`
+    );
   }
 
   /** One button press, as a request to the server. Nothing is applied locally. */
@@ -295,6 +316,8 @@ export class RaceHud {
     const s = m.setup;
     if (action === 'start') return void this.send('raceStart');
     if (action === 'stop') return void this.send('raceStop');
+    // Not a race message: this one is the viewer's own setting, and the scene owns it.
+    if (action === 'sound') return void this.send('__sound');
     if (action === 'laps-') return void this.send('raceSetup', { laps: s.laps - 1 });
     if (action === 'laps+') return void this.send('raceSetup', { laps: s.laps + 1 });
     if (action === 'bots-') return void this.send('raceSetup', { bots: s.bots - 1 });

@@ -58,6 +58,16 @@ export class CharacterSync extends PawnSync {
    * every viewer draws the same thing and a client cannot claim a style per warp.
    */
   @type('string') warpStyle = '';
+  /**
+   * The helmet this pawn wears while DRIVING — a `HELMETS` id, empty for "from my own head".
+   *
+   * Set when they get into a kart and cleared when they get out, exactly like `warpStyle` is set
+   * with its phase: it is only ever read while somebody is driving, so a world of people on foot
+   * carries an empty string. Synced rather than derived per client because it is a DECISION — two
+   * viewers must not see the same driver in different helmets, or neither can point at a kart and
+   * say whose it is.
+   */
+  @type('string') helmet = '';
   @type('boolean') isSubagent = false;
   // Identity + tooltip
   @type('string') folderName = '';

@@ -88,7 +88,8 @@ const SKID_FADE_MS = 2600;
 const SKID_LENGTH_PX = 9;
 const SKID_WIDTH_PX = 3;
 const SKID_ALPHA = 0.4;
-import { sheetCellFrame, sheetColumns, sheetFrameSize, sheetRowFrame } from '../art/sheetStore';
+import { sheetCellFrame, sheetColumns, sheetFrameSize, sheetRowFrame, sheetTemplate } from '../art/sheetStore';
+import { derivedHelmet, helmetTexture } from './helmetArt';
 import {
   spriteTexture,
   spriteTextureFor,
@@ -218,6 +219,8 @@ export class PhaserRenderer {
   private readonly drivers = new Map<number, number>();
   /** The front half of each kart, drawn over its driver. Keyed and destroyed with `karts`. */
   private readonly kartFronts = new Map<number, Phaser.GameObjects.Image>();
+  /** How big a helmet is drawn, in world pixels — a head in a kart's seat. */
+  private static readonly HELMET = 14;
   /** How far the view is turned this frame, in radians. Read once in `update` so every helper
    *  below sees one value, and zero in every zone where nobody is driving. */
   private turn = 0;
@@ -709,18 +712,23 @@ export class PhaserRenderer {
       g.bubble.setVisible(false);
       for (const m of g.markers) m.setVisible(false);
       this.removeWarpArt(ch.id);
-      const seat = sheetCellFrame(this.scene, ch.skin, Direction.UP, 0);
+      // A HELMET, not the figure. Seen from directly above, a person is the top of their head —
+      // drawing the 16×32 sprite there put a standing figure seen from the front inside a kart
+      // seen from above, and the two views fought. A helmet is correct from above by construction,
+      // is the same for every skin ever drawn (including ones made in the editor), and can be
+      // chosen: see shared/office/race/helmets.ts. An empty id means "my own colours".
+      const own = derivedHelmet(ch.skin, sheetTemplate(ch.skin)?.down[0] ?? null);
+      const seat = helmetTexture(this.scene, ch.helmet ?? '', own, PhaserRenderer.HELMET);
       if (!seat) {
         g.body.setVisible(false);
         return;
       }
-      const size = sheetFrameSize(ch.skin) ?? { w: 16, h: 32 };
       g.body.setTexture(seat.key, seat.frame);
       g.body.setOrigin(0.5, 0.5);
-      // A shade smaller than on foot, so the figure sits INSIDE the tub rather than over its
-      // edges — a driver wider than the kart reads as somebody holding it up.
-      g.body.setDisplaySize(size.w * 0.88, size.h * 0.88);
-      g.body.setRotation(driving + Math.PI / 2);
+      g.body.setDisplaySize(PhaserRenderer.HELMET, PhaserRenderer.HELMET);
+      // Turned with the kart and NOT by a further quarter: the helmet's visor points east like
+      // every other piece of race art, so the kart's own heading is the whole rotation.
+      g.body.setRotation(driving);
       // The seat sits a little behind the kart's middle, so the body goes there rather than on
       // the bonnet — back along the heading, which is where `kartShapes` puts the cushion.
       const back = DRIVER_SEAT_OFFSET_PX;

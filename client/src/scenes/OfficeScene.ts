@@ -30,6 +30,8 @@ import {
 import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
 import { RaceHud, raceTime, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
+import { helmetPickerHtml } from '../ui/helmetPicker.js';
+import { DEFAULT_HELMET, isHelmetId } from '@pixel/shared/office/race/helmets.js';
 import { EngineSound, finishChime, lightsBeep } from '../raceSound.js';
 import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
 import { RACE_DIFFICULTIES } from '@pixel/shared/office/race/racerNames.js';
@@ -463,6 +465,16 @@ export class OfficeScene extends Phaser.Scene {
   /** The warp style this viewer picked — mirrored locally only to paint the picker; what plays is
    *  whatever the server publishes on the pawn. */
   private warpStyle: WarpStyleId = DEFAULT_WARP_STYLE;
+  /** The helmet this viewer picked, mirrored locally only to paint the picker — what everybody
+   *  sees is whatever the server publishes on the pawn when they get into a kart. */
+  private helmet: string = DEFAULT_HELMET;
+
+  /** Paint the helmet grid's selection, for the same reason `markWarpStyle` exists. */
+  private markHelmet(): void {
+    for (const btn of this.settingsPanel?.querySelectorAll<HTMLButtonElement>('#pa-helmet .lid') ?? []) {
+      btn.classList.toggle('on', (btn.dataset.helmet ?? '') === this.helmet);
+    }
+  }
 
   /** Paint the picker's selected segment. Separate from the click handler because the panel is
    *  also (re)painted when it opens, from whatever the account said at join. */
@@ -821,6 +833,12 @@ export class OfficeScene extends Phaser.Scene {
       // the server to come back and reload — so the player is back in the game
       // without a manual refresh. A consented leave / our own navigation is skipped.
       this.room.onLeave((code) => {
+        // The engine note is an oscillator with no natural end, and the render loop is what turns
+        // it off — so when the socket goes the loop sleeps and the drone outlives the server that
+        // started it. Reported exactly that way: "ich habe den server beendet aber ich habe immer
+        // noch ton". Silenced HERE, where the connection actually ends, rather than hoping a
+        // frame runs.
+        this.silenceRace();
         if (code === KICK_CLOSE_CODE) {
           this.leavingIntentionally = true; // an admin kicked us — don't auto-reconnect
           this.showKicked();
@@ -910,6 +928,7 @@ export class OfficeScene extends Phaser.Scene {
           this.applyAdminVisibility();
           if (this.currentMenu === 'more') this.renderMorePanel();
           this.syncSettingsInputs();
+    this.markHelmet();
           this.renderCharSwatches();
         }
         else if (m.type === 'agentToken') {
@@ -1142,6 +1161,7 @@ export class OfficeScene extends Phaser.Scene {
     rc.matrixEffect = me;
     // The style the server resolved from the owner's account — '' whenever no phase is running.
     rc.warpStyle = ((cs.warpStyle as string) || null) as RenderChar['warpStyle'];
+    rc.helmet = (cs.helmet as string) ?? '';
     rc.isSubagent = cs.isSubagent as boolean;
     rc.controller = cs.controller as ControllerKind;
     rc.afk = cs.afk as boolean;
@@ -1191,13 +1211,35 @@ export class OfficeScene extends Phaser.Scene {
    * Every exit from the car reaches `stop()` — a continuous sound has no natural end, and an
    * engine left running belongs to a player who parked ten minutes ago.
    */
+  /**
+   * Stop everything the race is making a noise with, right now.
+   *
+   * Called where a race stops being a thing that is happening — the connection ending, the tab
+   * going away — and not only from the render loop, which is exactly the loop that stops running
+   * in both of those cases.
+   */
+  /** Flip sound effects, from the speaker on the race overlay. Stored per account like every
+   *  other viewer setting, and it silences whatever is playing right now rather than at the next
+   *  frame — which is the whole reason somebody reaches for it. */
+  private toggleSound(): void {
+    this.soundOn = !this.soundOn;
+    setSoundEnabled(this.soundOn);
+    if (!this.soundOn) this.silenceRace();
+    this.room?.send('setSoundEnabled', { enabled: this.soundOn });
+    this.syncSettingsInputs();
+  }
+
+  private silenceRace(): void {
+    this.engine?.stop();
+    this.engine = null;
+    this.lastLit = -1;
+    this.lastFinished = false;
+  }
+
   private updateRaceSound(m: RaceHudModel | null): void {
     const mine = this.myKart();
-    if (!mine || !m) {
-      this.engine?.stop();
-      this.engine = null;
-      this.lastLit = -1;
-      this.lastFinished = false;
+    if (!mine || !m || !this.soundOn) {
+      this.silenceRace();
       return;
     }
     this.engine ??= new EngineSound();
@@ -1258,6 +1300,7 @@ export class OfficeScene extends Phaser.Scene {
         (k) => k.driverId !== 0 && this.characters.get(k.driverId)?.controller !== ControllerKind.RACER,
       ).length,
       here: this.myPlayerId !== null,
+      sound: this.soundOn,
       entries: (race.entries as number) ?? 0,
       lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
       go: phase === 'countdown' && secs <= 0,
@@ -2442,9 +2485,12 @@ export class OfficeScene extends Phaser.Scene {
   private updateRaceOverlay(): void {
     const race = this.raceModel();
     if (race && !this.raceHud) {
-      this.raceHud = new RaceHud(document.getElementById('game') ?? document.body, (type, payload) =>
-        this.room?.send(type, payload),
-      );
+      this.raceHud = new RaceHud(document.getElementById('game') ?? document.body, (type, payload) => {
+        // The speaker is the viewer's OWN setting, not something the world decides, so it never
+        // goes on the wire as a race message.
+        if (type === '__sound') return void this.toggleSound();
+        this.room?.send(type, payload);
+      });
     }
     this.raceHud?.update(race);
     this.updateRaceSound(race);
@@ -2504,7 +2550,11 @@ export class OfficeScene extends Phaser.Scene {
     // margin math in applyCameraBounds reads the new size, not a stale one.
     this.scale.on(Phaser.Scale.Events.RESIZE, () => this.applyCameraBounds());
     // Tab hidden → sleep the loop entirely; visible/focused → wake.
-    document.addEventListener('visibilitychange', () => (document.hidden ? this.sleepLoop() : this.wake()));
+    document.addEventListener('visibilitychange', () => {
+      // A hidden tab stops rendering, so the same thing would happen as on a dropped socket.
+      if (document.hidden) this.silenceRace();
+      document.hidden ? this.sleepLoop() : this.wake();
+    });
     window.addEventListener('focus', () => this.wake());
     if (new URLSearchParams(window.location.search).get('perf')) this.togglePerf();
   }
@@ -4367,6 +4417,7 @@ export class OfficeScene extends Phaser.Scene {
     // Not a viewer setting (everyone sees it), but it arrives on the same message: one round trip
     // for everything the panel has to show.
     if (isWarpStyleId(m.warpStyle)) this.warpStyle = m.warpStyle;
+    if (isHelmetId(m.helmet)) this.helmet = m.helmet as string;
     this.cameraFollowEnabled = m.cameraFollow !== false;
     this.iframeOverlay = m.iframeOverlay === true;
     setSoundEnabled(this.soundOn);
@@ -4462,6 +4513,10 @@ export class OfficeScene extends Phaser.Scene {
         (w) => `<button class="seg" data-warp="${w.id}">${w.label}</button>`,
       ).join('')}</div>
       <div class="hint">Everyone sees this one — it plays on your avatar and on your agents.</div>
+      <label for="pa-helmet">Your helmet</label>
+      <div class="pa-helmets" id="pa-helmet">${helmetPickerHtml()}</div>
+      <div class="hint">What everyone sees of you from above once you are in a kart. The first
+        one takes the colours of your own avatar.</div>
       <button id="pa-check-updates">Check for updates</button>
       <div id="pa-update-status" class="hint" style="margin:0.35rem 0 0;"></div>
       <button id="pa-change-server">Change server</button>`;
@@ -4602,6 +4657,15 @@ export class OfficeScene extends Phaser.Scene {
         this.warpStyle = id;
         this.markWarpStyle();
         this.room?.send('setWarpStyle', { style: id });
+      };
+    }
+    // The helmet, the same way: the client says which it wants and the server checks the id
+    // against HELMETS before it ever reaches a pawn.
+    for (const btn of panel.querySelectorAll<HTMLButtonElement>('#pa-helmet .lid')) {
+      btn.onclick = () => {
+        this.helmet = btn.dataset.helmet ?? '';
+        this.markHelmet();
+        this.room?.send('setHelmet', { helmet: this.helmet });
       };
     }
     iframeOverlay.onchange = () => {

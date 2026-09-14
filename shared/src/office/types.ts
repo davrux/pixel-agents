@@ -1250,6 +1250,9 @@ export interface Character {
   matrixEffectTimer: number;
   /** The style playing, or null — set with the phase, cleared with it (see WARP_STYLES). */
   warpStyle: WarpStyleId | null;
+  /** The helmet worn while driving — a `HELMETS` id, or '' for "from my own head". Empty on
+   *  anybody not in a kart: it is set when they get in and cleared when they get out. */
+  helmet: string;
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string;
   /**
