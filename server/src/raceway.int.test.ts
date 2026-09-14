@@ -403,3 +403,43 @@ test('you can walk from the grid to the timing board and to the water', () => {
     );
   }
 });
+
+/**
+ * One of everything, and the two exceptions are named.
+ *
+ * "Bau von allen Teilen mal was auf raceway, so dass man weiß was es alles gibt." The empty layers
+ * say which KINDS of thing a map can hold; this circuit is the one that shows what each of them
+ * looks like in use, so the claim to keep is that none of them is quietly empty again after the
+ * next redraw. Checked through the IMPORTER rather than against the .tmj, because a placement that
+ * the importer drops is a placement that does not exist — which is exactly what happened to the
+ * picture: it was in the file, typed after the tile's class instead of the object's, and it
+ * arrived as nothing at all with no notice printed.
+ */
+test('the raceway carries one of every kind of content the format has', () => {
+  const l = layout as unknown as {
+    furniture: Array<{ action?: { kind?: string } }>;
+    images?: unknown[];
+    texts?: unknown[];
+    decals?: Array<{ occludes?: boolean }>;
+    surfaces?: Record<string, number[]>;
+    tileActions?: Array<{ kind?: string } | null>;
+  };
+  assert.ok(l.furniture.length >= 8, `only ${l.furniture.length} placements`);
+  assert.ok((l.images ?? []).length >= 1, 'no picture on the map');
+  assert.ok((l.texts ?? []).length >= 2, 'no text labels on the map');
+  assert.ok((l.surfaces?.rough ?? []).length > 100, 'nothing is marked as off the racing surface');
+  // BOTH decal layers: one that lies under everybody and one that sorts against them. A map with
+  // only the second has never used the first, and the difference is the whole reason the layer's
+  // own `occludes` decides it rather than the tile.
+  const flat = (l.decals ?? []).filter((d) => !d.occludes).length;
+  const standing = (l.decals ?? []).filter((d) => d.occludes).length;
+  assert.ok(flat > 0, 'nothing painted on the flat decal layer');
+  assert.ok(standing > 0, 'nothing painted on the standing decal layer');
+  // And the actions a circuit is made of, plus the three the paddock adds.
+  const kinds = new Set<string>();
+  for (const a of l.tileActions ?? []) if (a?.kind) kinds.add(a.kind);
+  for (const f of l.furniture) if (f.action?.kind) kinds.add(f.action.kind);
+  for (const want of ['raceGate', 'raceStart', 'spawnPoint', 'raceRecords', 'appliance', 'portal']) {
+    assert.ok(kinds.has(want), `nothing on the raceway carries a "${want}" action`);
+  }
+});

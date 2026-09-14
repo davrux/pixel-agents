@@ -1053,7 +1053,10 @@ if (CLOSED) {
     name: '',
     opacity: 1,
     rotation: 0,
-    type: 'ImageTile',
+    // `Image` is the OBJECT class the importer looks for. `ImageTile` is the class the TILE
+    // carries, and only one of the two pictures in that set has it — an object typed after the
+    // tile was silently dropped on import, with nothing to see and no notice printed.
+    type: 'Image',
     visible: true,
     width: 200,
     x: hoarding.col * TILE,

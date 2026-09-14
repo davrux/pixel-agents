@@ -1488,7 +1488,7 @@
      "name": "",
      "opacity": 1,
      "rotation": 0,
-     "type": "ImageTile",
+     "type": "Image",
      "visible": true,
      "width": 200,
      "x": 432,
