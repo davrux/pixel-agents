@@ -30,7 +30,7 @@
  * held anybody back — the PACE they run at, so the grid is a field rather than a train of
  * identical karts, and so a human can beat the slow ones.
  */
-import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC, TYRE_WARN } from '../constants.js';
+import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
@@ -40,8 +40,9 @@ import { isRough, nextPoint } from './track.js';
  * How far ahead a perfect driver looks — as a TIME, and converted to tiles at the speed it is
  * actually doing. Scaled by skill on top.
  *
- * It was a fixed thirteen tiles, and that is the third number in this model to have been a
- * distance pretending to be a constant (see PIT_REACH_TILES and TYRE_SLIDE_REF_PX_PER_SEC). At
+ * It was a fixed thirteen tiles, and that is one of several numbers in this model to have been a
+ * distance pretending to be a constant (`KART_BOARD_REACH_TILES` is another, and two more went
+ * with the tyre model). At
  * 260 px/s thirteen tiles is 0.8 s of warning; at 370 it is half a second, which is less than the
  * car needs to shed the speed — so raising the top speed stopped working long before the road ran
  * out of width. Measured: with the fixed look, a 13-tile road and a 170 px turn radius put nobody
@@ -52,16 +53,6 @@ const LOOK_SECONDS = 1.15;
 const PURSUIT_SECONDS = 0.55;
 const LOOK_TILES_MIN = 7;
 const LOOK_TILES_MAX = 34;
-/**
- * How far away a pit box is still worth pulling into, in tiles. Beyond it, carry on and take it
- * next lap — a detour across the circuit costs more than a worn set.
- *
- * Both of these are DISTANCES, so they are really times: nine tiles at the old pace was most of a
- * second to decide in, and at the new one it is half. Measured before they grew, most of the
- * field finished a race on bald tyres having driven past the pit lane every lap — the decision
- * window had closed faster than the driver could take it.
- */
-const PIT_REACH_TILES = 14;
 /**
  * What the slowest driver on the grid runs at, as a fraction of the car's top speed; skill scales
  * from here to the whole of it.
@@ -84,47 +75,6 @@ const OFFSETS: readonly number[] = (() => {
 export interface RacerSkill {
   /** 0 = looks barely ahead and lifts late; 1 = the quick one. */
   level: number;
-}
-
-/**
- * A pit box this car could pull into from here: near, and with clear road all the way.
- *
- * Both halves matter. NEAR, because a box on the far side of the circuit is not an opportunity,
- * it is a detour through whatever lies between. CLEAR, because "near" in a straight line says
- * nothing on a track that bends — the infield of a ring is always nearer than the road round it.
- * A car already stopped in a box finds it at a distance of nothing and stays put.
- */
-function pitAhead(kart: Kart, world: KartWorld): { x: number; y: number } | null {
-  let best: { x: number; y: number } | null = null;
-  let bestD = Infinity;
-  for (const cell of world.track.pit) {
-    const [c, r] = cell.split(',');
-    const x = Number(c) * TILE_SIZE + TILE_SIZE / 2;
-    const y = Number(r) * TILE_SIZE + TILE_SIZE / 2;
-    const d = Math.hypot(x - kart.x, y - kart.y);
-    if (d >= bestD || d > PIT_REACH_TILES * TILE_SIZE) continue;
-    const tiles = d / TILE_SIZE;
-    if (tiles > 0.4 && room(kart, world, Math.atan2(y - kart.y, x - kart.x), Math.ceil(tiles)) < tiles - 0.5) {
-      continue; // something between here and there
-    }
-    bestD = d;
-    best = { x, y };
-  }
-  return best;
-}
-
-/** Steer at a point and stop on it — what a pit stop is made of. */
-function towards(kart: Kart, world: KartWorld, to: { x: number; y: number }): KartInput {
-  const want = Math.atan2(to.y - kart.y, to.x - kart.x);
-  let diff = want - kart.heading;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  const d = Math.hypot(to.x - kart.x, to.y - kart.y);
-  const speed = Math.hypot(kart.vx, kart.vy);
-  // Brake into it and hold still on it: the crew will not work above PIT_SPEED_PX_PER_SEC.
-  const throttle = d < TILE_SIZE * 1.2 ? (speed > 10 ? -1 : 0) : d < TILE_SIZE * 5 && speed > 110 ? -1 : 1;
-  const clear = room(kart, world, want, 3) >= 2.5;
-  return { throttle: clear ? throttle : 0, steer: diff > 0.05 ? 1 : diff < -0.05 ? -1 : 0 };
 }
 
 /**
@@ -184,16 +134,6 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   // which is what a ring means when the road does not actually loop.
   if (kart.finished && world.track.sprint) {
     return { throttle: Math.hypot(kart.vx, kart.vy) > 25 ? -1 : 0, steer: 0 };
-  }
-  // Worn out and a pit box is right there: pull in. OPPORTUNISTIC on purpose — it stops only at
-  // one it is about to drive past, with clear road the whole way, and otherwise carries on and
-  // takes it next lap. The first version aimed at the nearest box from anywhere on the circuit,
-  // which on a short track means straight across the infield: measured at eighty falls per car
-  // per race, every car, because a pit lane on the far side is a cliff with a target painted on
-  // it.
-  if (kart.tyre < TYRE_WARN && world.track.pit.size > 0) {
-    const box = pitAhead(kart, world);
-    if (box) return towards(kart, world, box);
   }
   const level = Math.max(0, Math.min(1, skill.level));
   // From the speed it is CARRYING, not from the speed it could reach: a car crawling out of a

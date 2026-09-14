@@ -95,23 +95,6 @@ test('a finish line makes it a sprint, and its absence makes it laps', () => {
   assert.equal(sprint.laps, 3);
 });
 
-test('pit boxes are collected, and a track without them is still a track', () => {
-  const bare = raceTrack(layoutWith(ring(0)));
-  assert.ok(bare);
-  assert.equal(bare.pit.size, 0, 'a track with no pit lane refused to build');
-
-  const withPit = raceTrack(
-    layoutWith([
-      ...ring(0),
-      { col: 12, row: 16, action: { kind: 'racePit' } },
-      { col: 13, row: 16, action: { kind: 'racePit' } },
-    ]),
-  );
-  assert.ok(withPit);
-  assert.equal(withPit.pit.size, 2);
-  assert.equal(withPit.pit.has('12,16'), true);
-});
-
 test('a map with one gate is not a track, beacon or no beacon', () => {
   // The rule that keeps every other zone out of the racing code: two gates and a grid slot, or it
   // is a room with some markers in it.

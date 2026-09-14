@@ -23565,158 +23565,6 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 1112,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 50,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1128,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 51,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1144,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 52,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1160,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 53,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1176,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 54,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1192,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 55,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1208,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 56,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1224,
-     "y": 840,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "racePit"
-      }
-     ]
-    },
-    {
-     "id": 57,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
      "x": 1256,
      "y": 840,
      "properties": [
@@ -23728,7 +23576,7 @@
      ]
     },
     {
-     "id": 58,
+     "id": 50,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -23747,7 +23595,7 @@
      ]
     },
     {
-     "id": 59,
+     "id": 51,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -23766,7 +23614,7 @@
      ]
     },
     {
-     "id": 60,
+     "id": 52,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -23785,7 +23633,7 @@
      ]
     },
     {
-     "id": 61,
+     "id": 53,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -23804,7 +23652,7 @@
      ]
     },
     {
-     "id": 62,
+     "id": 54,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -23823,7 +23671,7 @@
      ]
     },
     {
-     "id": 63,
+     "id": 55,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -23850,7 +23698,7 @@
   }
  ],
  "nextlayerid": 6,
- "nextobjectid": 64,
+ "nextobjectid": 56,
  "orientation": "orthogonal",
  "properties": [
   {

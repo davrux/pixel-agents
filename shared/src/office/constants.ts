@@ -596,43 +596,6 @@ export const RACE_MAX_MS = 6 * 60 * 1000;
  */
 export const RACE_GRACE_MS = 45_000;
 
-// ── Tyres ─────────────────────────────────────────────────────────────────────
-/**
- * How much grip is left on completely worn tyres, as a share of the spec's.
- *
- * Dust Racing's signature mechanic, and the reason it is worth having: it turns a race from
- * "hold the throttle down" into a decision, because the fastest way round on lap one is not the
- * fastest way to the flag. Not zero — bald tyres still steer, they just slide — because a car
- * that becomes undrivable is a car whose driver has already lost, and there is nothing to play.
- */
-export const TYRE_MIN_GRIP = 0.55;
-/**
- * How fast tyres wear, per second, at full slide and at full speed.
- *
- * SLIDING is what costs them: a clean lap barely marks them and a lap spent sideways ruins them,
- * which is what makes the tidy line the fast one over three laps. At this rate a hard-driven
- * three-lap race arrives at the flag with about half a set left, so the pit is a choice on a long
- * race rather than a chore on every one.
- */
-export const TYRE_WEAR_SLIDING_PER_SEC = 0.038;
-export const TYRE_WEAR_ROLLING_PER_SEC = 0.006;
-/**
- * The sideways speed that counts as a full slide, px/s — what tyre wear is measured against.
- *
- * A SPEED, so it scales with the world: when the cars grew and the top speed went from 240 to
- * 260, the same corner produced proportionally more sideways velocity and a set of tyres went
- * from lasting a race to lasting two laps. Measured at the old reference, a hard raceway lap cost
- * 24 % of a set against the 17 % the design is stated in.
- */
-export const TYRE_SLIDE_REF_PX_PER_SEC = 65;
-/** How fast a pit stop puts them back, per second. A full set takes about three seconds — long
- *  enough to be a decision, short enough that taking it is not giving up. */
-export const TYRE_FIT_PER_SEC = 0.34;
-/** Above this speed the pit crew will not work: you have to actually STOP. */
-export const PIT_SPEED_PX_PER_SEC = 45;
-/** Below this the HUD warns, and a computer driver starts looking for the pit lane. */
-export const TYRE_WARN = 0.35;
-
 // ── Off the road ──────────────────────────────────────────────────────────────
 /**
  * What the tyres find on grass and sand, as a share of what they find on tarmac.
@@ -646,7 +609,5 @@ export const TYRE_WARN = 0.35;
 export const ROUGH_GRIP = 0.45;
 /** What it does to the top speed, as a share. Grass is slower than tarmac even in a straight line. */
 export const ROUGH_SPEED = 0.62;
-/** And it eats tyres: a lap spent in the dirt costs a lap's wear several times over. */
-export const ROUGH_WEAR_FACTOR = 2.5;
 /** How long the result board stays up before the track is free again. */
 export const RACE_RESULTS_MS = 9000;

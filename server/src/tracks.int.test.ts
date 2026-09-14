@@ -61,16 +61,10 @@ test('every track is shaped like one', () => {
     for (const gate of track.gates) {
       assert.ok(gate.tiles.size >= 3, `${id} gate ${gate.index} is ${gate.tiles.size} tiles wide`);
     }
-    // A CIRCUIT needs a pit lane, because tyres wear and a circuit with nowhere to change them is
-    // a circuit where the mechanic is a punishment rather than a choice. A stage is the other
-    // answer to the same problem and needs the absence just as firmly: one run, one set of tyres,
-    // and a pit lane on a road you pass once would be a lane nobody could ever use twice.
-    if (track.sprint) {
-      assert.equal(track.pit.size, 0, `${id} is a stage with a pit lane`);
-      assert.ok(track.finish, `${id} is a sprint with no finish line`);
-    } else {
-      assert.ok(track.pit.size > 0, `${id} has no pit lane`);
-    }
+    // A STAGE ends at a line and a circuit does not: that is the whole difference between the two
+    // shapes, and it is what `nextPoint` reads to stop sending a finisher back down the course.
+    if (track.sprint) assert.ok(track.finish, `${id} is a sprint with no finish line`);
+    else assert.equal(track.finish, null, `${id} is a circuit with a finish line`);
   }
 });
 

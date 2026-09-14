@@ -555,8 +555,6 @@ export type Action =
    * and crossing this ends your race, so a circuit is not the only shape a race can have.
    */
   | { kind: 'raceFinish' }
-  /** A pit box: stop on one of these and the tyres go back on. */
-  | { kind: 'racePit' }
   /**
    * Off the racing surface but still ground: grass, sand, the run-off.
    *

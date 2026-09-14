@@ -75,9 +75,6 @@ export interface RaceTrack {
    * course.
    */
   finish: { x: number; y: number } | null;
-  /** `"col,row"` of every pit box. Empty on a track with no pit lane, which simply means tyres
-   *  cannot be changed there — not that they do not wear. */
-  pit: ReadonlySet<string>;
 }
 
 const DEFAULT_LAPS = 3;
@@ -99,7 +96,6 @@ const centre = (col: number, row: number): { x: number; y: number } => ({
 export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const byGate = new Map<number, { tiles: Set<string>; sx: number; sy: number; n: number }>();
   const grid: Array<{ slot: number; x: number; y: number; dir: number }> = [];
-  const pit = new Set<string>();
   const rough = new Set<string>();
   let finish: { x: number; y: number } | null = null;
   const actions = layout.tileActions ?? [];
@@ -121,8 +117,6 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
       g.n++;
     } else if (action.kind === 'raceStart') {
       grid.push({ slot: action.slot, dir: action.dir ?? -1, ...centre(col, row) });
-    } else if (action.kind === 'racePit') {
-      pit.add(key(col, row));
     } else if (action.kind === 'raceRough') {
       // The older way of saying it, one Action per cell. Still read, because a map that was
       // authored that way must keep meaning what it meant — but `SurfaceLayer` is what a mapper
@@ -158,18 +152,12 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     sprint: finish !== null,
     finish,
     rough,
-    pit,
   };
 }
 
 /** Is this tile off the racing surface — grass, sand, run-off? */
 export function isRough(track: RaceTrack, col: number, row: number): boolean {
   return track.rough.has(key(col, row));
-}
-
-/** Is this tile a pit box? */
-export function inPit(track: RaceTrack, col: number, row: number): boolean {
-  return track.pit.has(key(col, row));
 }
 
 /** Which gate covers this tile, or null. */

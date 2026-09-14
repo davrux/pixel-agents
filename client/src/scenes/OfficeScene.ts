@@ -161,7 +161,6 @@ type RenderKart = {
   art: number;
   wrongWay: boolean;
   progress: number;
-  tyre: number;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -1111,7 +1110,6 @@ export class OfficeScene extends Phaser.Scene {
         art: 0,
         wrongWay: false,
         progress: 0,
-        tyre: 1,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1196,7 +1194,6 @@ export class OfficeScene extends Phaser.Scene {
     rk.art = (ks.art as number) ?? 0;
     rk.wrongWay = !!ks.wrongWay;
     rk.progress = ((ks.progress as number) ?? 0) / 100;
-    rk.tyre = ((ks.tyre as number) ?? 255) / 255;
   }
 
   /**
@@ -1274,7 +1271,7 @@ export class OfficeScene extends Phaser.Scene {
     const phase = racePhaseOf((race.phase as number) ?? 0);
     const mine = this.myKart();
     // A HUD whenever you are DRIVING, not only during a race. Free roam is practice — it is where
-    // you learn the circuit — and a practice lap with no lap time, no tyre bar and no idea which
+    // you learn the circuit — and a practice lap with no lap time and no idea which
     // lap you are on is just driving in circles. Reported as "ich habe kein HUD", and it was: the
     // overlay only existed once somebody had run /race.
     // A model is built even with nobody in a kart now: the setup panel is the thing you use
@@ -1318,7 +1315,6 @@ export class OfficeScene extends Phaser.Scene {
             lastLapMs: mine.lastLapMs,
             bestLapMs: mine.bestLapMs,
             wrongWay: mine.wrongWay,
-            tyre: mine.tyre,
           }
         : null,
       drivers: [...this.karts.values()]
@@ -1334,7 +1330,6 @@ export class OfficeScene extends Phaser.Scene {
             finishedMs: k.totalMs,
             bestLapMs: k.bestLapMs,
             progress: k.progress,
-            tyre: k.tyre,
             me: k.driverId === this.myPlayerId,
             bot: who?.controller === ControllerKind.RACER,
           };

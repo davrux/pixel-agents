@@ -91,8 +91,16 @@ export const WORLD_ROOM = 'world';
  *     viewer to say that a goldfish and a flag had reached their next frame. A collection removed
  *     and another added is the sharpest kind of wire change there is: an older build decodes the
  *     new state into nonsense, so it must be sent to the version gate instead.
+ * 25 — tyre wear is gone, and with it `KartSync.tyre`. A field REMOVED from the middle of a schema
+ *     shifts every field after it, so an older build would read this kart's wrong-way flag out of
+ *     the byte that used to hold its rubber — the same failure as a reorder, which is why this is
+ *     gated rather than tolerated. The mechanic went because it was measured to do nothing: in a
+ *     three-lap race nobody arrived under 68 % and the warning is at 35 %, so no car ever pitted,
+ *     and raising the speed (with the grip that goes with it) made it matter LESS still — at 320
+ *     a kart holding full throttle slides 0.0 s on these circuits. A simulation detail that never
+ *     fires is a bar going down, not a decision, and this is a kart game.
  */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

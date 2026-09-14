@@ -27,7 +27,6 @@ import { KART_MAX_SPEED_PX_PER_SEC, KART_RADIUS_PX, RACE_TICK_HZ } from '@pixel/
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import type { Kart } from '@pixel/shared/office/race/kart.js';
-import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
 import { raceTrack } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
@@ -198,75 +197,6 @@ test('an autopilot drives three laps without falling off', () => {
   // done in under twenty seconds, and taking three minutes would mean it was crawling.
   const seconds = ticks * dt;
   assert.ok(seconds > 20 && seconds < 170, `three laps took ${seconds.toFixed(1)} s`);
-});
-
-test('a driver who never lifts pays for it in grip and rubber', () => {
-  // The complaint this track was rebuilt for: "ich kann problemlos mit Vollgas fahren". The
-  // handling model was never the problem — a road wide enough has no corner tight enough to ask
-  // anything of it — and this is how that is checked: the SAME autopilot, run twice, once as it
-  // wants to drive and once with the throttle pinned. The pinned one must come off worse.
-  //
-  // Comparing the two is what makes this robust. Earlier versions asked for an absolute — a fall,
-  // then five seconds off the road — and both are properties of the MAP as much as of the
-  // handling: once the infield was landscaped there was almost nothing left to fall into, and the
-  // driver's own steering widens its line to stay on the tarmac whatever the throttle is doing.
-  //
-  // What is asked for has narrowed once more, and the reason is worth keeping. This used to
-  // demand that the pinned run make LESS PROGRESS, and it did while the driver was held back by a
-  // straight-line road probe on a road that bends — it drove the raceway at 49 % of the car's top
-  // speed. Probing the arc it is actually going to drive took that to 99 %, so "as it wants to
-  // drive" and "flat out" are now nearly the same lap: measured over 45 s, 7 gates against 7 here
-  // and 10 against 11 on the speedway. The price of overdriving did not disappear, it moved to
-  // where the model always put it — 1.3 s of sliding against none, and 65 % of the tyres left
-  // against 76 %. That is a better answer to the complaint than a corner that punishes the
-  // throttle: you may drive flat out, and you will be changing tyres while somebody else is not.
-  const run = (pinned: boolean): { gates: number; sliding: number; tyre: number } => {
-    const os = world();
-    const track = os.raceTrack();
-    assert.ok(track);
-    const kart = [...os.karts.values()][0];
-    const driver = os.addPlayer('char_0', 'Flatout', undefined, `flatout-${pinned}`);
-    const ch = os.characters.get(driver);
-    assert.ok(ch);
-    ch.x = kart.x;
-    ch.y = kart.y;
-    assert.equal(os.boardKart(driver), true);
-    // Alone: with a full grid this kart spent its first forty seconds wedged among eleven others
-    // and never reached a corner at speed, so the measurement was about traffic, not throttle.
-    os.setRaceSetup({ bots: 0 });
-    assert.equal(os.startRace(), true);
-    const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
-    const kartWorld = { tileMap: inner.tileMap, blockedTiles: inner.blockedTiles, walls: inner.walls, track };
-    const dt = 1 / RACE_TICK_HZ;
-    let gates = 0;
-    let sliding = 0;
-    let lastGate = kart.gate;
-    for (let i = 0; i < Math.round(45 / dt); i++) {
-      if (os.raceInfo().phase !== 'countdown') {
-        const chosen = racerInput(kart, kartWorld as never, { level: 0.85 });
-        kart.input = pinned ? { throttle: 1, steer: chosen.steer } : chosen;
-      }
-      os.update(dt);
-      if (kart.gate !== lastGate) {
-        gates++;
-        lastGate = kart.gate;
-      }
-      if (kart.sliding) sliding += dt;
-    }
-    return { gates, sliding, tyre: kart.tyre };
-  };
-
-  const lifting = run(false);
-  const pinned = run(true);
-  assert.ok(lifting.gates > 0, `the driver that lifts made no progress at all (${lifting.gates} gates)`);
-  assert.ok(
-    pinned.sliding > lifting.sliding,
-    `full throttle did not cost grip: ${pinned.sliding.toFixed(1)} s sliding against ${lifting.sliding.toFixed(1)}`,
-  );
-  assert.ok(
-    pinned.tyre < lifting.tyre,
-    `full throttle did not cost rubber: ${(pinned.tyre * 100).toFixed(0)} % left against ${(lifting.tyre * 100).toFixed(0)} %`,
-  );
 });
 
 test('the bridge has no barrier: a shove there puts you in the air', () => {

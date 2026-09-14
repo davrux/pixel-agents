@@ -21,7 +21,6 @@
  *  - **Nothing at all when there is no race**, which is the normal state of a track — so the panel
  *    is created lazily and hidden rather than rebuilt.
  */
-import { TYRE_WARN } from '@pixel/shared/office/constants.js';
 import {
   RACE_COUNTDOWN_CHOICES,
   RACE_MAX_LAPS,
@@ -45,7 +44,6 @@ export interface RaceHudDriver {
   /** A computer driver. */
   bot: boolean;
   /** Tyre left, 0…1. */
-  tyre: number;
 }
 
 export interface RaceHudModel {
@@ -85,8 +83,7 @@ export interface RaceHudModel {
     lastLapMs: number;
     bestLapMs: number;
     wrongWay: boolean;
-    tyre: number;
-  } | null;
+    } | null;
   drivers: RaceHudDriver[];
 }
 
@@ -116,11 +113,6 @@ const CSS = `
 .pa-race-hud .clock{margin-left:auto;font-size:1.1rem;}
 .pa-race-hud .times{color:#adb0b2;margin-top:0.15rem;}
 .pa-race-hud .rec{color:#818586;}
-.pa-race-hud .tyre{display:flex;align-items:center;gap:0.4rem;margin-top:0.2rem;color:#adb0b2;}
-.pa-race-hud .tyre .bar{flex:1;height:0.55rem;background:#141312;border:2px solid #0a0908;border-radius:0.2rem;overflow:hidden;}
-.pa-race-hud .tyre .bar i{display:block;height:100%;background:#5aa348;}
-.pa-race-hud .tyre.low .bar i{background:#a86a2e;}
-.pa-race-hud .tyre.gone .bar i{background:#c51a1b;}
 .pa-race-hud hr{border:0;border-top:2px solid #0a0908;margin:0.4rem -0.6rem;}
 .pa-race-hud table{width:100%;border-collapse:collapse;}
 .pa-race-hud td{padding:0.05rem 0;white-space:nowrap;}
@@ -381,10 +373,6 @@ export class RaceHud {
     } else if (m.phase === 'countdown') {
       text = m.go ? 'GO!' : m.sprint ? 'Sprint' : `${m.laps} laps`;
       cls = m.go ? ' warn' : '';
-    } else if (m.phase === 'racing' && m.own && m.own.tyre < TYRE_WARN) {
-      // Worth a line because it is actionable: there is a pit lane and you can use it.
-      text = m.own.tyre < 0.15 ? '◍ TYRES GONE — PIT' : '◍ WATCH YOUR TYRES';
-      cls = ' warn';
     } else if (m.phase === 'racing' && m.finalLap) {
       text = m.sprint ? '🏁 FINAL STRETCH' : '🏁 FINAL LAP';
       cls = ' warn';
@@ -421,7 +409,7 @@ export class RaceHud {
       return;
     }
     this.hud.style.display = '';
-    // Practice: no race, no field, no places — your own lap, your own times, your own tyres, and
+    // Practice: no race, no field, no places — your own lap, your own times, and
     // the record to chase. Everything a lap on your own is about.
     if (m.phase === 'idle' && m.own) {
       const rec = m.recordLapMs
@@ -432,7 +420,6 @@ export class RaceHud {
         `<div class="top"><span class="lap">${m.sprint ? 'Practice' : `Practice · lap ${m.own.lap + 1}`}</span>` +
         `<span class="clock">${raceTime(m.own.lastLapMs)}</span></div>` +
         `<div class="times">best ${raceTime(m.own.bestLapMs)}</div>` +
-        this.tyreBar(m.own.tyre) +
         rec;
       return;
     }
@@ -450,7 +437,6 @@ export class RaceHud {
         `<div class="times">last ${raceTime(own.lastLapMs)} · best ${raceTime(own.bestLapMs)}</div>`
       : `<div class="top"><span class="lap">${m.sprint ? 'Sprint' : `${m.laps} laps`}</span>` +
         `<span class="clock">${raceTime(m.timerMs)}</span></div>`;
-    const tyre = own ? this.tyreBar(own.tyre) : '';
     const rec = m.recordLapMs
       ? `<div class="rec">record ${raceTime(m.recordLapMs)}${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
       : '';
@@ -462,16 +448,7 @@ export class RaceHud {
           `<td class="g">${this.gap(m, d, leader)}</td></tr>`,
       )
       .join('');
-    this.hud.innerHTML = `${head}${tyre}${rec}<hr><table>${rows}</table>`;
-  }
-
-  /** Tyres as a bar: what a driver needs from them is "how much is left" at a glance, never a
-   *  number. */
-  private tyreBar(tyre: number): string {
-    return (
-      `<div class="tyre${tyre < 0.15 ? ' gone' : tyre < TYRE_WARN ? ' low' : ''}">` +
-      `<span>tyres</span><span class="bar"><i style="width:${Math.round(tyre * 100)}%"></i></span></div>`
-    );
+    this.hud.innerHTML = `${head}${rec}<hr><table>${rows}</table>`;
   }
 
   private renderBoard(m: RaceHudModel): void {

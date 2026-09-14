@@ -148,24 +148,23 @@ const TRACKS: readonly TrackSpec[] = [
     rows: 74,
     width: 7,
     // Three, and the number follows the lap rather than taste: a lap of this circuit is about
-    // thirty seconds and costs a quarter of a set of tyres, so three is a ninety-second race that
-    // ends on a fifth of its rubber — the pit stop stays the decision it is meant to be, and a
-    // fourth lap would make it compulsory. The panel can still set anything.
+    // twenty seconds, so three is a minute of racing — long enough to have a shape, short enough
+    // that a grid of twelve gets round it before anybody puts the kettle on. The panel can still
+    // set anything.
     laps: 3,
     startCol: 64,
     bridge: { from: 38, to: 72, width: 7 },
   },
   {
-    // Shorter, wider and twice as many laps: a circuit you can actually race side by side on,
-    // where the raceway is a test of whether you can keep it out of the pit. No bridge — one
-    // hazard shared by every track would make them the same track with different numbers.
+    // Shorter and wider: a circuit you can actually race side by side on, where the raceway is
+    // the one with a bridge to be shoved off. No bridge here — one hazard shared by every track
+    // would make them the same track with different numbers.
     id: 'speedway',
     label: 'Speedway',
     kind: 'ring',
     cols: 90,
     rows: 62,
     width: 9,
-    // Three, for the same arithmetic as the raceway: a 22-second lap costs a quarter of a set.
     laps: 3,
     // Far enough round that the grid fits BEHIND it: six rows five tiles apart need thirty tiles
     // of straight, and at 26 the last two rows fell off the west end of the map — measured as a
@@ -180,8 +179,8 @@ const TRACKS: readonly TrackSpec[] = [
      *
      * Asked for in as many words — "es müssen nicht unbedingt Runden sein" — and the engine has
      * been able to express it since gates became a ring walked in order; what was missing was a
-     * map that used it. Narrow (five tiles) and with no pit lane at all, so a set of tyres has to
-     * last the run: that is what a stage has instead of a pit strategy.
+     * map that used it. Narrow (five tiles), so the road itself is what a stage has instead of a
+     * circuit's room to overtake.
      */
     id: 'hillroad',
     label: 'Hill Road',
@@ -197,7 +196,7 @@ const TRACKS: readonly TrackSpec[] = [
      * runs eighteen tiles apart, so the hairpins that join them have a nine-tile radius — wider
      * than a kart's own turning circle at full speed, which means nothing on the stage ever has to
      * be braked for: measured, the whole field came home within two seconds of each other in
-     * fourteen, with three quarters of the tyres left. Four puts the runs twelve apart, and a
+     * fourteen. Four puts the runs twelve apart, and a
      * six-tile hairpin is tighter than the tyres hold. The shoulders are what used to make four
      * unreadable, and STAGE_SAND is what fixed that.
      */
@@ -215,6 +214,16 @@ function buildTrack(spec: TrackSpec): { bytes: string; painted: number; scenery:
  * the tyres hold, so five tiles of road means the outside of a corner has to be given up for the
  * inside, and carrying full throttle in runs out of tarmac. The handling model was never the
  * problem; there was nowhere on the map to feel it.
+ *
+ * **That is no longer true of these three, and this is where the fact belongs.** The roads were
+ * widened to seven, nine and five for a car the size of a car, and at 320 px/s with the grip that
+ * goes with it a driver that steers well holds full throttle all the way round: measured over
+ * 45 s, pinned against the driver's own choice, 9 gates against 9 on the raceway and 12 against 12
+ * on the speedway, with 0.0 s of sliding either way. Tyre wear used to be what that cost you and
+ * it is gone (measured to do nothing — see PROTOCOL_VERSION 25), so what is left as the price of
+ * overdriving is falling off the bridge and being shoved. **If flat-out should cost something
+ * again, the lever is a corner tighter than the road is wide — this paragraph's own first rule —
+ * and not another number in the tyre model.**
  */
 const COLS = spec.cols;
 const ROWS = spec.rows;
@@ -579,7 +588,7 @@ for (let row = 0; row < ROWS; row++) {
       ground[i] = kerbAt(col, row);
       collision[i] = COLLISION_GID;
     } else if (isRunOff(col, row)) {
-      // Sand: off the racing surface, slow, and it eats tyres — but you can drive out of it.
+      // Sand: off the racing surface and slow — but you can drive out of it.
       ground[i] = sandAt(col, row);
       roughLayer[i] = COLLISION_GID;
     } else if (isOutfield(col, row)) {
@@ -639,8 +648,6 @@ const marker = (col: number, row: number, props: Array<{ name: string; type: str
   y: row * TILE + TILE / 2,
   properties: props,
 });
-const pit = (col: number, row: number) =>
-  marker(col, row, [{ name: 'actionKind', type: 'string', value: 'racePit' }]);
 const records = (col: number, row: number) =>
   marker(col, row, [{ name: 'actionKind', type: 'string', value: 'raceRecords' }]);
 const spawn = (col: number, row: number) =>
@@ -697,32 +704,12 @@ for (let i = 0; i < RING_GRID_ROWS; i++) {
   for (const row of [INNER.bottom + 2, OUTER.bottom - 1]) objects.push(start(col, row, slot, slot++ === 0 ? 0 : undefined));
 }
 
-/**
- * The pit lane: boxes along the inside of the start-finish straight, just past the line.
- *
- * Inside rather than outside because the inside of that straight is the infield wall, so a car
- * that stops there is out of everybody's way — a pit box in the racing line would be a hazard
- * rather than a choice. Past the line, so a stop costs you the lap you are on and not the one you
- * have just completed, which is what makes the decision a real one.
- */
-for (let col = START_LINE_COL + 3; col <= START_LINE_COL + 10; col++) {
-  // One row OFF the inner barrier, not against it: a car is now wider than a tile, so a box on
-  // the innermost row is a box no car can physically stand on — measured, the driver aimed at one
-  // for seventy seconds, wedging and backing out, and never finished the lap.
-  objects.push(pit(col, INNER.bottom + 2));
-}
-// The timing screen: one board at the end of the pit lane shows what this track has been lapped in.
+// The timing screen: one board beside the start-finish straight shows what this track has been
+// lapped in. It sits where the pit boxes used to, which is out of everybody's way.
 objects.push(records(START_LINE_COL + 12, INNER.bottom + 2));
 
 } else {
-  /**
-   * A stage places the same four kinds of marker and one more.
-   *
-   * No pit lane at all, and that is the stage's own rule rather than an omission: a run is short
-   * enough that one set of tyres covers it, so what a circuit gives you as a strategic choice a
-   * stage gives you as a constraint. Tyres still wear — driving it tidily is the only pit stop
-   * there is.
-   */
+  /** A stage places the same four kinds of marker and one more. */
   for (let g = 0; g < STAGE_GATES; g++) {
     for (const c of stageGateCells[g]) objects.push(gate(c.col, c.row, g));
   }
