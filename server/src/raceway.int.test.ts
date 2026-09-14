@@ -32,7 +32,7 @@ import {
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import type { Kart } from '@pixel/shared/office/race/kart.js';
-import { raceTrack } from '@pixel/shared/office/race/track.js';
+import { isRough, raceTrack } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -204,6 +204,37 @@ test('an autopilot drives three laps without falling off', () => {
   assert.ok(seconds > 20 && seconds < 170, `three laps took ${seconds.toFixed(1)} s`);
 });
 
+/**
+ * Road with a drop beside it, found rather than assumed.
+ *
+ * The bridge used to be a column range on a rectangle's top straight and these tests knew where it
+ * was. The circuit is a CURVE now, so the span is stated as a fraction of the lap and lands on a
+ * diagonal — and a test that knows a column is a test that breaks when the track is redrawn, which
+ * is exactly what it should not be. Both tests below ask the MAP where the drop is.
+ */
+function bridgeCell(os: OfficeState): { col: number; row: number; away: { dc: number; dr: number } } {
+  const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string> };
+  const track = os.raceTrack()!;
+  const ground = (c: number, r: number): boolean => (inner.tileMap[r]?.[c] ?? -1) !== -1;
+  let best: { col: number; row: number; away: { dc: number; dr: number } } | null = null;
+  for (let row = 1; row < inner.tileMap.length - 1; row++) {
+    for (let col = 1; col < (inner.tileMap[row]?.length ?? 0) - 1; col++) {
+      if (!ground(col, row) || inner.blockedTiles.has(`${col},${row}`)) continue;
+      if (isRough(track, col, row)) continue; // road, not the run-off
+      // A drop within three tiles, with nothing but ground in between: that is a bridge edge.
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        let d = 1;
+        while (d <= 3 && ground(col + dc * d, row + dr * d) && !inner.blockedTiles.has(`${col + dc * d},${row + dr * d}`)) d++;
+        if (d <= 3 && !ground(col + dc * d, row + dr * d)) {
+          best ??= { col, row, away: { dc, dr } };
+        }
+      }
+    }
+  }
+  assert.ok(best, 'this circuit has no road with a drop beside it — where did the bridge go?');
+  return best;
+}
+
 test('the bridge has no barrier: a shove there puts you in the air', () => {
   // The first thing asked of this whole feature — "Brücken über Abgründen, da könnte man dann
   // jemanden von der Brücke bumpen" — and it needs no new concept: only ground makes a cell
@@ -212,24 +243,12 @@ test('the bridge has no barrier: a shove there puts you in the air', () => {
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
-  const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string> };
-  // Gate 2 sits on the bridge; the straight beside the start line is ordinary road.
-  const bridge = track.gates[2];
-  const bridgeRow = Math.floor(bridge.y / TILE);
-  const bridgeCol = Math.floor(bridge.x / TILE);
-  // Above the bridge is open air within a few tiles, and nothing blocks the way into it. Scanned
-  // rather than written down, so widening the bridge does not silently make this test about a
-  // different row.
-  let edge = bridgeRow;
-  while (edge > 0 && inner.tileMap[edge]?.[bridgeCol] !== -1) edge--;
-  assert.ok(bridgeRow - edge <= 5, `no drop within five tiles above the bridge (found row ${edge})`);
-  assert.equal(inner.tileMap[edge]?.[bridgeCol], -1, 'there is still ground beside the bridge');
-  assert.equal(inner.blockedTiles.has(`${bridgeCol},${edge}`), false, 'the bridge has a barrier');
+  const span = bridgeCell(os);
 
   // Sideways speed is killed by the tyres at KART_GRIP_PX_PER_SEC2, so a shove carries about
   // `v² / (2·grip)` pixels — 170 px/s is barely a tile and would prove nothing.
-  const SHOVE = 420;
-  const shoved = (col: number, row: number, dir: -1 | 1): boolean => {
+  const SHOVE = 620;
+  const shoved = (col: number, row: number, vx: number, vy: number): boolean => {
     const kart = [...os.karts.values()][0];
     const driver = os.characters.size > 1 ? null : os.addPlayer('char_0', 'Victim', undefined, 'victim');
     if (driver !== null) {
@@ -241,8 +260,8 @@ test('the bridge has no barrier: a shove there puts you in the air', () => {
     kart.x = col * TILE + TILE / 2;
     kart.y = row * TILE + TILE / 2;
     kart.heading = 0;
-    kart.vx = 0;
-    kart.vy = SHOVE * dir; // straight at the outside of the circuit
+    kart.vx = vx;
+    kart.vy = vy;
     kart.state = 'drive';
     kart.fallTimer = 0;
     for (let i = 0; i < Math.round(1.2 / (1 / RACE_TICK_HZ)); i++) {
@@ -253,24 +272,30 @@ test('the bridge has no barrier: a shove there puts you in the air', () => {
     return false;
   };
 
-  // Up from the bridge is open air.
-  assert.equal(shoved(bridgeCol, bridgeRow, -1), true, 'a kart shoved off the bridge stayed on it');
-  // The same shove towards the OUTSIDE of the ordinary start-finish straight is caught by the
-  // barrier. Outwards is downwards there — the inside of that straight is the infield, which is a
-  // pit too, so shoving the other way would prove nothing about the barrier.
+  // Off the edge the map itself found.
+  assert.equal(
+    shoved(span.col, span.row, span.away.dc * SHOVE, span.away.dr * SHOVE),
+    true,
+    'a kart shoved off the bridge stayed on it',
+  );
+  // The same shove on the start-finish straight is caught by the barrier, in BOTH directions —
+  // that straight has a wall either side, which is what makes the bridge the exception.
   const safeCol = Math.floor(track.gates[0].x / TILE);
   const safeRow = Math.floor(track.gates[0].y / TILE);
-  assert.equal(shoved(safeCol, safeRow, 1), false, 'the barrier let a kart through on the normal straight');
+  for (const [vx, vy] of [[0, SHOVE], [0, -SHOVE], [SHOVE, 0], [-SHOVE, 0]] as const) {
+    assert.equal(shoved(safeCol, safeRow, vx, vy), false, 'the barrier let a kart through on the start-finish straight');
+  }
 });
 
 test('falling off the bridge costs seconds, not the lap', () => {
   // The report this changed for: "man sollte nur im äußersten Notfall zurückgesetzt werden und
   // dann auch nicht so weit weg". A respawn used to go to the last gate, and this circuit has
-  // four — so clipping the bridge handed the track back most of a lap behind, for a wheel over a
-  // kerb. What it must do instead is put the car back on the road it left.
+  // four — so clipping the bridge handed the track back a quarter of a lap behind, for a wheel
+  // over a kerb. What it must do instead is put the car back on the road it left.
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
+  const span = bridgeCell(os);
   const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Faller', undefined, 'faller');
   const ch = os.characters.get(driver)!;
@@ -278,17 +303,11 @@ test('falling off the bridge costs seconds, not the lap', () => {
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true);
 
-  // On the bridge, having just passed the gate there, shoved into the open air beside it — and
-  // ELEVEN TILES PAST the gate, which is what makes the two rules tell each other apart: the old
-  // one hands the car back at gate 2, the new one leaves it where it went off.
-  const bridge = track.gates[2];
-  const away = 11;
-  kart.gate = 2;
-  kart.x = bridge.x + away * TILE;
-  kart.y = bridge.y;
+  kart.x = span.col * TILE + TILE / 2;
+  kart.y = span.row * TILE + TILE / 2;
   kart.heading = 0;
-  kart.vx = 0;
-  kart.vy = -420;
+  kart.vx = span.away.dc * 620;
+  kart.vy = span.away.dr * 620;
   kart.state = 'drive';
   const dt = 1 / RACE_TICK_HZ;
   let fellAt: { x: number; y: number } | null = null;
@@ -302,21 +321,18 @@ test('falling off the bridge costs seconds, not the lap', () => {
 
   const home = Math.hypot(kart.x - fellAt.x, kart.y - fellAt.y) / TILE;
   assert.ok(home <= KART_RESPAWN_REACH_TILES, `put back ${home.toFixed(1)} tiles from where it fell`);
-  // …and NOT at the gate, which is the whole point: eleven tiles back up the bridge is the old
-  // rule, and it is further than the search is even allowed to look.
-  assert.ok(
-    Math.hypot(kart.x - bridge.x, kart.y - bridge.y) / TILE > KART_RESPAWN_REACH_TILES,
-    'the respawn went all the way back to the last gate',
-  );
-  // It may not have gained ground either — the drop beside a corner would otherwise be a route.
-  const next = track.gates[3];
-  assert.ok(
-    Math.hypot(next.x - kart.x, next.y - kart.y) >= Math.hypot(next.x - fellAt.x, next.y - fellAt.y) - 0.001,
-    'the respawn gained ground on the gate it was heading for',
-  );
-  // …and it is ON the road, not on the grass and not over the drop.
+  // …and NOT at a gate, which is the whole point: every one of them is further away than the
+  // search is even allowed to look.
+  for (const g of track.gates) {
+    assert.ok(
+      Math.hypot(kart.x - g.x, kart.y - g.y) / TILE > KART_RESPAWN_REACH_TILES,
+      `the respawn went back to gate ${g.index}`,
+    );
+  }
+  // It is ON the road, not on the grass and not over the drop.
   const col = Math.floor(kart.x / TILE);
   const row = Math.floor(kart.y / TILE);
+  assert.equal(isRough(track, col, row), false, 'put back on the grass rather than on the road');
   const inner = os as unknown as { tileMap: number[][] };
   for (let dr = -1; dr <= 1; dr++) {
     for (let dc = -1; dc <= 1; dc++) {
@@ -339,4 +355,51 @@ test('a kart cannot leave the map, barrier or no barrier', () => {
   assert.ok(kart.x >= 0 && kart.y >= 0, 'left the map to the north or west');
   assert.ok(kart.x <= layout.cols * 16 && kart.y <= layout.rows * 16, 'left the map to the south or east');
   assert.ok(Math.hypot(kart.vx, kart.vy) < KART_MAX_SPEED_PX_PER_SEC, 'gained speed by driving into a wall');
+});
+
+/**
+ * The paddock is REACHABLE, which is the whole reason it was rebuilt.
+ *
+ * The report: "raceRecords steht irgendwo auf der Bahn, nur eine Action wo man raten muss wo sie
+ * ist". It was an Action on a bare tile — nothing to see and nothing to walk to. It is a
+ * leaderboard you can see from the grid now, and the claim worth pinning is not where it stands
+ * but that a person who arrives on this map can get to it: an action with no reachable approach
+ * tile is exactly as useless as an invisible one.
+ *
+ * Asked of the ENGINE rather than of the offsets in the generator, because "eight tiles out from
+ * the centreline" means something different on a curve than on a straight, and the question is
+ * never the offset — it is whether you can walk there.
+ */
+test('you can walk from the grid to the timing board and to the water', () => {
+  const os = world();
+  const spawnTiles = (layout.tileActions ?? [])
+    .map((a, i) => ({ a, i }))
+    .filter((x) => (x.a as { kind?: string } | null)?.kind === 'spawnPoint')
+    .map((x) => ({ col: x.i % layout.cols, row: Math.floor(x.i / layout.cols) }));
+  assert.ok(spawnTiles.length > 0, 'the map places no spawn points');
+
+  for (const kind of ['raceRecords', 'appliance', 'portal']) {
+    const item = layout.furniture.find((f) => (f.action as { kind?: string } | undefined)?.kind === kind);
+    assert.ok(item, `nothing placed on this map carries a "${kind}" action`);
+    // A fresh walker per action, standing where an arrival lands, asked to do exactly what a
+    // click does: walk to it. The engine says no if there is no approach tile it can reach.
+    const who = os.addPlayer('char_0', `W-${kind}`, undefined, `w-${kind}`);
+    const ch = os.characters.get(who);
+    assert.ok(ch);
+    ch.tileCol = spawnTiles[0].col;
+    ch.tileRow = spawnTiles[0].row;
+    ch.x = spawnTiles[0].col * TILE + TILE / 2;
+    ch.y = spawnTiles[0].row * TILE + TILE / 2;
+    // An APPLIANCE is deliberately not an `isClickAction`, so it has a door of its own
+    // (`useAppliance` / the `applianceApproach` message). Using the wrong one here would have
+    // reported the water as unreachable while it was perfectly fine — which is what it did.
+    const reached = kind === 'appliance'
+      ? os.useAppliance(who, item.col, item.row)
+      : os.walkPlayerToAction(who, item.col, item.row);
+    assert.equal(
+      reached,
+      true,
+      `"${kind}" is placed at (${item.col}, ${item.row}) and cannot be walked to from the grid`,
+    );
+  }
 });
