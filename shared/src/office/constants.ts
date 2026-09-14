@@ -316,15 +316,29 @@ export const DECAL_DEPTH = -99998.5;
  * 45 and a pet walks at 40), so a kart at 110 is about two and a half times a walking figure —
  * fast enough to feel like driving on a 16 px grid without crossing a tile per tick.
  */
-/** Fifteen tiles a second. 110 (seven tiles) and then 190 (twelve) were both reported as too
- *  slow — a long straight has to feel like one. Every derived number below is set against this,
- *  so raising it is not a free knob: a corner demands `v² / radius`, which grows with the SQUARE.
- *  At 240 a full-lock corner asks 823 px/s² of tyres that have 600. */
-export const KART_MAX_SPEED_PX_PER_SEC = 260;
+/**
+ * Twenty tiles a second. 110 (seven tiles), 190 (twelve) and then 260 (sixteen) were each
+ * reported as too slow — a long straight has to feel like one.
+ *
+ * Raising it is not a free knob: a corner demands `v² / radius`, which grows with the SQUARE, so
+ * the grip moves with it (see `KART_GRIP_PX_PER_SEC2`) and the acceleration and the brakes move
+ * LINEARLY, which keeps the time to top speed at the 0.75 s it has always been. What that buys is
+ * exactly what was asked for and nothing else: the same corner, taken sooner.
+ *
+ * 260 → 320 is +23 %, and it only became available once the computer drivers could use it —
+ * 300 was tried at the old ratio and abandoned because the field stopped finishing, which turned
+ * out to be the straight-line road probe rather than the speed (see the grip constant below).
+ * Measured across the three circuits, alone at the top skill and as a full grid: raceway
+ * 65.6 → 54.4 s, speedway 48.7 → 40.7, hillroad 35.3 → 29.8, with no falls and no DNFs at any
+ * skill, and 380 still works if more is ever wanted.
+ */
+export const KART_MAX_SPEED_PX_PER_SEC = 320;
 /** Reverse is deliberately slow: it is for getting off a wall, not for racing backwards. */
 export const KART_MAX_REVERSE_PX_PER_SEC = 55;
-export const KART_ACCEL_PX_PER_SEC2 = 345;
-export const KART_BRAKE_PX_PER_SEC2 = 540;
+/** Both scale LINEARLY with the top speed, which is what keeps the throttle feeling the same:
+ *  0.75 s from a standstill to the limit at 260 and at 320 alike. */
+export const KART_ACCEL_PX_PER_SEC2 = 425;
+export const KART_BRAKE_PX_PER_SEC2 = 665;
 /**
  * Coasting loss per second, as a fraction — a kart slows when you let go, but does not stop dead.
  *
@@ -351,8 +365,12 @@ export const KART_DRAG_PER_SEC = 0.35;
  * clamped subtraction per tick, deterministic and headless, not a solver.
  */
 /**
- * Tried at 800 with the speed at 300 and put back on 2026-09-13, which is worth writing down so
- * nobody spends the afternoon again.
+ * Raised from 800 to 1212 with the speed, 2026-09-14: the handling is the relation `v² / r`
+ * against the tyre budget, so holding `v²/(r·grip)` fixed is what makes a faster car the SAME car
+ * — 260²/82 against 800 and 320²/82 against 1212 are the same choice in a corner.
+ *
+ * The paragraph below is the previous attempt at this and is kept because its conclusion was
+ * wrong in an instructive way.
  *
  * "Es ist smooth, aber langsam" is real — a four-tile car at 260 px/s covers four of itself a
  * second where the old two-tile car at 240 covered seven — and more speed is simply not available
@@ -377,7 +395,7 @@ export const KART_DRAG_PER_SEC = 0.35;
  * did not pay: unchanged on the raceway and worse on the stage. It is a piece of work rather than
  * a constant, and today it would buy the last 1 %.
  */
-export const KART_GRIP_PX_PER_SEC2 = 800;
+export const KART_GRIP_PX_PER_SEC2 = 1212;
 /**
  * How much of the tyres' grip is spent on GOING rather than turning, as a share of
  * `KART_GRIP_PX_PER_SEC2` at full throttle.
@@ -437,8 +455,14 @@ export const KART_STEER_AT_REST = 0.35;
  * compromise every top-down racer makes, and the alternative is tracks several screens across.
  *
  * The SPEED moved with it and not by taste: the handling is the relation `v² / r` against the
- * grip budget, so the top speed is whatever keeps that where it was — 240²/70 = 823 before,
- * 260²/82 = 824 now. The choice in a corner is the same choice it always was.
+ * grip budget, so the top speed is whatever keeps that where it was — 240²/70 = 823 against 600,
+ * 260²/82 = 824 against 800, and 320²/82 = 1249 against 1212. The choice in a corner is the same
+ * choice it always was.
+ *
+ * The radius itself deliberately did NOT move with the speed, and that was measured rather than
+ * assumed: holding the ratio by opening the radius to 109 instead of by raising the grip works on
+ * the two circuits and costs the stage, where the quick driver fell from 98 % of its pace to 86 %.
+ * A twisty road wants a kart that turns in, so the grip is the knob and the radius is not.
  */
 export const KART_TURN_RADIUS_PX = 82;
 /** Collision radius in pixels — half the kart's width, so two bodies touch when the pictures do. */

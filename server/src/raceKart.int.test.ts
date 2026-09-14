@@ -108,6 +108,27 @@ const at = (col: number, row: number): { x: number; y: number } => ({
 });
 
 const DT = 1 / 60;
+/**
+ * Build speed without covering ground — a rolling road.
+ *
+ * A setup that wants a kart moving at a given speed must not also be a statement about how far it
+ * travels while getting there, and writing it as "drive for 0.45 s" makes it one: the distance is
+ * `a·t²/2`, so raising the acceleration with the top speed sent a run-up that used to stop two
+ * tiles short of the infield two and a half tiles into it, where it fell off and arrived at the
+ * bump with no velocity at all. The position is restored each tick, so what this asks for is the
+ * velocity the model gives and nothing else.
+ */
+function spinUp(kart: Kart, w: KartWorld, seconds: number, input: Partial<Kart['input']> = {}): void {
+  const x = kart.x;
+  const y = kart.y;
+  kart.input = { throttle: 0, steer: 0, ...input } as Kart['input'];
+  for (let i = 0; i < Math.round(seconds / DT); i++) {
+    updateKart(kart, DT, w);
+    kart.x = x;
+    kart.y = y;
+  }
+}
+
 function drive(kart: Kart, w: KartWorld, seconds: number, input: Partial<Kart['input']> = {}): { laps: number; falls: number } {
   kart.input = { throttle: 0, steer: 0, ...input } as Kart['input'];
   let laps = 0;
@@ -296,7 +317,7 @@ test('a bump is a trade, and a shove from the side puts a kart off the road', ()
   victim.driverId = 7;
   const rammer = createKart(4, at(8, 13), -Math.PI / 2); // heading north, two tiles below
   rammer.driverId = 8;
-  drive(rammer, w, 0.45, { throttle: 1 });
+  spinUp(rammer, w, 0.45, { throttle: 1 });
   // Placed at the contact point with the speed it built up, rather than waiting for the tick that
   // happens to overlap them.
   rammer.x = victim.x;
