@@ -1642,6 +1642,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const id = this.players.get(client.sessionId);
       if (id !== undefined) this.os.boardKart(id);
     });
+    /**
+     * Walk over to a kart and get in on arrival — a double-click on the bodywork.
+     *
+     * The kart id comes from the client because it is what was CLICKED, and that is a request
+     * about the world rather than about identity: who walks is resolved from the session, and the
+     * engine re-checks that the kart exists and is free both now and again on arrival.
+     */
+    this.onMessage('kartApproach', (client, msg: { kartId?: unknown }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const kartId = Number(msg?.kartId);
+      if (!Number.isInteger(kartId)) return;
+      this.os.walkPlayerToKart(id, kartId);
+    });
     /** What the driver is asking for. Clamped in the engine, because it comes from a client. */
     this.onMessage('kartInput', (client, msg: { throttle?: unknown; steer?: unknown }) => {
       const id = this.players.get(client.sessionId);

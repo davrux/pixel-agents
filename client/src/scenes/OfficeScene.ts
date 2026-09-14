@@ -31,6 +31,7 @@ import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
 import { RaceHud, raceTime, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
 import { helmetPickerHtml } from '../ui/helmetPicker.js';
+import { vehicleArt } from '@pixel/shared/office/race/kartArt.js';
 import { DEFAULT_HELMET, isHelmetId } from '@pixel/shared/office/race/helmets.js';
 import { EngineSound, finishChime, lightsBeep } from '../raceSound.js';
 import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
@@ -2085,6 +2086,23 @@ export class OfficeScene extends Phaser.Scene {
         // The second click of a double click is swallowed on anything already
         // acted on: repeating it would toggle a meeting join straight back off.
         if (this.myPlayerId !== null && p.leftButtonReleased()) {
+          // A free kart is a DESTINATION, so it takes two clicks like a tile does — and unlike a
+          // chair, which is a thing you use. The difference is what a mistake costs: a stray click
+          // on a chair sits you down where you already were, while one on a kart puts you in a
+          // vehicle in the middle of a race. Asked for in exactly those words ("doppelklick auf
+          // ein Fahrzeug geht hin und steigt ein"), and it agrees with the rest of the convention:
+          // the server walks the body over and boards it on arrival, the same shape as every other
+          // approach here.
+          const kart = this.kartHitTest(p.worldX, p.worldY);
+          if (kart !== null) {
+            if (doubled) {
+              this.pendingConference = null;
+              this.room?.send('kartApproach', { kartId: kart });
+            }
+            // Either way the click is spent on the kart: falling through would send the avatar
+            // walking to the tile UNDER a car it just decided not to get into.
+            return;
+          }
           const col = Math.floor(p.worldX / TILE_SIZE);
           const row = Math.floor(p.worldY / TILE_SIZE);
           const action = this.actionAt(col, row);
@@ -2308,6 +2326,37 @@ export class OfficeScene extends Phaser.Scene {
       e.preventDefault();
       void call.toggleMic();
     });
+  }
+
+  /**
+   * Which FREE kart is under this world point, or null.
+   *
+   * Only a free one answers: a kart with a driver in it is that driver's, and clicking it should
+   * do what clicking a person does. The box is the art's own 40x32 turned by the kart's heading,
+   * so the point is rotated INTO kart space rather than the box being grown to cover every angle —
+   * a square big enough for a diagonal kart would claim the road beside it.
+   */
+  private kartHitTest(wx: number, wy: number): number | null {
+    let best: number | null = null;
+    let bestD = Infinity;
+    for (const kt of this.karts.values()) {
+      if (kt.driverId) continue;
+      const x = kt.x ?? kt.tx;
+      const y = kt.y ?? kt.ty;
+      const a = -(kt.drawHeading ?? kt.heading);
+      const dx = wx - x;
+      const dy = wy - y;
+      const lx = dx * Math.cos(a) - dy * Math.sin(a);
+      const ly = dx * Math.sin(a) + dy * Math.cos(a);
+      const art = vehicleArt(kt.art ?? 0);
+      if (Math.abs(lx) > art.w / 2 || Math.abs(ly) > art.h / 2) continue;
+      const d = Math.hypot(dx, dy);
+      if (d < bestD) {
+        best = kt.id;
+        bestD = d;
+      }
+    }
+    return best;
   }
 
   /** Hit-test characters (topmost / front-most wins). */

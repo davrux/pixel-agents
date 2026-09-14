@@ -1235,6 +1235,10 @@ export interface Character {
    *  Server-only intent. Appliances are a separate field (pendingAppliance)
    *  since they use the pre-built station/occupancy system, not this. */
   pendingAction?: { action: Action; col: number; row: number; facing: Direction } | null;
+  /** A kart this pawn is walking towards in order to get IN it — the id, set by
+   *  `walkPlayerToKart` and spent on arrival. Not an Action: boarding is not something a tile
+   *  offers, it is something a body does to a vehicle that may have moved since you set off. */
+  pendingBoard?: number | null;
   /** When walking to an appliance (e.g. coffee machine), the station to start
    *  standing at + the facing on arrival; null = none. Server-only intent. */
   pendingAppliance?: { stationUid: string; facing: Direction } | null;

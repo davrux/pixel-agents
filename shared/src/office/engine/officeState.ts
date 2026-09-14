@@ -1095,8 +1095,13 @@ export class OfficeState {
    * Boarding is a request like every other command: the server decides whether there is a kart
    * close enough and free, and answers by doing it or not. Distance is checked against the
    * CHARACTER, so walking up to a kart is how you get in — there is no "kart list" to pick from.
+   *
+   * `want` narrows that to ONE kart, which is what a click on a particular car means. Without it
+   * the nearest free kart wins, and somebody standing beside one who clicks another across the
+   * grid gets into the one they are leaning on — seen in a browser, which is the only place a
+   * gesture aimed at a specific picture can be told apart from a gesture aimed at "a kart".
    */
-  boardKart(characterId: number, reachPx = TILE_SIZE * KART_BOARD_REACH_TILES): boolean {
+  boardKart(characterId: number, reachPx = TILE_SIZE * KART_BOARD_REACH_TILES, want?: number): boolean {
     const ch = this.humanPawn(characterId);
     if (!ch) return false;
     const already = this.kartOf(characterId);
@@ -1121,6 +1126,7 @@ export class OfficeState {
     let bestDist = reachPx;
     for (const kart of this.karts.values()) {
       if (kart.driverId !== null) continue;
+      if (want !== undefined && kart.id !== want) continue;
       const d = Math.hypot(kart.x - ch.x, kart.y - ch.y);
       if (d <= bestDist) {
         best = kart;
@@ -1689,8 +1695,7 @@ export class OfficeState {
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
-    ch.pendingAction = null; // …and a pending walk-to-action (monitor/kiosk/arcade/…)
-    ch.pendingAppliance = null; // …and a pending walk-to-appliance
+    this.cancelPendingIntents(ch); // a new intent cancels any pending one
     ch.afk = false; // moving clears the afk marker
     ch.path = path;
     ch.moveProgress = 0;
@@ -1723,8 +1728,7 @@ export class OfficeState {
     }
     ch.heldDir = null;
     ch.pendingSitFacing = null;
-    ch.pendingAction = null;
-    ch.pendingAppliance = null;
+    this.cancelPendingIntents(ch); // a new intent cancels any pending one
     ch.afk = false;
     ch.path = [];
     ch.bubbleType = null;
@@ -1760,8 +1764,7 @@ export class OfficeState {
     if (point.occupantId !== null && point.occupantId !== ch.id) return false;
     ch.heldDir = null;
     ch.afk = false; // moving to a seat clears the afk marker
-    ch.pendingAction = null; // a click-to-sit cancels a pending walk-to-action
-    ch.pendingAppliance = null; // …and a pending walk-to-appliance
+    this.cancelPendingIntents(ch); // a new intent cancels any pending one
     if (ch.tileCol === col && ch.tileRow === row) {
       ch.path = [];
       ch.moveProgress = 0;
@@ -1797,8 +1800,7 @@ export class OfficeState {
     if (dir !== null && ch.state === CharacterState.SIT) ch.state = CharacterState.IDLE; // stand up to move
     if (dir !== null) {
       ch.pendingSitFacing = null; // cancel a walk-to-seat
-      ch.pendingAction = null; // …and a walk-to-action
-      ch.pendingAppliance = null; // …and a walk-to-appliance
+      this.cancelPendingIntents(ch); // a new intent cancels any pending one
       ch.afk = false; // moving clears the afk marker
     }
     ch.heldDir = dir;
@@ -1817,8 +1819,7 @@ export class OfficeState {
       ch.path = [];
       ch.heldDir = null;
       ch.pendingSitFacing = null;
-      ch.pendingAction = null;
-      ch.pendingAppliance = null;
+      this.cancelPendingIntents(ch); // a new intent cancels any pending one
       ch.moveProgress = 0;
       snapToTile(ch);
       ch.state = CharacterState.SIT;
@@ -1956,6 +1957,70 @@ export class OfficeState {
    *  useAppliance instead (they use the pre-built station/occupancy system,
    *  not computeApproachTiles), and a talking object is not walked up to at
    *  all. */
+  /**
+   * Cancel every "…and then do this when you get there" a body is carrying.
+   *
+   * One place, because SIX commands cancel them — walking, warping, sitting, standing, using a
+   * station — and the seventh is where one gets forgotten. That is not hypothetical here: a
+   * `pendingBoard` left behind by a change of mind would put somebody into a kart a click later,
+   * from the other side of the room.
+   */
+  private cancelPendingIntents(ch: Character): void {
+    ch.pendingAction = null;
+    ch.pendingAppliance = null;
+    ch.pendingBoard = null;
+  }
+
+  /**
+   * Walk over to a kart and get in when you arrive.
+   *
+   * Boarding is not an Action and deliberately does not borrow the machinery for one: an Action
+   * belongs to a TILE and is fired by standing on an approach tile, while a kart is a body that
+   * can have driven off by the time you get there. So the intent is carried on the walker
+   * (`pendingBoard`) and re-checked on arrival — if the kart moved or somebody else got in, the
+   * walk simply ends where it ends and nothing happens, which is the honest outcome.
+   *
+   * Already close enough gets in at once, exactly like `walkPlayerToAction` fires an action you
+   * are already standing at: a gesture that does nothing because you were too close would be
+   * baffling.
+   */
+  walkPlayerToKart(id: number, kartId: number): boolean {
+    const ch = this.humanPawn(id);
+    if (!ch) return false;
+    const kart = this.karts.get(kartId);
+    if (!kart || kart.driverId !== null) return false;
+    // `boardKart` is a TOGGLE, so asking it while already driving would get the player out — the
+    // opposite of what "go to that kart" means. Somebody at the wheel is already where they asked
+    // to be; the gesture does nothing rather than something surprising.
+    if (this.kartOf(id)) return false;
+    if (this.boardKart(id, undefined, kartId)) return true;
+    // The tiles around the kart's own, nearest first, so the body stops beside the bodywork
+    // rather than on the far side of it.
+    const col = Math.floor(kart.x / TILE_SIZE);
+    const row = Math.floor(kart.y / TILE_SIZE);
+    const around: Array<{ col: number; row: number }> = [];
+    for (let dr = -2; dr <= 2; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        if (dc === 0 && dr === 0) continue;
+        around.push({ col: col + dc, row: row + dr });
+      }
+    }
+    around.sort((a, b) => Math.hypot(a.col - col, a.row - row) - Math.hypot(b.col - col, b.row - row));
+    for (const spot of around) {
+      if (!isWalkable(spot.col, spot.row, this.tileMap, this.blockedTiles)) continue;
+      if (spot.col === ch.tileCol && spot.row === ch.tileRow) continue;
+      const path = findPath(ch.tileCol, ch.tileRow, spot.col, spot.row, this.tileMap, this.blockedTiles, undefined, this.walls);
+      if (path.length === 0) continue;
+      this.cancelPendingIntents(ch);
+      ch.path = path;
+      ch.moveProgress = 0;
+      ch.state = CharacterState.WALK;
+      ch.pendingBoard = kartId;
+      return true;
+    }
+    return false;
+  }
+
   walkPlayerToAction(id: number, anchorCol: number, anchorRow: number): boolean {
     const ch = this.humanPawn(id);
     if (!ch) return false;
@@ -1988,8 +2053,7 @@ export class OfficeState {
     const fh = entry?.footprintH ?? 1;
     ch.heldDir = null;
     ch.pendingSitFacing = null;
-    ch.pendingAppliance = null;
-    ch.pendingAction = null;
+    this.cancelPendingIntents(ch); // a new intent cancels any pending one
 
     const approaches = this.computeApproachTiles(anchorCol, anchorRow, fw, fh, item!.approachSides);
 
@@ -2044,6 +2108,7 @@ export class OfficeState {
     ch.heldDir = null;
     ch.pendingSitFacing = null;
     ch.pendingAction = null;
+    ch.pendingBoard = null;
 
     const here = spots.find(([, s]) => s.col === ch.tileCol && s.row === ch.tileRow);
     if (here) {
@@ -2097,7 +2162,15 @@ export class OfficeState {
       // Chain the next held step so continuous walking has no per-tile idle frame.
       this.tryStepHeldDir(ch);
       if (ch.path.length === 0) {
-        if (ch.pendingAction) {
+        if (ch.pendingBoard !== null && ch.pendingBoard !== undefined) {
+          // Arrived beside the kart we set off for. Re-checked rather than assumed: it may have
+          // been driven away, or somebody nearer may have got in first.
+          const want = ch.pendingBoard;
+          ch.pendingBoard = null;
+          ch.state = CharacterState.IDLE;
+          const kart = this.karts.get(want);
+          if (kart && kart.driverId === null) this.boardKart(ch.id, undefined, want);
+        } else if (ch.pendingAction) {
           // Reached a furniture action's stand tile → face it + queue the
           // arrival (room adds us to a 'meetingRoom's membership, or tells
           // us to open our own local UI for anything else — see
