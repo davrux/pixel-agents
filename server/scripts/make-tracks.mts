@@ -144,16 +144,16 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'raceway',
     label: 'Raceway',
     kind: 'ring',
-    cols: 140,
-    rows: 88,
+    cols: 116,
+    rows: 74,
     width: 7,
     // Three, and the number follows the lap rather than taste: a lap of this circuit is about
     // thirty seconds and costs a quarter of a set of tyres, so three is a ninety-second race that
     // ends on a fifth of its rubber — the pit stop stays the decision it is meant to be, and a
     // fourth lap would make it compulsory. The panel can still set anything.
     laps: 3,
-    startCol: 78,
-    bridge: { from: 46, to: 88, width: 9 },
+    startCol: 64,
+    bridge: { from: 38, to: 72, width: 7 },
   },
   {
     // Shorter, wider and twice as many laps: a circuit you can actually race side by side on,
@@ -162,15 +162,15 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'speedway',
     label: 'Speedway',
     kind: 'ring',
-    cols: 108,
-    rows: 74,
+    cols: 90,
+    rows: 62,
     width: 9,
     // Three, for the same arithmetic as the raceway: a 22-second lap costs a quarter of a set.
     laps: 3,
     // Far enough round that the grid fits BEHIND it: six rows five tiles apart need thirty tiles
     // of straight, and at 26 the last two rows fell off the west end of the map — measured as a
     // field of seven on a twelve-car grid.
-    startCol: 80,
+    startCol: 66,
     bridge: null,
   },
   {
@@ -186,8 +186,8 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'hillroad',
     label: 'Hill Road',
     kind: 'sprint',
-    cols: 140,
-    rows: 104,
+    cols: 116,
+    rows: 88,
     width: 6,
     laps: 1,
     startCol: 0,
@@ -201,7 +201,7 @@ const TRACKS: readonly TrackSpec[] = [
      * six-tile hairpin is tighter than the tyres hold. The shoulders are what used to make four
      * unreadable, and STAGE_SAND is what fixed that.
      */
-    bands: 6,
+    bands: 5,
   },
 ];
 

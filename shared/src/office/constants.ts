@@ -465,6 +465,15 @@ export const KART_BUMP_MIN_PX_PER_SEC = 25;
  */
 export const KART_BOARD_REACH_TILES = 5;
 
+/**
+ * How far BACK from a kart's middle its seat is, in pixels — where the driver is drawn.
+ *
+ * The cushion is behind the middle (see `kartShapes`), and a figure drawn at the kart's own x/y
+ * ends up sitting on the bonnet. Shared rather than a number in the renderer because the art and
+ * the placement have to agree, and they are written in two different files.
+ */
+export const DRIVER_SEAT_OFFSET_PX = 4;
+
 export const KART_FALL_SEC = 1.2;
 
 /**

@@ -19,6 +19,7 @@ import {
   CHARACTER_Z_SORT_OFFSET,
   PET_EFFECT_DURATION_SEC,
   PET_Z_SORT_OFFSET,
+  DRIVER_SEAT_OFFSET_PX,
 } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
 import { getCharacterPose } from '@pixel/shared/office/engine/index.js';
@@ -215,6 +216,8 @@ export class PhaserRenderer {
    *  by syncCharacters, which runs after it. A driver is NOT DRAWN at all: once you are in, you
    *  are the car. It keeps the heading because the camera still needs to know what to turn to. */
   private readonly drivers = new Map<number, number>();
+  /** The front half of each kart, drawn over its driver. Keyed and destroyed with `karts`. */
+  private readonly kartFronts = new Map<number, Phaser.GameObjects.Image>();
   /** How far the view is turned this frame, in radians. Read once in `update` so every helper
    *  below sees one value, and zero in every zone where nobody is driving. */
   private turn = 0;
@@ -548,10 +551,20 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
         this.karts.set(kart.id, img);
       }
+      // The FRONT half — the bonnet, the bumper, the wheel — is a second image drawn over the
+      // driver, so a body can sit in the kart instead of being hidden by it. Created beside the
+      // back half and destroyed with it, so the two cannot get out of step.
+      let over = this.kartFronts.get(kart.id);
+      if (!over) {
+        over = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
+        this.kartFronts.set(kart.id, over);
+      }
       const art = vehicleArt(kart.art ?? 0);
       const tex = sheetRowFrame(this.scene, vehicleSheetId(art.id), 0, 0);
+      const front = sheetRowFrame(this.scene, vehicleSheetId(art.id), 1, 0);
       if (!tex) {
         img.setVisible(false);
+        over.setVisible(false);
         continue;
       }
       img.setTexture(tex.key, tex.frame);
@@ -563,14 +576,29 @@ export class PhaserRenderer {
       // Origin at the CENTRE, unlike a character: the model's x/y is the car's middle, which is
       // also what it collides and bumps on.
       img.setPosition(x, y);
-      img.setDepth(y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
+      // Three depths a hair apart: the kart's back half, the driver, the kart's front half. The
+      // driver's own body is placed at +0.5 by syncCharacters, which is why these are whole and
+      // half steps rather than anything finer.
+      const base = y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
+      img.setDepth(base);
       img.setVisible(true);
+      if (front) {
+        over.setTexture(front.key, front.frame);
+        over.setRotation(kart.drawHeading ?? kart.heading);
+        over.setPosition(x, y);
+        over.setDepth(base + 1);
+        over.setVisible(true);
+      } else {
+        over.setVisible(false);
+      }
       if (kart.sliding) this.dropSkidMark(x, y, kart.drawHeading ?? kart.heading);
     }
     for (const [id, img] of this.karts) {
       if (!seen.has(id)) {
         img.destroy();
         this.karts.delete(id);
+        this.kartFronts.get(id)?.destroy();
+        this.kartFronts.delete(id);
       }
     }
     this.fadeSkidMarks();
@@ -657,19 +685,48 @@ export class PhaserRenderer {
     const pose = ch.pose ?? getCharacterPose(ch);
     const cell = poseFrame(getSkinSpec(ch.skin), pose, ch.frame, sheetColumns(ch.skin));
     const frameH = size.h;
-    // A seated body sinks into its chair; a driver sinks into the cockpit, which is the same
-    // trick and a bigger number. The kart's x/y is its MIDDLE while a character is anchored at
-    // the feet, so with no offset the figure stands on the bodywork and the kart reads as a
-    // skateboard. A third of the frame's height puts the torso over the seat at any figure size.
-    // In a car you ARE the car: the body is not drawn at all. Perching a 16×32 figure on a
-    // top-down vehicle only ever reads as somebody lying on the roof, which is how it was
-    // reported — and the alternative, cutting the art into layers to sit them inside, is a lot of
-    // machinery for a figure two tiles of car would hide anyway.
-    if (this.drivers.has(ch.id)) {
-      g.body.setVisible(false);
+    /**
+     * A driver SITS in the kart, between its two halves.
+     *
+     * It used to be hidden entirely, with a reason that was true of a car and stopped being true
+     * of a kart: perching a 16×32 figure on a top-down vehicle reads as somebody lying on the
+     * roof, and cutting the art into layers to sit them inside was "a lot of machinery for a
+     * figure two tiles of car would hide anyway". A kart is two and a half tiles of open
+     * bodywork, the figure is most of what you see, and it was asked for by name.
+     *
+     * Three decisions make it read:
+     *
+     *  - **The BACK frame, always.** Seen from above and behind, a driver shows you their back
+     *    whichever way the kart is pointing; picking the frame from their facing would flip them
+     *    round mid-corner.
+     *  - **Turned with the kart**, plus a quarter turn: the art points EAST at heading 0 and a
+     *    character sprite faces up the screen, so the two conventions are ninety degrees apart.
+     *  - **Anchored at the seat, not at the feet.** A character's origin is the ground under
+     *    them; the kart's is its middle. Without the shift the figure stands behind the kart.
+     */
+    const driving = this.drivers.get(ch.id);
+    if (driving !== undefined) {
       g.bubble.setVisible(false);
       for (const m of g.markers) m.setVisible(false);
       this.removeWarpArt(ch.id);
+      const seat = sheetCellFrame(this.scene, ch.skin, Direction.UP, 0);
+      if (!seat) {
+        g.body.setVisible(false);
+        return;
+      }
+      const size = sheetFrameSize(ch.skin) ?? { w: 16, h: 32 };
+      g.body.setTexture(seat.key, seat.frame);
+      g.body.setOrigin(0.5, 0.5);
+      // A shade smaller than on foot, so the figure sits INSIDE the tub rather than over its
+      // edges — a driver wider than the kart reads as somebody holding it up.
+      g.body.setDisplaySize(size.w * 0.88, size.h * 0.88);
+      g.body.setRotation(driving + Math.PI / 2);
+      // The seat sits a little behind the kart's middle, so the body goes there rather than on
+      // the bonnet — back along the heading, which is where `kartShapes` puts the cushion.
+      const back = DRIVER_SEAT_OFFSET_PX;
+      g.body.setPosition(ch.x - Math.cos(driving) * back, ch.y - Math.sin(driving) * back);
+      g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET + 0.5);
+      g.body.setVisible(true);
       return;
     }
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;

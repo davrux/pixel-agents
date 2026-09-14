@@ -86,58 +86,65 @@ const liveryFor = (hull: RGB): Livery => ({
   dark: mix(hull, [0x00, 0x00, 0x00], 0.55),
 });
 
-type Shape =
+/**
+ * Which half of the kart a shape belongs to.
+ *
+ * `front` is drawn OVER the driver — the bonnet, the bumper, the steering wheel; everything else
+ * is `behind` and the figure sits on top of it. That split is the whole of "kann die Figur darauf
+ * sitzen": the renderer draws the back half, then the body, then the front half, and the driver is
+ * in the kart rather than on the roof of it.
+ */
+type Layer = 'behind' | 'front';
+type Shape = { layer: Layer } & (
   | { kind: 'box'; x0: number; x1: number; y0: number; y1: number; rgb: RGB }
   | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; rgb: RGB }
-  | { kind: 'poly'; pts: readonly (readonly [number, number])[]; rgb: RGB };
+  | { kind: 'poly'; pts: readonly (readonly [number, number])[]; rgb: RGB }
+);
+
+export const LAYERS: readonly Layer[] = ['behind', 'front'];
 
 /**
- * The kart, once, in units where it is 40 long and 26 across the rear tyres.
+ * The kart, once, in units where it is about 36 long and 30 across the tyres.
  *
- * Read it as a top-down go-kart: fat rear tyres on an axle, a tub with side rails, a seat with a
- * head rest behind it, thin front tyres out on stalks, a steering wheel and a white nose cone.
- * The tub is a long box with the nose drawn INTO it rather than a wedge — an early version tapered
- * from the rear axle forward and read as an arrowhead rather than as a vehicle.
+ * Short, fat and round, which is the point: the first drawing of this was a tapered tub with a
+ * pointed nose and open wheels on stalks, and it read as a Formula car — said in those words. A
+ * fun kart is nearly as wide as it is long, has no nose to speak of, and its wheels are FAT discs
+ * at the corners rather than thin cylinders out on suspension. The body is an ellipse rather than
+ * a polygon for the same reason: there is not a straight line on a toy.
  */
 function kartShapes(livery: Livery): readonly Shape[] {
   const { hull, lit, dark } = livery;
+  const wheel = (cx: number, cy: number, rx: number, ry: number): Shape[] => [
+    { layer: 'behind', kind: 'ellipse', cx, cy, rx, ry, rgb: TYRE },
+    // A lighter band across the middle of each tyre — a flat black disc at this size reads as a
+    // hole in the picture rather than as rubber.
+    { layer: 'behind', kind: 'ellipse', cx, cy, rx: rx * 0.62, ry: ry * 0.5, rgb: TRIM },
+  ];
   return [
-    // Rear tyres — fat, set WIDE of the tub. The width matters more than the size: a first
-    // version had the tub nearly as wide as the track, the tyres stuck out three pixels, and the
-    // whole thing read as a brick with a nose on it.
-    { kind: 'box', x0: -17.0, x1: -8.0, y0: -15.5, y1: -9.5, rgb: TYRE },
-    { kind: 'box', x0: -17.0, x1: -8.0, y0: 9.5, y1: 15.5, rgb: TYRE },
-    // Rear axle, so the wheels belong to something instead of floating beside the tub.
-    { kind: 'box', x0: -14.5, x1: -10.5, y0: -14.0, y1: 14.0, rgb: TRIM },
-    // Front tyres — narrower, on stalks, the open-wheel stance that says go-kart.
-    { kind: 'box', x0: 7.0, x1: 14.5, y0: -15.0, y1: -9.5, rgb: TYRE },
-    { kind: 'box', x0: 7.0, x1: 14.5, y0: 9.5, y1: 15.0, rgb: TYRE },
-    { kind: 'box', x0: 8.6, x1: 12.0, y0: -13.5, y1: 13.5, rgb: TRIM },
-    // The tub: narrow, so the wheels stand clear of it either side.
-    {
-      kind: 'poly',
-      rgb: hull,
-      pts: [
-        [11.0, -8.0],
-        [17.5, -2.6],
-        [17.5, 2.6],
-        [11.0, 8.0],
-        [-17.5, 8.0],
-        [-17.5, -8.0],
-      ],
-    },
-    // A shaded rail down each flank and a lit strip along the top — the two things that stop the
-    // tub reading as a flat lozenge at this size.
-    { kind: 'box', x0: -16.5, x1: 9.0, y0: -8.2, y1: -6.4, rgb: dark },
-    { kind: 'box', x0: -16.5, x1: 9.0, y0: 6.4, y1: 8.2, rgb: dark },
-    { kind: 'box', x0: -16.0, x1: 10.0, y0: -6.2, y1: -3.4, rgb: lit },
-    // The cockpit, and the head rest behind it.
-    { kind: 'box', x0: -12.5, x1: -2.0, y0: -5.0, y1: 5.0, rgb: SEAT },
-    { kind: 'box', x0: -17.0, x1: -13.2, y0: -4.6, y1: 4.6, rgb: TRIM },
+    // Four fat tyres at the corners. Rear ones bigger, which is what makes a kart look eager.
+    ...wheel(-11.0, -12.0, 6.4, 4.6),
+    ...wheel(-11.0, 12.0, 6.4, 4.6),
+    ...wheel(10.5, -11.6, 5.4, 4.0),
+    ...wheel(10.5, 11.6, 5.4, 4.0),
+    // The body: one round tub, wider at the back, with a bumper rail all the way round.
+    { layer: 'behind', kind: 'ellipse', cx: -1.0, cy: 0, rx: 18.0, ry: 10.6, rgb: dark },
+    { layer: 'behind', kind: 'ellipse', cx: -1.0, cy: 0, rx: 16.6, ry: 9.2, rgb: hull },
+    // A lit strip along the top edge, so the tub has a shape and not just an outline.
+    { layer: 'behind', kind: 'ellipse', cx: -1.0, cy: -3.6, rx: 14.0, ry: 3.8, rgb: lit },
+    // The seat, and the head rest behind it. The figure sits on top of both — and an EMPTY kart
+    // has to read as a kart with a seat in it rather than as a kart with a hole in it, which is
+    // what a big near-black ellipse looked like on the grid.
+    { layer: 'behind', kind: 'ellipse', cx: -3.6, cy: 0, rx: 6.6, ry: 5.2, rgb: TRIM },
+    { layer: 'behind', kind: 'ellipse', cx: -3.6, cy: 0, rx: 5.2, ry: 3.9, rgb: SEAT },
+    { layer: 'behind', kind: 'box', x0: -13.6, x1: -9.8, y0: -5.4, y1: 5.4, rgb: TRIM },
+
+    // ── in front of the driver ───────────────────────────────────────────────
+    // The bonnet, drawn over the figure's knees, and a pale bumper so the front end reads.
+    { layer: 'front', kind: 'ellipse', cx: 10.5, cy: 0, rx: 8.4, ry: 8.6, rgb: hull },
+    { layer: 'front', kind: 'ellipse', cx: 10.0, cy: -2.6, rx: 6.4, ry: 3.2, rgb: lit },
+    { layer: 'front', kind: 'ellipse', cx: 15.6, cy: 0, rx: 3.4, ry: 7.4, rgb: NOSE },
     // The wheel, right where a pair of hands would be.
-    { kind: 'ellipse', cx: 2.0, cy: 0, rx: 1.5, ry: 4.0, rgb: TRIM },
-    // Nose tip — white, so which way a kart faces reads at a glance from across the map.
-    { kind: 'poly', rgb: NOSE, pts: [[19.5, 0.0], [14.5, -3.4], [14.5, 3.4]] },
+    { layer: 'front', kind: 'ellipse', cx: 3.4, cy: 0, rx: 1.6, ry: 4.4, rgb: TRIM },
   ];
 }
 
@@ -158,13 +165,16 @@ const inside = (s: Shape, x: number, y: number): boolean => {
   return hit;
 };
 
-/** One kart, rasterised into a PNG of the art's own size. */
+/** One kart, rasterised as two stacked frames: row 0 is what is behind the driver, row 1 what is
+ *  in front. The renderer draws them either side of the body. */
 function drawKart(shapes: readonly Shape[], w: number, h: number): PNG {
-  const png = new PNG({ width: w, height: h });
+  const png = new PNG({ width: w, height: h * LAYERS.length });
   png.data.fill(0);
   // Kart units are 40 long by 32 wide (the shapes above sit inside that); the frame scales to it,
   // so changing the art size in VEHICLE_ART needs no second number here.
   const scale = Math.min(w / 40, h / 32);
+  for (let row = 0; row < LAYERS.length; row++) {
+  const only = LAYERS[row];
   for (let py = 0; py < h; py++) {
     for (let px = 0; px < w; px++) {
       let r = 0;
@@ -176,7 +186,7 @@ function drawKart(shapes: readonly Shape[], w: number, h: number): PNG {
           const kx = (px - w / 2 + (sx + 0.5) / SS) / scale;
           const ky = (py - h / 2 + (sy + 0.5) / SS) / scale;
           let rgb: RGB | null = null;
-          for (const shape of shapes) if (inside(shape, kx, ky)) rgb = shape.rgb;
+          for (const shape of shapes) if (shape.layer === only && inside(shape, kx, ky)) rgb = shape.rgb;
           if (!rgb) continue;
           r += rgb[0];
           g += rgb[1];
@@ -185,28 +195,32 @@ function drawKart(shapes: readonly Shape[], w: number, h: number): PNG {
         }
       }
       if (hits === 0) continue;
-      const i = (py * w + px) * 4;
+      const i = ((row * h + py) * w + px) * 4;
       png.data[i] = Math.round(r / hits);
       png.data[i + 1] = Math.round(g / hits);
       png.data[i + 2] = Math.round(b / hits);
       png.data[i + 3] = Math.round((hits / (SS * SS)) * 255);
     }
   }
+  }
   // The dark edge, as a pass over the finished frame: any solid pixel with a see-through
   // neighbour is pulled towards the outline colour, weighted by how see-through it is.
-  const alphaAt = (x: number, y: number): number =>
-    x < 0 || x >= w || y < 0 || y >= h ? 0 : png.data[(y * w + x) * 4 + 3];
+  const alphaAt = (row: number, x: number, y: number): number =>
+    x < 0 || x >= w || y < 0 || y >= h ? 0 : png.data[((row * h + y) * w + x) * 4 + 3];
   const edged = Buffer.from(png.data);
+  for (let row = 0; row < LAYERS.length; row++) {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
+      const i = ((row * h + y) * w + x) * 4;
       if (png.data[i + 3] < 128) continue;
       const open =
-        255 - alphaAt(x - 1, y) + (255 - alphaAt(x + 1, y)) + (255 - alphaAt(x, y - 1)) + (255 - alphaAt(x, y + 1));
+        255 - alphaAt(row, x - 1, y) + (255 - alphaAt(row, x + 1, y)) +
+        (255 - alphaAt(row, x, y - 1)) + (255 - alphaAt(row, x, y + 1));
       if (open === 0) continue;
       const t = Math.min(1, open / (255 * 2));
       for (let c = 0; c < 3; c++) edged[i + c] = Math.round(png.data[i + c] + (EDGE[c] - png.data[i + c]) * t);
     }
+  }
   }
   png.data.set(edged);
   return png;

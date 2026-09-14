@@ -166,9 +166,67 @@ const sheetTsj =
     2,
   ) + '\n';
 
+/**
+ * Clear a solid BLACK backing, from the edges inwards.
+ *
+ * `rock.png` is a rock painted on an opaque black square — 2170 of its 4096 pixels — because in
+ * its own engine it is laid on a ground texture and never needs an alpha channel. Scattered on
+ * grass here it came out as a dark box with a stone in it, which is what it looked like in the
+ * game. `tree.png` and `plant.png` carry real alpha and are left alone.
+ *
+ * Flooded from the border rather than keyed by colour, because a rock HAS dark pixels of its own
+ * and a plain "near black is background" test punches holes in the middle of it. The edge is
+ * then feathered one pixel: a hard cut at this size reads as a sticker.
+ */
+function clearBlackBacking(png: PNG): PNG {
+  const { width: w, height: h, data } = png;
+  const dark = (i: number): boolean => data[i] < 26 && data[i + 1] < 26 && data[i + 2] < 26;
+  const out = new Set<number>();
+  const queue: number[] = [];
+  const visit = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const cell = y * w + x;
+    if (out.has(cell) || !dark(cell * 4)) return;
+    out.add(cell);
+    queue.push(cell);
+  };
+  for (let x = 0; x < w; x++) {
+    visit(x, 0);
+    visit(x, h - 1);
+  }
+  for (let y = 0; y < h; y++) {
+    visit(0, y);
+    visit(w - 1, y);
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const cell = queue[head];
+    const x = cell % w;
+    const y = (cell - x) / w;
+    visit(x + 1, y);
+    visit(x - 1, y);
+    visit(x, y + 1);
+    visit(x, y - 1);
+  }
+  for (const cell of out) data[cell * 4 + 3] = 0;
+  // Feather: a kept pixel touching a cleared one goes half transparent, so the silhouette has an
+  // edge rather than a staircase once it is scaled down.
+  const soft = Buffer.from(data);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const cell = y * w + x;
+      if (out.has(cell)) continue;
+      const touches =
+        out.has(cell - 1) || out.has(cell + 1) || out.has(cell - w) || out.has(cell + w);
+      if (touches) soft[cell * 4 + 3] = Math.round(data[cell * 4 + 3] * 0.5);
+    }
+  }
+  data.set(soft);
+  return png;
+}
+
 // ── the decals ───────────────────────────────────────────────────────────────
 const decalFiles = DECALS.map((d) => {
-  const src = read(d.file);
+  const src = clearBlackBacking(read(d.file));
   return { ...d, bytes: PNG.sync.write(scaleInto(src, 0, 0, src.width, src.height, d.w, d.h), WRITE_OPTIONS) };
 });
 const decalTsj =
