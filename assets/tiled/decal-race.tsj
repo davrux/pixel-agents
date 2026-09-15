@@ -1,7 +1,7 @@
 {
   "columns": 0,
   "name": "decal-race",
-  "tilecount": 7,
+  "tilecount": 6,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -87,25 +87,6 @@
     {
       "id": 4,
       "type": "DecalTile",
-      "image": "png/src/decal/RACE_GRANDSTAND.png",
-      "imagewidth": 96,
-      "imageheight": 96,
-      "properties": [
-        {
-          "name": "id",
-          "type": "string",
-          "value": "RACE_GRANDSTAND"
-        },
-        {
-          "name": "label",
-          "type": "string",
-          "value": "Grandstand"
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "type": "DecalTile",
       "image": "png/src/decal/RACE_BRAKE_SIGN.png",
       "imagewidth": 32,
       "imageheight": 16,
@@ -123,7 +104,7 @@
       ]
     },
     {
-      "id": 6,
+      "id": 5,
       "type": "DecalTile",
       "image": "png/src/decal/RACE_BUSH.png",
       "imagewidth": 32,

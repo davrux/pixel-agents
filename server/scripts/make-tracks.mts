@@ -65,7 +65,7 @@ type SceneryTile = (typeof SCENERY_TILES)[number];
  * them. Grass alone is still a flat green rectangle; what makes a circuit read as a place is
  * something with a height in it.
  */
-const DECAL_TILES = ['RACE_TREE', 'RACE_ROCK', 'RACE_PLANT', 'RACE_TYRE', 'RACE_GRANDSTAND', 'RACE_BRAKE_SIGN', 'RACE_BUSH'] as const;
+const DECAL_TILES = ['RACE_TREE', 'RACE_ROCK', 'RACE_PLANT', 'RACE_TYRE', 'RACE_BRAKE_SIGN', 'RACE_BUSH'] as const;
 type DecalTile = (typeof DECAL_TILES)[number];
 const COLLISION_GID = 7021;
 
@@ -145,6 +145,99 @@ const roadAt = (col: number, row: number): number =>
 interface Pt {
   x: number;
   y: number;
+}
+
+/**
+ * MONZA, and any other of Dust Racing's sixteen tracks: their layout, our everything else.
+ *
+ * Asked for directly — "importier monza" — and it is the honest answer to "orient yourself on
+ * available race maps", because these ARE race maps: `data/levels/*.trk` is a grid of road pieces
+ * with an orientation each, and sixteen circuits including Monza, Suzuka and a figure of eight.
+ * What comes across is only the SHAPE. The road's width, its kerbs, the sand, the barrier, the
+ * gates, the grid, the landscape and the paddock are all still derived here, so an imported track
+ * is the same kind of thing as a hand-drawn one and not a second code path.
+ *
+ * Their pieces are 45° and 90° segments on a grid, which is why this is worth importing at all: a
+ * lap has the character somebody designed into it, including corners tighter than anything a
+ * spline through ten hand-placed points would produce.
+ *
+ * Three steps, and the middle one is the only interesting one:
+ *
+ *  1. Read the road cells — the piece types that are road rather than sand or grass.
+ *  2. WALK them into a loop, starting at the finish tile and preferring the straightest
+ *     continuation at every step. The connectivity is not taken from the art (their 45° pieces are
+ *     drawn 2×2 tiles and overlap their neighbours, so the tile's own edges say nothing) and not
+ *     from a table of piece semantics either. A ribbon one or two cells wide has exactly one
+ *     straightest way on, and the walk closes on the finish: 75 of Monza's 109 road cells, the
+ *     rest being the second cell of each diagonal pair.
+ *  3. Smooth the staircase out of the diagonals, scale to our grid, and hand the result over as
+ *     control points like any other track's.
+ */
+interface DustTrack {
+  cols: number;
+  rows: number;
+  line: Pt[];
+}
+function fromDust(file: string, opts: { scale: number; pad: number; smooth: number; every: number }): DustTrack {
+  const ROAD = new Set(['straight', 'corner45Left', 'corner45Right', 'corner90', 'straight45Female', 'straight45Male', 'finish', 'grid']);
+  const text = fs.readFileSync(path.join(REPO, 'assets', 'third-party', 'dust-racing', file), 'utf8');
+  const cells = new Map<string, { i: number; j: number; t: string }>();
+  for (const m of text.matchAll(/<t\s+([^/>]*)\/>/g)) {
+    const a = Object.fromEntries([...m[1].matchAll(/(\w+)="([^"]*)"/g)].map((x) => [x[1], x[2]]));
+    cells.set(`${a.i},${a.j}`, { i: Number(a.i), j: Number(a.j), t: a.t });
+  }
+  const road = [...cells.values()].filter((c) => ROAD.has(c.t));
+  const isRoad = (i: number, j: number): boolean => ROAD.has(cells.get(`${i},${j}`)?.t ?? '');
+  const finish = road.find((c) => c.t === 'finish');
+  if (!finish) throw new Error(`${file} has no finish tile, so there is nowhere to start the lap`);
+  const N8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]] as const;
+  let best: Array<{ i: number; j: number }> = [];
+  for (const seed of N8) {
+    if (!isRoad(finish.i + seed[0], finish.j + seed[1])) continue;
+    const seen = new Set([`${finish.i},${finish.j}`]);
+    const walk: Array<{ i: number; j: number }> = [finish];
+    let cur = { i: finish.i + seed[0], j: finish.j + seed[1] };
+    let dir: readonly [number, number] = seed;
+    for (;;) {
+      seen.add(`${cur.i},${cur.j}`);
+      walk.push(cur);
+      const here = cur;
+      const at = dir;
+      // Straightest first. Turns beyond about a right angle are refused, or the walk cuts across
+      // the ribbon at a hairpin and comes back on itself.
+      const cands = N8.map((d) => ({ d, dot: (d[0] * at[0] + d[1] * at[1]) / (Math.hypot(...d) * Math.hypot(...at)) }))
+        .sort((a, b) => b.dot - a.dot)
+        .filter((c) => c.dot > -0.2)
+        .map((c) => ({ ...c, i: here.i + c.d[0], j: here.j + c.d[1] }))
+        .filter((c) => isRoad(c.i, c.j));
+      if (walk.length > 20 && cands.some((c) => c.i === finish.i && c.j === finish.j)) break;
+      const next = cands.find((c) => !seen.has(`${c.i},${c.j}`));
+      if (!next) break;
+      dir = next.d;
+      cur = { i: next.i, j: next.j };
+    }
+    if (walk.length > best.length) best = walk;
+  }
+  const minI = Math.min(...road.map((c) => c.i));
+  const minJ = Math.min(...road.map((c) => c.j));
+  let pts = best.map((c) => ({ x: (c.i - minI) * opts.scale + opts.pad, y: (c.j - minJ) * opts.scale + opts.pad }));
+  // A diagonal run is a staircase of cells, so its centres zigzag by half a cell. Averaging each
+  // point with its neighbours takes that out without moving the shape: measured over Monza, the
+  // tightest corner goes from 3.6 to 4.3 tiles of radius and the lap from 385 to 371.
+  for (let k = 0; k < opts.smooth; k++) {
+    const from = pts;
+    pts = from.map((p, i) => {
+      const a = from[(i - 1 + from.length) % from.length];
+      const b = from[(i + 1) % from.length];
+      return { x: (a.x + 2 * p.x + b.x) / 4, y: (a.y + 2 * p.y + b.y) / 4 };
+    });
+  }
+  const line = pts.filter((_, i) => i % opts.every === 0);
+  return {
+    cols: Math.ceil(Math.max(...line.map((p) => p.x)) + opts.pad),
+    rows: Math.ceil(Math.max(...line.map((p) => p.y)) + opts.pad),
+    line,
+  };
 }
 
 /** What makes one circuit different from another. Everything else is the same generator. */
@@ -251,59 +344,30 @@ const TRACKS: readonly TrackSpec[] = [
     startAt: 0.22,
   },
   {
-    // Shorter and wider: a circuit you can actually race side by side on, where the raceway is
-    // the one with a bridge to be shoved off. No bridge here — one hazard shared by every track
-    // would make them the same track with different numbers.
-    id: 'speedway',
-    label: 'Speedway',
-    kind: 'ring',
-    cols: 90,
-    rows: 62,
-    width: 9,
-    laps: 3,
-    /** Shorter and rounder than the raceway, and every corner is a sweep: nine tiles of road with
-     *  a 7.7-tile tightest radius is the circuit you race side by side on. */
-    startAt: 0.24,
-    line: [
-      { x: 13, y: 47 },
-      { x: 44, y: 51 },
-      { x: 73, y: 45 },
-      { x: 78, y: 30 },
-      { x: 68, y: 15 },
-      { x: 42, y: 10 },
-      { x: 18, y: 15 },
-      { x: 10, y: 30 },
-    ],
-    bridge: null,
-  },
-  {
     /**
-     * A STAGE, not a circuit: one run from the west end to the east, and the line at the far end
-     * is the whole race.
+     * MONZA — Dust Racing's own layout, driven at our scale.
      *
-     * Asked for in as many words — "es müssen nicht unbedingt Runden sein" — and the engine has
-     * been able to express it since gates became a ring walked in order; what was missing was a
-     * map that used it. Narrow (five tiles), so the road itself is what a stage has instead of a
-     * circuit's room to overtake.
+     * Five of our cells per one of their tiles is the largest that fits: their grid is 35×19 with
+     * the road spanning 31×16 of it, so six would put the map past `MAX_COLS`. What that gives is
+     * a lap of 371 tiles against the raceway's 246 — two and a half times the raceway's ROAD on a
+     * map only half again as big, because a designed circuit folds back on itself where a spline
+     * through ten points cannot.
+     *
+     * Its tightest corner is 4.3 tiles of centreline radius, which is tighter than a kart's own
+     * turning circle of 82 px — so it can only be taken by using the width of the road, which is
+     * what a chicane IS. Three laps, because a lap here is about half a minute.
      */
-    id: 'hillroad',
-    label: 'Hill Road',
-    kind: 'sprint',
-    cols: 116,
-    rows: 88,
-    width: 6,
-    laps: 1,
+    id: 'monza',
+    label: 'Monza',
+    kind: 'ring',
+    ...fromDust('monza.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
+    width: 7,
+    laps: 3,
+    // Run 0 of the walk is the finish tile itself, and the walk sets off down the start-finish
+    // straight — so the grid, which is laid out BACKWARDS from the line, lands on the straight
+    // that leads up to it. That is not luck: the line is where a lap starts in their file too.
+    startAt: 0,
     bridge: null,
-    /**
-     * FOUR runs, and the count is a racing decision rather than a spacing one. Three leaves the
-     * runs eighteen tiles apart, so the hairpins that join them have a nine-tile radius — wider
-     * than a kart's own turning circle at full speed, which means nothing on the stage ever has to
-     * be braked for: measured, the whole field came home within two seconds of each other in
-     * fourteen. Four puts the runs twelve apart, and a
-     * six-tile hairpin is tighter than the tyres hold. The shoulders are what used to make four
-     * unreadable, and STAGE_SAND is what fixed that.
-     */
-    bands: 5,
   },
 ];
 
@@ -1108,30 +1172,14 @@ if (CLOSED) {
     y: (hoarding.row + 1) * TILE,
   });
   /**
-   * GRANDSTANDS along the main straight, and a brake board before the tightest corner.
+   * A brake board before the tightest corner.
    *
-   * Both are placed off the curve, outside the barrier, in the outfield where nothing can reach
-   * them — so they need no approach tile and cannot be driven into. A grandstand is six cells
-   * square, which is why it asks `roomFor` rather than being dropped at a computed spot: the
-   * outfield is not the same width all the way round, and a stand half-buried in the barrier is
-   * worse than no stand.
+   * The GRANDSTANDS that stood here are gone: Dust's crowd art is drawn for a world whose road is
+   * 256 px wide, and at the scale that puts a kart at forty pixels a stand came out as a
+   * six-cell rectangle of confetti — "viel zu klein für unser Setting, Maßstab stimmt nicht".
+   * Scaling the picture up would only make the people bigger than the karts. The art is in the
+   * pack and can come back the day the trackside has something to hang it on.
    */
-  for (const k of [4, 16, 28]) {
-    // Outwards first, then INWARDS — because the band between the barrier and the edge of the map
-    // is rarely six cells deep, while the infield always is. A stand is six cells square and
-    // anchored bottom-left, so it reaches up and right: it goes down only where all thirty-six of
-    // those cells are outfield, and it lands nowhere at all if that is never true.
-    const offsets: number[] = [];
-    for (let out = 0; out < 8; out++) offsets.push(HALF + 8 + out);
-    for (let into = 0; into < 10; into++) offsets.push(-(HALF + 8 + into));
-    for (const off of offsets) {
-      const spot = beside(startRun - k, off);
-      if (roomFor(spot.col, spot.row, 6, 6)) {
-        flat[spot.row * COLS + spot.col] = decalGid('RACE_GRANDSTAND');
-        break;
-      }
-    }
-  }
   // The brake board goes where the lap is tightest — found by walking the curve rather than
   // written down, so it follows the shape if the shape changes.
   let tightest = 0;

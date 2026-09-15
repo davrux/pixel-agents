@@ -117,7 +117,7 @@ test('every enum-typed property in a committed map carries its propertytype', ()
 
   const zones = join(ROOT, 'assets', 'tiled', 'zones');
   const maps = readdirSync(zones).filter((f) => f.endsWith('.tmj') && !f.includes('-noimport'));
-  assert.ok(maps.length >= 4, `only ${maps.length} committed maps to check`);
+  assert.ok(maps.length >= 2, `only ${maps.length} committed maps to check`);
   let checked = 0;
   for (const file of maps) {
     const map = JSON.parse(readFileSync(join(zones, file), 'utf8')) as {

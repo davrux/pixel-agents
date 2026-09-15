@@ -423,6 +423,7 @@ interface Sheet {
    *  this reader cannot drift apart. The size being per sheet is what removed the
    *  floor/wall distinction from SheetCellRef. */
   spacing: number;
+  margin: number;
   tileW: number;
   tileH: number;
 }
@@ -436,6 +437,7 @@ export function registerSheetTexture(
   name: string,
   bitmap: ImageBitmap,
   spacing: number,
+  margin: number,
   tileW: number,
   tileH: number,
 ): void {
@@ -452,16 +454,24 @@ export function registerSheetTexture(
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(bitmap, 0, 0);
   tex.refresh();
-  sheets.set(name, { key, tex, spacing, tileW, tileH });
+  sheets.set(name, { key, tex, spacing, margin, tileW, tileH });
 }
 
 /**
  * The texture frame for a sheet cell, defined on demand.
  *
- * The rect mirrors bake-floor-wall-tiled.mts's own layout exactly — cell
- * (row, col) at `col * (w + spacing)`, `row * (h + spacing)` — which is the one
- * thing that must not drift: an off-by-one here paints every wall as its
- * neighbouring piece, and it still looks like a wall.
+ * The rect mirrors the sheet's own layout exactly — cell (row, col) at
+ * `margin + col * (w + spacing)`, `margin + row * (h + spacing)` — which is the one thing that
+ * must not drift: an off-by-one here paints every wall as its neighbouring piece, and it still
+ * looks like a wall.
+ *
+ * The MARGIN was missing until 2026-09-15, and the off-by-one it caused was one pixel rather than
+ * one cell, which is why it survived so long. Every pack sheet has margin 0; the two generated for
+ * the race have 1, so the outermost cell can be extruded like the rest. So every cell of those was
+ * cut one pixel left, and that column is the previous tile's extrusion — a 1 px stripe of the
+ * neighbouring material down the left edge of every cell. Nobody sees that between two greens. Lay
+ * asphalt next to sand and it is a tan stripe down black tarmac: "immer mal aufblitzende gelbe
+ * Striche".
  */
 export function sheetFrame(ref: SheetCellRef): SpriteTex | null {
   const sheet = sheets.get(ref.sheet);
@@ -474,8 +484,8 @@ export function sheetFrame(ref: SheetCellRef): SpriteTex | null {
   const gap = sheet.spacing;
   const frame = `${ref.row}_${ref.col}`;
   if (!sheet.tex.has(frame)) {
-    const x = ref.col * (w + gap);
-    const y = ref.row * (h + gap);
+    const x = sheet.margin + ref.col * (w + gap);
+    const y = sheet.margin + ref.row * (h + gap);
     if (x + w > sheet.tex.width || y + h > sheet.tex.height) return null;
     sheet.tex.add(frame, 0, x, y, w, h);
   }

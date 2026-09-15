@@ -508,6 +508,9 @@ export class OfficeScene extends Phaser.Scene {
    *  fight the every-frame recenter; it snaps back to following the moment the
    *  player's own position changes again (walk, sit, portal, anything). */
   private cameraFollowDetached = false;
+  /** Whether the last frame was spent at a wheel — the camera's bounds rule differs (see
+   *  applyCameraBounds), and getting in or out is the only thing that changes the answer. */
+  private wasDriving = false;
   /** Player position at the moment of detaching, to detect "have I moved". */
   private cameraDetachAt: { x: number; y: number } | null = null;
 
@@ -1961,8 +1964,15 @@ export class OfficeScene extends Phaser.Scene {
     // half the screen showing nothing, which is what "I can't zoom the whole map" looks like after
     // the zoom floor is fixed. Bounds tighter than the viewport make Phaser centre the content, so
     // zooming right out frames the whole circuit instead of a corner of it.
-    const marginX = viewW >= this.officeW ? 0 : viewW / 2;
-    const marginY = viewH >= this.officeH ? 0 : viewH / 2;
+    //
+    // DRIVING is the exception, and it has to be: "centre the content" means the camera is pinned
+    // to the middle of the map and `centerOn` does nothing, so the car drives around a still
+    // picture — reported as "wenn man voll rausgezoomt hat, folgt die Kamera nicht mehr dem
+    // Fahrer". Framing the whole map is a thing you want while looking at it and the opposite of
+    // what you want while racing on it, so a driver keeps the margin that lets the camera move.
+    const driving = this.drivePose() !== null;
+    const marginX = !driving && viewW >= this.officeW ? 0 : viewW / 2;
+    const marginY = !driving && viewH >= this.officeH ? 0 : viewH / 2;
     cam.setBounds(-marginX, -marginY, this.officeW + marginX * 2, this.officeH + marginY * 2);
   }
 
@@ -2403,6 +2413,13 @@ export class OfficeScene extends Phaser.Scene {
     // At walking pace that is half a pixel and invisible; at twelve tiles a second it is three,
     // every frame, which the eye reads as the kart vibrating against a still screen.
     this.interpolateKarts(1 - Math.exp(-18 * Math.min(delta / 1000, 0.1)));
+    // Getting in or out changes what the camera bounds mean (see applyCameraBounds), and neither
+    // the wheel nor a resize happens at that moment — so the change itself is the trigger.
+    const drivingNow = this.drivePose() !== null;
+    if (drivingNow !== this.wasDriving) {
+      this.wasDriving = drivingNow;
+      this.applyCameraBounds();
+    }
     this.updateDriveCamera(delta / 1000);
     if (this.cameraFollowEnabled) {
       const pos = this.drivePose() ?? this.playerPosition(this.myPlayerId);

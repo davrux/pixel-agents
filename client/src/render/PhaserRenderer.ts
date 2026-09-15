@@ -251,8 +251,8 @@ export class PhaserRenderer {
   /** Keep the fetched floor/wall sheets as textures — one per sheet, drawn from
    *  by frame (see sprites.ts). Call once the sheets have loaded, before
    *  buildStatic(); without them floor and walls fall back to a flat fill. */
-  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap; spacing: number; tileW: number; tileH: number }>): void {
-    for (const { name, bitmap, spacing, tileW, tileH } of sheets) registerSheetTexture(this.scene, name, bitmap, spacing, tileW, tileH);
+  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap; spacing: number; margin: number; tileW: number; tileH: number }>): void {
+    for (const { name, bitmap, spacing, margin, tileW, tileH } of sheets) registerSheetTexture(this.scene, name, bitmap, spacing, margin, tileW, tileH);
   }
 
   /** Keep the baked collection-art atlas as one texture, so furniture and decals

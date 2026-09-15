@@ -65,6 +65,9 @@ interface SheetInfo {
   name: string;
   columns: number;
   spacing: number;
+  /** Transparent px round the OUTSIDE of the sheet — where the first cell starts. Absent on an
+   *  older server, and 0 is what every sheet had before the race art, so the fallback is exact. */
+  margin?: number;
   /** Where the sheet's PNG is, relative to assets/tiled — the tileset's own
    *  `image`, passed through by the server. Not built from `name` here: that
    *  turned a file move into a client release. */
@@ -100,12 +103,13 @@ function sheetPaths(origin: string): Promise<SetsJson> {
   return setsPromise;
 }
 
-/** A fetched sheet, ready for the renderer to keep as a texture. `spacing` travels
- *  with it because a frame's rect depends on it (see render/sprites.ts). */
+/** A fetched sheet, ready for the renderer to keep as a texture. `spacing` and `margin` travel
+ *  with it because a frame's rect depends on both (see render/sprites.ts). */
 export interface LoadedSheet {
   name: string;
   bitmap: ImageBitmap;
   spacing: number;
+  margin: number;
   /** One cell's size, so the renderer can cut frames without knowing what kind of
    *  sheet this is (see SheetCellRef). */
   tileW: number;
@@ -175,7 +179,8 @@ export async function loadTiledSheets(wanted?: Iterable<string>): Promise<Loaded
         sheets.map((f, i) => {
           const tileW = f.tileWidth || FLOOR_TILE_W;
           const tileH = f.tileHeight || FLOOR_TILE_H;
-          return [f.name, { columns: f.columns, rows: Math.round((bitmaps[i].height + f.spacing) / (tileH + f.spacing)), tileW, tileH }];
+          const m = f.margin ?? 0;
+          return [f.name, { columns: f.columns, rows: Math.round((bitmaps[i].height - 2 * m + f.spacing) / (tileH + f.spacing)), tileW, tileH }];
         }),
       ),
     );
@@ -183,6 +188,7 @@ export async function loadTiledSheets(wanted?: Iterable<string>): Promise<Loaded
       name: f.name,
       bitmap: bitmaps[i],
       spacing: f.spacing,
+      margin: f.margin ?? 0,
       tileW: f.tileWidth || FLOOR_TILE_W,
       tileH: f.tileHeight || FLOOR_TILE_H,
     }));

@@ -27,6 +27,7 @@ interface TiledTilesetJson {
   tileheight?: number;
   columns?: number;
   spacing?: number;
+  margin?: number;
   /** Present on a grid tileset (one sheet for the whole set), absent on a
    *  collection of images. */
   image?: string;
@@ -65,6 +66,20 @@ export interface RegistryTileset {
    *  what lets a re-baked sheet and its reader disagree. See FLOOR_TILE_SPACING /
    *  WALL_TILE_SPACING for why the gap exists at all. */
   spacing: number;
+  /**
+   * Transparent px baked round the OUTSIDE of the sheet (Tiled's `margin`), i.e. where the first
+   * cell starts.
+   *
+   * Travels for the same reason `spacing` does, and it was the missing half of that sentence: the
+   * client computed a cell's rect as `col * (w + spacing)`, which is right only for a sheet with
+   * no margin. Every pack sheet here has margin 0, so nothing showed it — until the race art,
+   * which is generated with a 1 px margin so the outermost cell can be extruded too. Every cell of
+   * those two sheets was therefore cut ONE PIXEL to the left, and that column is the previous
+   * tile's extrusion: a 1 px stripe of the neighbouring material down the left edge of every cell.
+   * Invisible between two greens, and a tan stripe down black tarmac the moment asphalt was laid
+   * next to sand. Reported as "immer mal aufblitzende gelbe Striche".
+   */
+  margin: number;
   /** One tile's size in px. Read because a GROUND cell is exactly one map cell:
    *  a sheet with bigger tiles cannot be ground without overflowing its
    *  neighbours, and the import refuses it with a message (see groundFits). */
@@ -128,6 +143,7 @@ export function gridSheets(registry: TiledRegistry): Array<{
   name: string;
   columns: number;
   spacing: number;
+  margin: number;
   img: string;
   tileWidth: number;
   tileHeight: number;
@@ -138,6 +154,7 @@ export function gridSheets(registry: TiledRegistry): Array<{
       name: ts.file.replace(/\.tsj$/, ''),
       columns: ts.columns,
       spacing: ts.spacing,
+      margin: ts.margin,
       img: ts.image,
       // The cell size — the only thing that ever differed between a floor sheet and
       // a wall sheet. It used to travel as a `kind` derived from the
@@ -198,6 +215,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
       tileCount: slots,
       columns: json.columns ?? 0,
       spacing: json.spacing ?? 0,
+      margin: json.margin ?? 0,
       image: json.image ?? '',
       tileWidth: json.tilewidth ?? 0,
       tileHeight: json.tileheight ?? 0,

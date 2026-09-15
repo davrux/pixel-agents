@@ -7,9 +7,8 @@
  * mostly the clamping (§ Security: the panel's own bounds are UX, `setRaceSetup` is the gate).
  *
  * TEST BOUNDARIES:
- *   @real-dependency: OfficeState over the committed raceway and hillroad -- Mock? NO. The bot
- *       count is bounded by the real grid and the lap setting is ignored on a real stage; both
- *       claims are about the maps.
+ *   @real-dependency: OfficeState over the two committed circuits -- Mock? NO. The bot count is
+ *       bounded by the real grid, which is a fact about the maps.
  */
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
@@ -34,7 +33,8 @@ import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 let circuit: OfficeLayout;
-let stage: OfficeLayout;
+/** A DIFFERENT track, for the test that pushes one map over another. */
+let second: OfficeLayout;
 
 before(async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
@@ -43,7 +43,7 @@ before(async () => {
     importTmjToLayout(JSON.parse(readFileSync(join(ROOT, 'assets', 'tiled', 'zones', `${zone}.tmj`), 'utf8')), reg, () => null)
       .layout;
   circuit = read('raceway');
-  stage = read('hillroad');
+  second = read('monza');
 });
 
 const DT = 1 / RACE_TICK_HZ;
@@ -122,13 +122,10 @@ test('nought computer drivers is a race, and it is just you', () => {
   assert.equal([...os.karts.values()].filter((k) => k.driverId !== null).length, 1);
 });
 
-test('a stage ignores the lap setting, because it has no laps to run', () => {
-  const { os } = seated(stage);
-  assert.equal(os.raceTrack()?.sprint, true);
-  os.setRaceSetup({ laps: 9 });
-  assert.equal(os.startRace(), true);
-  assert.equal(os.raceInfo().laps, 1, 'a stage was made to run nine of itself');
-});
+// The stage that used to be checked here was `hillroad`, and the race keeps only closed circuits
+// now. That a sprint ignores the lap setting is pinned in raceSetup.int.test.ts, over a layout
+// built for it — no map needed, since the claim is about a track that HAS a finish line and not
+// about any particular one.
 
 test('a race already under way cannot be reconfigured underneath itself', () => {
   const { os } = seated(circuit);
@@ -145,7 +142,7 @@ test('a fresh track brings its own defaults, and drops the last one’s', () => 
   // for a lap count and a grid that no longer exist.
   const os = new OfficeState(circuit as never);
   os.setRaceSetup({ laps: 11, bots: 1, countdownSec: 3, difficulty: 'hard' });
-  os.rebuildFromLayout(stage as never);
+  os.rebuildFromLayout(second as never);
   const setup = os.raceSetup();
   assert.equal(setup.laps, os.raceTrack()!.laps);
   assert.equal(setup.bots, os.raceTrack()!.grid.length - 1);

@@ -81,9 +81,6 @@ const DECALS: ReadonlyArray<{ id: string; file: string; w: number; h: number; la
   /** A single tyre, laid flat — a row of them along the barrier is a tyre wall, which is what a
    *  circuit actually has where ours had a stripe of kerb pretending to be one. */
   { id: 'RACE_TYRE', file: 'tire.png', w: 16, h: 16, label: 'Race tyre' },
-  /** A grandstand full of people. The single biggest thing that makes a circuit read as a PLACE
-   *  rather than as a shape: somewhere for the race to be watched from. */
-  { id: 'RACE_GRANDSTAND', file: 'grandstand.png', w: 96, h: 96, label: 'Grandstand' },
   /** A trackside board. Dust puts it where you have to brake; so do we. */
   { id: 'RACE_BRAKE_SIGN', file: 'brake.png', w: 32, h: 16, label: 'Brake sign' },
   /** Scrub, for the outfield — busier than a tuft and cheaper than a tree. */

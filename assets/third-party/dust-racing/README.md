@@ -9,9 +9,14 @@ by Jussi Lind and contributors, taken from `data/images/`:
   gets you; the pack's asphalt has real grain and is the single biggest difference
   between a road and a grey rectangle.
 - the **things beside it** — `tree.png`, `rock.png`, `plant.png`, and now
-  `bushArea.png`, `tire.png` (a tyre wall on the outside of every corner),
-  `grandstand.png` (somewhere for the race to be watched from) and `brake.png`
-  (the board before the tightest corner).
+  `bushArea.png`, `tire.png` (a tyre wall on the outside of every corner) and
+  `brake.png` (the board before the tightest corner).
+
+`grandstand.png` was here for a day and is gone again: it is drawn for a world
+whose road is 256 px wide, and at the scale that puts a kart at forty pixels a
+stand came out as a six-cell rectangle of confetti. Scaling it up would only make
+the spectators bigger than the cars. Git has it if the trackside ever gets
+something to hang it on.
 
 What was deliberately NOT taken is their track PIECES (`straight.png`,
 `corner.png`, `corner45Left.png` …). Those are masks, not finished art — pure

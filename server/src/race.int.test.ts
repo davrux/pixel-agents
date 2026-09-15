@@ -11,6 +11,7 @@
  *       counts" is a claim about gates on a real map meeting a real state machine.
  */
 import { strict as assert } from 'node:assert';
+import type { Action } from '@pixel/shared/office/types.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test, { before } from 'node:test';
@@ -59,8 +60,46 @@ before(async () => {
     importTmjToLayout(JSON.parse(readFileSync(join(ROOT, 'assets', 'tiled', 'zones', `${zone}.tmj`), 'utf8')), registry, () => null)
       .layout;
   layout = read('raceway');
-  stageLayout = read('hillroad');
+  stageLayout = straightStage();
 });
+
+/**
+ * A STAGE, built by hand rather than loaded: a straight road, gates along it, a finish past the
+ * last one.
+ *
+ * `hillroad` was the map these tests used and it is gone — the race keeps one circuit and Monza
+ * now, both closed. The point-to-point RULES are still in the engine and still worth pinning
+ * (`raceFinish` is what makes a track a sprint, the flag waits for the line, the line only counts
+ * after every gate), and none of those claims is about a particular map. They are about a layout
+ * with a finish in it, which is what this is: 21 cells of road, six gates, and a line at the end.
+ *
+ * Everything here is teleported into place by `carryTo`, so the road does not have to be drivable
+ * — which is the whole reason a fixture does instead of a map.
+ */
+function straightStage(): OfficeLayout {
+  const cols = 40;
+  const rows = 20;
+  const tileActions: Array<Action | null> = new Array(cols * rows).fill(null);
+  const put = (col: number, row: number, action: Action): void => {
+    tileActions[row * cols + col] = action;
+  };
+  // Six gates three cells apart along one row, then the line two cells past the last. The gates
+  // are one cell each: a gate is a LINE across the road on a real map, and one cell is enough for
+  // a fixture that drives by teleporting.
+  for (let g = 0; g < 6; g++) put(6 + g * 3, 10, { kind: 'raceGate', gate: g });
+  put(6 + 6 * 3, 10, { kind: 'raceFinish' });
+  put(3, 10, { kind: 'raceStart', slot: 0, dir: 0 });
+  return {
+    version: 3,
+    cols,
+    rows,
+    // 0 is a ground cell (VOID is -1): what makes a cell drivable is that ground is there.
+    tiles: new Array(cols * rows).fill(0),
+    furniture: [],
+    tileActions,
+    laps: 3,
+  } as unknown as OfficeLayout;
+}
 
 const world = (): OfficeState => new OfficeState(layout as never);
 const stage = (): OfficeState => new OfficeState(stageLayout as never);
@@ -566,7 +605,7 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
   // old rule, or this test would quietly stop testing anything the day the maps got gentler —
   // which is exactly what happened to hillroad when its hairpins were spread over a bigger map.
   let anySharp = false;
-  for (const [name, l] of [['raceway', layout], ['hillroad', stageLayout]] as const) {
+  for (const [name, l] of [['raceway', layout]] as const) {
     const t = raceTrack(l);
     assert.ok(t);
     let sharpest = 0;
@@ -667,7 +706,7 @@ test('a stage is won at the line, and only after every gate', () => {
   const os = stage();
   const track = os.raceTrack();
   assert.ok(track);
-  assert.equal(track.sprint, true, 'hillroad stopped being a stage');
+  assert.equal(track.sprint, true, 'the fixture stopped being a stage');
   assert.ok(track.finish);
   const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Rally', undefined, 'rally');
