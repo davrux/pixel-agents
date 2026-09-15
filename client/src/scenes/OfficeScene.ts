@@ -37,11 +37,11 @@ import { EngineSound, finishChime, lightsBeep } from '../raceSound.js';
 import { RACE_GREEN_MS } from '@pixel/shared/office/race/raceState.js';
 import { RACE_DIFFICULTIES } from '@pixel/shared/office/race/racerNames.js';
 import {
-  CAMERA_TURN_RAD_PER_SEC,
+  SPEED_ZOOM_EASE_PER_SEC,
   type ViewCamera,
-  driveCameraRotation,
+  easeTowards,
   lookAheadPoint,
-  turnTowards,
+  speedZoom,
   worldToScreen,
 } from '../render/driveCamera.js';
 import {
@@ -267,9 +267,13 @@ export class OfficeScene extends Phaser.Scene {
   private lastFinished = false;
   /** Last synced position of the car we are in, for working out how fast it sounds. */
   private soundPrev: { x: number; y: number } | null = null;
-  /** Where the view is turned to right now, eased towards where the kart points. Also read by
-   *  the renderer, through `cameraUpHeading`, to decide which body row each figure shows. */
-  private driveRotation = 0;
+  /** The zoom the viewer chose with the wheel, before the speed widening below is applied. Kept
+   *  apart from `cam.zoom` so the two never fight: the wheel owns this, driving owns the factor,
+   *  and `applyZoom` is the one place that multiplies them. */
+  private baseZoom = DEFAULT_ZOOM;
+  /** How far the view is currently widened for speed, 1 = not at all. Eased towards
+   *  `speedZoom(driveSpeed)` while driving and back to 1 on foot. */
+  private driveZoom = 1;
   /** The driven kart's speed in px/s, differentiated from its position: the wire carries no
    *  velocity (it is presentation, and one more synced field per kart per patch for a camera
    *  offset would be a poor trade), so the look-ahead measures it here. */
@@ -804,7 +808,6 @@ export class OfficeScene extends Phaser.Scene {
       getCharacters: () => [...scene.characters.values()] as unknown as Character[],
       getPets: () => [...scene.pets.values()] as unknown as Pet[],
       getKarts: () => [...scene.karts.values()],
-      driveRotation: () => scene.driveRotation,
     };
   }
 
@@ -1923,6 +1926,7 @@ export class OfficeScene extends Phaser.Scene {
     this.officeW = w;
     this.officeH = h;
     if (!this.cameraInitialized) {
+      this.baseZoom = DEFAULT_ZOOM;
       cam.setZoom(DEFAULT_ZOOM);
       cam.centerOn(w / 2, h / 2);
       this.cameraInitialized = true;
@@ -1947,6 +1951,24 @@ export class OfficeScene extends Phaser.Scene {
     if (this.officeW <= 0 || this.officeH <= 0) return 1;
     const fit = Math.min(this.scale.width / this.officeW, this.scale.height / this.officeH);
     return Math.max(0.2, Math.min(1, fit));
+  }
+
+  /**
+   * Put the camera at the zoom the viewer chose, widened for speed.
+   *
+   * The one place that writes `cam.zoom`, because there are two owners of it — the wheel and the
+   * driving widening — and a camera with two writers is a camera that flickers between them. The
+   * wheel's floor applies to the RESULT as well: widening past `minZoom` would frame blank space
+   * around the map, so at full zoom-out the speed effect simply has nowhere to go.
+   *
+   * Bounds follow, since their margin is derived from the zoom.
+   */
+  private applyZoom(): void {
+    const cam = this.cameras.main;
+    const want = Phaser.Math.Clamp(this.baseZoom * this.driveZoom, this.minZoom(), 14);
+    if (Math.abs(cam.zoom - want) < 1e-4) return;
+    cam.setZoom(want);
+    this.applyCameraBounds();
   }
 
   /** Pan bounds: the map plus half the currently visible world area on each
@@ -1990,12 +2012,15 @@ export class OfficeScene extends Phaser.Scene {
     // they clamp the scroll we just set.
     this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
       const before = cam.zoom;
-      const after = Phaser.Math.Clamp(before * (dy > 0 ? 0.9 : 1.1), this.minZoom(), 14);
+      // The wheel moves the CHOSEN zoom; what the camera ends up at is that times the speed
+      // widening. Turning the wheel while flat out therefore zooms by the same step as standing
+      // still, instead of fighting a factor it cannot see.
+      this.baseZoom = Phaser.Math.Clamp(this.baseZoom * (dy > 0 ? 0.9 : 1.1), this.minZoom(), 14);
+      this.applyZoom();
+      const after = cam.zoom;
       if (after === before) return;
       const halfW = cam.width / 2;
       const halfH = cam.height / 2;
-      cam.setZoom(after);
-      this.applyCameraBounds();
       cam.setScroll(
         cam.scrollX + (p.x - cam.x - halfW) * (1 / before - 1 / after),
         cam.scrollY + (p.y - cam.y - halfH) * (1 / before - 1 / after),
@@ -4019,23 +4044,19 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * The camera as `driveCamera`'s maths wants it.
    *
-   * Every DOM overlay used to place itself with `(x - worldView.x) * zoom`, which quietly assumes
-   * the camera is square with the world — true for every zone until the driving view turned it.
-   * `worldView` is the AABB of a rotated camera, so its LEFT EDGE moves as the view turns while
-   * its centre does not; the centre is therefore what the transform hangs off.
+   * Every DOM overlay used to place itself with `(x - worldView.x) * zoom`, which is the same
+   * thing written off the view's left edge. One transform, in one place, so a label and the canvas
+   * cannot disagree about where a head is.
    */
   private viewCam(cam: Phaser.Cameras.Scene2D.Camera): ViewCamera {
     return {
-      // `midPoint` rather than the world view's corner: the view is the AABB of a rotated
-      // camera, so its left edge moves as the view turns while its centre does not.
+      // `midPoint` rather than the world view's corner: the centre is what the transform hangs
+      // off (see driveCamera.ts), and it is the same point at every zoom.
       centreX: cam.midPoint.x,
       centreY: cam.midPoint.y,
       width: cam.width,
       height: cam.height,
       zoom: cam.zoom,
-      // Read from here, not from the camera: Phaser 4 offers `setRotation` but no readable
-      // `rotation`, and a field we own is the honest single source anyway.
-      rotation: this.driveRotation,
     };
   }
 
@@ -4061,18 +4082,17 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * Turn the view with the kart, and look ahead of it.
+   * Measure how fast the driven kart is going, and widen the view by it.
    *
-   * Only while DRIVING, and it eases back to square the moment you step out — the rest of the
-   * world is drawn as upright 2.5D art (furniture, walls) that a turned camera would lay on its
-   * side, and a race zone has none of that. So this is not a mode anybody switches on: being in
-   * a seat is the condition, which means a zone with no karts can never reach it.
+   * Only while DRIVING, and it eases back to the chosen zoom the moment you step out. The map
+   * itself never moves: it stands still facing north and the kart turns within it, which is what
+   * the art is drawn for — see render/driveCamera.ts for what used to happen here instead and why
+   * it went.
    */
   private updateDriveCamera(dt: number): void {
     const cam = this.cameras?.main;
     if (!cam) return;
     const kart = this.myKart();
-    const step = CAMERA_TURN_RAD_PER_SEC * Math.max(0, Math.min(0.1, dt));
     if (kart) {
       const at = { x: kart.x ?? kart.tx, y: kart.y ?? kart.ty };
       // Speed by differentiation. The interpolated position is what the eye sees, so the lead
@@ -4084,21 +4104,19 @@ export class OfficeScene extends Phaser.Scene {
         this.driveSpeed += (v - this.driveSpeed) * Math.min(1, dt * 6);
       }
       this.drivePrev = at;
-      this.driveRotation = turnTowards(
-        this.driveRotation,
-        driveCameraRotation(kart.drawHeading ?? kart.heading),
-        step,
-      );
     } else {
       this.drivePrev = null;
       this.driveSpeed = 0;
-      if (this.driveRotation === 0) return;
-      // Unwind to square the SHORT way: the rotation accumulates past a full turn, so easing
-      // towards 0 naively would spin the world back the way it came.
-      this.driveRotation = turnTowards(this.driveRotation, 0, step);
-      if (Math.abs(this.driveRotation) < 0.01) this.driveRotation = 0;
     }
-    cam.setRotation(this.driveRotation);
+    // Eased rather than taken straight from the speed: the widening is what carries the sense of
+    // pace, and a zoom that tracked every bump and kerb would read as the picture breathing.
+    this.driveZoom = easeTowards(
+      this.driveZoom,
+      kart ? speedZoom(this.driveSpeed, KART_MAX_SPEED_PX_PER_SEC) : 1,
+      dt,
+      SPEED_ZOOM_EASE_PER_SEC,
+    );
+    this.applyZoom();
   }
 
   /** Where the camera should sit while driving: ahead of the kart, by speed. Null when walking. */

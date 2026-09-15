@@ -54,8 +54,6 @@ export interface RenderSource {
   getPets(): Pet[];
   /** Empty in a zone with no track, which is every zone but the raceway. */
   getKarts?(): RenderKart[];
-  /** How far the view is turned, in radians. Non-zero only while somebody drives. */
-  driveRotation?(): number;
   furniture: FurnitureInstance[];
   getLayout(): OfficeLayout;
   tileMap: GroundMap;
@@ -77,7 +75,6 @@ import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
 import { getPetSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
 import { effectSheetId } from '../art/effects';
 import { vehicleSheetId } from '../art/vehicles';
-import { cameraUpHeading, facingAngle, screenFacing } from './driveCamera';
 import { vehicleArt } from '@pixel/shared/office/race/kartArt.js';
 
 /** Skid marks: how many exist at once, how often one is laid, how long it lasts. A ring of 96 at
@@ -215,33 +212,16 @@ export class PhaserRenderer {
   private lastSkidAt = 0;
   /** Who is driving, and which way their kart points — rebuilt every frame in syncKarts and read
    *  by syncCharacters, which runs after it. A driver is NOT DRAWN at all: once you are in, you
-   *  are the car. It keeps the heading because the camera still needs to know what to turn to. */
+   *  are the car. It keeps the heading because the helmet in the seat turns with the kart. */
   private readonly drivers = new Map<number, number>();
   /** The front half of each kart, drawn over its driver. Keyed and destroyed with `karts`. */
   private readonly kartFronts = new Map<number, Phaser.GameObjects.Image>();
   /** How big a helmet is drawn, in world pixels — a head in a kart's seat. */
   private static readonly HELMET = 14;
-  /** How far the view is turned this frame, in radians. Read once in `update` so every helper
-   *  below sees one value, and zero in every zone where nobody is driving. */
-  private turn = 0;
-
-  /**
-   * A screen-space offset as a world vector — `dx` to the right and `dy` DOWN ON SCREEN.
-   *
-   * Figures are drawn upright while the view turns, so every offset that means "lower than the
-   * feet" or "above the head" is a screen direction, not a world one. Without this a driver sat
-   * sideways out of the kart as soon as the camera swung round, and the markers over a head
-   * drifted off at the same angle. The identity while `turn` is 0, which is every zone but a race
-   * in progress.
-   */
-  private screenOffset(dx: number, dy: number): { x: number; y: number } {
-    if (this.turn === 0) return { x: dx, y: dy };
-    // The inverse of the camera's own turn: screen -> world is -rotation where world -> screen
-    // is +rotation (see driveCamera.ts, where that sign is established and explained).
-    const c = Math.cos(-this.turn);
-    const sn = Math.sin(-this.turn);
-    return { x: dx * c - dy * sn, y: dx * sn + dy * c };
-  }
+  // Screen space and world space are the same frame here, and that is a property of the camera
+  // rather than a coincidence: the driving view no longer turns (see render/driveCamera.ts). Every
+  // offset below that means "lower than the feet" or "above the head" is therefore written
+  // directly, where a turned view needed each one mapped through its inverse first.
   /** The tiled rain over a materialising character, one per character while the effect lasts. */
   private readonly matrixRain = new Map<number, Phaser.GameObjects.TileSprite>();
   /** One overlay image per character mid-warp, for the styles that play FRAMES rather than
@@ -524,7 +504,6 @@ export class PhaserRenderer {
 
   /** Per-frame sync of furniture (when changed), characters, pets and bubbles. */
   update(): void {
-    this.turn = this.state.driveRotation?.() ?? 0;
     this.syncFurniture();
     this.syncFurnitureAnimation();
     this.syncKarts();
@@ -571,10 +550,9 @@ export class PhaserRenderer {
         continue;
       }
       img.setTexture(tex.key, tex.frame);
-      // ONE image, turned. The art points east at heading 0, so its own rotation IS the heading —
-      // and because the camera turns the world with it, a driver's own car comes out pointing up
-      // the screen with no second sum. Smoother than a strip of sixteen frames, and a fraction of
-      // the art: that is why the hand-drawn kart sheet is gone.
+      // ONE image, turned. The art points east at heading 0, so its own rotation IS the heading,
+      // and the map it turns in stands still. Smoother than a strip of sixteen frames, and a
+      // fraction of the art: that is why the hand-drawn kart sheet is gone.
       img.setRotation(kart.drawHeading ?? kart.heading);
       // Origin at the CENTRE, unlike a character: the model's x/y is the car's middle, which is
       // also what it collides and bumps on.
@@ -738,18 +716,12 @@ export class PhaserRenderer {
       return;
     }
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-    // While the driving view is turned, a body stays UPRIGHT on screen and changes which picture
-    // it shows instead — so a bystander on the track still faces where they are facing rather
-    // than lying over with the world. At rotation 0 both lines are the identity, so every other
-    // zone is untouched (driveCamera.int.test.ts pins that).
-    const up = cameraUpHeading(this.turn);
-    const facing = screenFacing(facingAngle(ch.dir), up);
 
     // Mid-warp the body is the ordinary atlas sprite with a style applied to it — faded, squeezed,
     // and (for the sweep styles) an overlay tiled over it. Two draws whatever the figure's size;
     // see render/warpFx.ts for which style does what and why.
     const overlay = ch.matrixEffect ? warpOverlay(this.scene, warpStyle(ch.warpStyle).id) : NO_OVERLAY;
-    const tex = sheetCellFrame(this.scene, ch.skin, facing as Direction, cell.col, cell.synthSit);
+    const tex = sheetCellFrame(this.scene, ch.skin, ch.dir as Direction, cell.col, cell.synthSit);
     if (!tex) {
       g.body.setVisible(false);
       this.removeWarpArt(ch.id);
@@ -757,8 +729,7 @@ export class PhaserRenderer {
     }
     const depth = ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET;
     g.body.setTexture(tex.key, tex.frame);
-    const seat = this.screenOffset(0, sit);
-    g.body.setPosition(ch.x + seat.x, ch.y + seat.y);
+    g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(depth);
     g.body.setAlpha(ch.matrixEffect ? warpBodyAlpha(ch) : 1);
     // A style may also move the body itself (implode pulls it thin, spins it and darkens it).
@@ -768,17 +739,15 @@ export class PhaserRenderer {
     const t = ch.matrixEffect ? warpBodyTransform(ch) : null;
     if (t) {
       g.body.setScale(t.scaleX, t.scaleY);
-      g.body.setRotation(-this.turn + (t.angle * Math.PI) / 180);
-      const mid = this.screenOffset(0, sit - (frameH * (1 - t.scaleY)) / 2);
-      g.body.setPosition(ch.x + mid.x, ch.y + mid.y);
+      g.body.setRotation((t.angle * Math.PI) / 180);
+      g.body.setPosition(ch.x, ch.y + sit - (frameH * (1 - t.scaleY)) / 2);
       if (t.darken > 0) {
         const v = Math.round(255 * (1 - t.darken));
         g.body.setTint((v << 16) | (v << 8) | v);
       } else g.body.clearTint();
     } else {
       g.body.setScale(1);
-      // Upright on screen whatever the view does — see screenOffset.
-      g.body.setRotation(-this.turn);
+      g.body.setRotation(0);
       g.body.clearTint();
     }
     g.body.setVisible(true);
@@ -862,11 +831,8 @@ export class PhaserRenderer {
         rot = s.rot;
         y -= s.lift * specs[i].size;
       }
-      // The row is laid out in SCREEN space — a row of glyphs over a head reads as a row only if
-      // it stays level with the viewer, whatever the view is doing.
-      const at = this.screenOffset(x + t.w / 2, y);
-      img.setRotation(-this.turn + rot);
-      img.setPosition(ch.x + at.x, ch.y + at.y).setVisible(true);
+      img.setRotation(rot);
+      img.setPosition(ch.x + x + t.w / 2, ch.y + y).setVisible(true);
       x += t.w + MARKER_GAP_PX;
     }
     for (let i = texs.length; i < g.markers.length; i++) g.markers[i].setVisible(false);
