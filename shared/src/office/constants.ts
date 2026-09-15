@@ -625,5 +625,33 @@ export const RACE_GRACE_MS = 45_000;
 export const ROUGH_GRIP = 0.45;
 /** What it does to the top speed, as a share. Grass is slower than tarmac even in a straight line. */
 export const ROUGH_SPEED = 0.62;
+/**
+ * A BOOST pad, as two numbers: how much faster it lets you go, and how hard it throws you there.
+ *
+ * The ceiling is raised rather than the speed set, so a pad ACCELERATES you instead of teleporting
+ * your speedometer — a car that arrives slowly still leaves quickly, and one already at the limit
+ * gains the difference and no more. And the ceiling only applies while you are ON it: the ordinary
+ * drag pulls the excess back off over the next second or so, which is what makes a pad worth
+ * aiming for on the run to a straight and worth nothing before a corner.
+ *
+ * 1.45 is a third again as fast, which at 320 px/s is 464 — fast enough to be worth steering for,
+ * short enough that the drag has it back to normal within about a second and a half.
+ */
+export const BOOST_SPEED_FACTOR = 1.45;
+/** …and the shove itself, as a multiple of the engine. Applied whether or not the throttle is
+ *  down, because a pad throws you: lifting on one is not a way to refuse it. */
+export const BOOST_ACCEL_FACTOR = 2.2;
+/**
+ * How long the raised ceiling OUTLIVES the pad, in seconds.
+ *
+ * Without it a pad is worth almost nothing, and the reason is one line: the speed cap is applied
+ * every tick, so the moment the car leaves the pad the cap cuts the extra away instantly. Measured
+ * before this, a lap of the raceway came down from 43.8 s to 43.5 — the boost existed for exactly
+ * the four tiles of the pad and not a pixel further. Holding the cap up for a second and a half
+ * lets the ordinary DRAG take the speed back instead, which is what makes a pad a run rather than
+ * a switch: the gift decays, and it decays faster the faster you are going.
+ */
+export const BOOST_CARRY_SEC = 1.5;
+
 /** How long the result board stays up before the track is free again. */
 export const RACE_RESULTS_MS = 9000;

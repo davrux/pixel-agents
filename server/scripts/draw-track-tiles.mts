@@ -43,6 +43,8 @@ const KERB_PALE: RGB = [0xf1, 0xef, 0xec];
 const KERB_PALE_LIT: RGB = [0xff, 0xff, 0xff];
 const KERB_PALE_DARK: RGB = [0x9a, 0x94, 0x8c];
 const LINE: RGB = [0xe8, 0xe4, 0xdc];
+const BOOST: RGB = [0xe7, 0xda, 0x00];
+const BOOST_LIT: RGB = [0xff, 0xf6, 0x66];
 const DARK: RGB = [0x14, 0x13, 0x12];
 
 function lcg(seed: number): () => number {
@@ -88,6 +90,40 @@ function kerb(base: RGB, lit: RGB, dark: RGB): Tile {
 }
 
 /** Half the chequered band: four squares, so two of these alternating make the pattern. */
+/**
+ * A BOOST pad: chevrons pointing the way the road goes.
+ *
+ * Four of them rather than one, because an arrow has to point somewhere and a pad that boosts you
+ * forwards while pointing sideways is a lie about what it does. The generator picks the one
+ * nearest the road's own direction at that cell.
+ *
+ * Drawn on the asphalt rather than over it, so a pad is one ground cell and not a decal that could
+ * drift away from the surface it names.
+ */
+function boostPad(dir: 'N' | 'E' | 'S' | 'W'): Tile {
+  const t = asphalt(0x5eed07);
+  // Two chevrons, drawn in a space where x runs along the road and y across it, then mapped.
+  const put = (along: number, across: number, rgb: RGB): void => {
+    if (along < 0 || along >= TW || across < 0 || across >= TW) return;
+    const [x, y] =
+      dir === 'E' ? [along, across]
+      : dir === 'W' ? [TW - 1 - along, across]
+      : dir === 'S' ? [across, along]
+      : [across, TW - 1 - along];
+    t[y][x] = rgb;
+  };
+  for (const base of [1, 9]) {
+    for (let k = 0; k < 7; k++) {
+      // A "greater than" made of two diagonals meeting at the middle of the cell.
+      for (const w of [0, 1, 2]) {
+        put(base + k + w, 1 + k, k === 6 ? BOOST_LIT : BOOST);
+        put(base + k + w, TW - 2 - k, k === 6 ? BOOST_LIT : BOOST);
+      }
+    }
+  }
+  return t;
+}
+
 function chequer(flip: boolean): Tile {
   const t = fill(DARK);
   const half = TW / 2;
@@ -124,6 +160,10 @@ const TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   { name: 'edge-bottom', tile: edgeLine(0x5eed04, 'bottom') },
   { name: 'edge-left', tile: edgeLine(0x5eed05, 'left') },
   { name: 'edge-right', tile: edgeLine(0x5eed06, 'right') },
+  { name: 'boost-n', tile: boostPad('N') },
+  { name: 'boost-e', tile: boostPad('E') },
+  { name: 'boost-s', tile: boostPad('S') },
+  { name: 'boost-w', tile: boostPad('W') },
 ];
 
 const COLUMNS = TILES.length;

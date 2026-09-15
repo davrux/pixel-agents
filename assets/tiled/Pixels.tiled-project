@@ -430,7 +430,8 @@
       "type": "enum",
       "values": [
         "",
-        "rough"
+        "rough",
+        "boost"
       ],
       "valuesAsFlags": false
     },

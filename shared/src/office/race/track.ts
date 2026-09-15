@@ -66,6 +66,14 @@ export interface RaceTrack {
    */
   rough: ReadonlySet<string>;
   /**
+   * `"col,row"` of every BOOST pad — road that throws you down it.
+   *
+   * On the racing surface rather than off it, which is the difference from `rough` and the reason
+   * both are surfaces rather than one flag: a pad is somewhere you aim FOR. The computer drivers
+   * need know nothing about it, because driving over one is what they already do.
+   */
+  boost: ReadonlySet<string>;
+  /**
    * Where a stage ENDS, as a pixel point — the centre of its finish line, or null on a circuit.
    *
    * The gates are a ring and `nextGate` wraps, which is exactly right for a lap and exactly wrong
@@ -97,6 +105,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const byGate = new Map<number, { tiles: Set<string>; sx: number; sy: number; n: number }>();
   const grid: Array<{ slot: number; x: number; y: number; dir: number }> = [];
   const rough = new Set<string>();
+  const boost = new Set<string>();
   let finish: { x: number; y: number } | null = null;
   const actions = layout.tileActions ?? [];
   for (let i = 0; i < actions.length; i++) {
@@ -131,6 +140,10 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     const col = cell % layout.cols;
     rough.add(key(col, (cell - col) / layout.cols));
   }
+  for (const cell of layout.surfaces?.boost ?? []) {
+    const col = cell % layout.cols;
+    boost.add(key(col, (cell - col) / layout.cols));
+  }
   if (byGate.size < 2 || grid.length === 0) return null;
 
   const gates: RaceGate[] = [...byGate.entries()]
@@ -152,12 +165,18 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     sprint: finish !== null,
     finish,
     rough,
+    boost,
   };
 }
 
 /** Is this tile off the racing surface — grass, sand, run-off? */
 export function isRough(track: RaceTrack, col: number, row: number): boolean {
   return track.rough.has(key(col, row));
+}
+
+/** Is this tile a boost pad? */
+export function isBoost(track: RaceTrack, col: number, row: number): boolean {
+  return track.boost.has(key(col, row));
 }
 
 /** Which gate covers this tile, or null. */

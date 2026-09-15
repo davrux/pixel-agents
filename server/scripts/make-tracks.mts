@@ -50,7 +50,11 @@ const CHECK = process.argv.includes('--check');
  * silently shift what the road is painted with — see AGENTS.md on gid ranges (append only, never
  * insert, never renumber).
  */
-const TRACK_TILES = ['asphalt', 'asphaltB', 'kerbRed', 'kerbPale', 'chequerA', 'chequerB', 'edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight'] as const;
+const TRACK_TILES = [
+  'asphalt', 'asphaltB', 'kerbRed', 'kerbPale', 'chequerA', 'chequerB',
+  'edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight',
+  'boostN', 'boostE', 'boostS', 'boostW',
+] as const;
 type TrackTile = (typeof TRACK_TILES)[number];
 /**
  * The landscape a circuit sits in — Dust Racing's ground, under CC BY-SA 3.0.
@@ -702,6 +706,20 @@ for (let i = 0; i < linePts.length; i++) {
  *  driver starts using the width of the road, measured against the lap's own profile: the raceway
  *  reads as four corner sequences and three straights at this threshold. */
 const KERB_RADIUS_TILES = 22;
+/**
+ * BOOST PADS: three per lap, on the fastest stretches, across the middle of the road.
+ *
+ * On the STRAIGHTS and not in the corners, which is both the fun and the honest reading of the
+ * physics: the pad raises the speed ceiling while you are on it and the drag takes the excess back
+ * over the next second, so one before a corner is a gift you cannot use and one onto a straight is
+ * a place to aim for. Found by walking the lap for its straightest stretches rather than placed,
+ * so they follow the shape of whatever circuit this is.
+ *
+ * Two cells wide of the road's middle, leaving a lane either side: a pad you cannot avoid is not a
+ * choice, and a choice is what makes somebody steer.
+ */
+const BOOST_PADS = 3;
+const BOOST_LENGTH_TILES = 4;
 /** How much road there is between checkpoints, in tiles. Twenty is about six seconds at racing
  *  speed — near enough that "how far to the next gate" still means something on a bend. */
 const GATE_EVERY_TILES = 20;
@@ -846,6 +864,8 @@ const STAGE_GRID_RUN = 30;
 const STAGE_FINISH_RUN = 2.5;
 const gateCells: Array<Array<{ col: number; row: number }>> = [];
 const chequered = new Set<string>();
+/** Boost cells, and which way the road runs at each — the chevrons have to point somewhere. */
+const boostCells = new Map<string, { col: number; row: number; dir: number }>();
 const grid: Array<{ col: number; row: number; slot: number; dir?: number }> = [];
 const spawns: Array<{ col: number; row: number }> = [];
 /**
@@ -921,6 +941,44 @@ if (CLOSED) {
   for (let g = 0; g < gates; g++) gateCells.push(gateCellsAt(startRun + (LINE_LENGTH * g) / gates));
   for (const c of gateCells[0]) chequered.add(`${c.col},${c.row}`);
   layOutGrid(startRun);
+
+  /**
+   * The straightest stretches of the lap, as far apart from each other as they can be — that is
+   * where the pads go. Straightest, because the ceiling a pad raises is taken back by drag within
+   * a second or so and a corner is where you cannot spend it; spread out, because three in a row
+   * is one long pad.
+   */
+  const spots: Array<{ run: number; radius: number }> = [];
+  for (let run = 0; run < LINE_LENGTH; run += 2) spots.push({ run, radius: radiusAtRun(run) });
+  spots.sort((a, b) => b.radius - a.radius);
+  const chosen: number[] = [];
+  for (const spot of spots) {
+    if (chosen.length >= BOOST_PADS) break;
+    // Clear of the START, and not on top of another pad. Clear of the start means clear of the
+    // GRID as well, which stretches nearly thirty tiles back from the line — a pad under the grid
+    // is a free launch for whoever drew that column, which is the opposite of a choice.
+    const gap = (a: number, b: number): number => {
+      const d = Math.abs(a - b) % LINE_LENGTH;
+      return Math.min(d, LINE_LENGTH - d);
+    };
+    if (gap(spot.run, startRun) < RING_GRID_ROWS * 5 + 12) continue;
+    if (chosen.some((c) => gap(spot.run, c) < LINE_LENGTH / (BOOST_PADS + 1))) continue;
+    chosen.push(spot.run);
+  }
+  for (const at of chosen) {
+    for (let k = 0; k < BOOST_LENGTH_TILES; k++) {
+      const p = lineAt(at + k);
+      const nx = -Math.sin(p.dir);
+      const ny = Math.cos(p.dir);
+      // Two cells either side of the centreline: a lane is left free on both sides, so driving
+      // over a pad is a decision rather than something the road does to you.
+      for (let u = -1; u <= 1; u += 0.5) {
+        const col = Math.round(p.x + nx * u);
+        const row = Math.round(p.y + ny * u);
+        if (onRoad(col, row)) boostCells.set(`${col},${row}`, { col, row, dir: p.dir });
+      }
+    }
+  }
 } else {
   // The gates stop short of the end: the finish line is a ring of cells of its own, past the last
   // gate. One cell carries one Action, so a finish painted on top of a gate simply DELETES that
@@ -945,6 +1003,10 @@ if (CLOSED) {
 const ground = new Array(COLS * ROWS).fill(0);
 const collision = new Array(COLS * ROWS).fill(0);
 const roughLayer = new Array(COLS * ROWS).fill(0);
+/** The second SURFACE layer. Two layers rather than two values on one, because a SurfaceLayer
+ *  carries ONE kind in its own property — which is what lets a mapper stack them and have the
+ *  topmost win. */
+const boostLayer = new Array(COLS * ROWS).fill(0);
 /** The FLAT decal layer: things that lie on the ground and never sort against anybody — the water
  *  under the bridge, tyres, tufts on the verge. The standing layer is for things you see the side
  *  of. Declared up here because the ground pass writes the water into it. */
@@ -960,8 +1022,14 @@ for (let row = 0; row < ROWS; row++) {
       const inner = distAt(col, row) > roadHalfAt(col, row) - 1 && radiusAtRun(nearAt(col, row)) < KERB_RADIUS_TILES;
       // The start-finish band: a chequered line on the same tiles a gate covers, so what the eye
       // reads and what the engine counts are the same line.
+      const pad = boostCells.get(`${col},${row}`);
+      if (pad) boostLayer[i] = COLLISION_GID;
       const onStartLine = chequered.has(`${col},${row}`);
-      ground[i] = onStartLine
+      ground[i] = pad
+        ? gidOf((['boostE', 'boostS', 'boostW', 'boostN'] as const)[
+            ((Math.round(pad.dir / (Math.PI / 2)) % 4) + 4) % 4
+          ])
+        : onStartLine
         ? (col + row) % 2 === 0
           ? gidOf('chequerA')
           : gidOf('chequerB')
@@ -1430,12 +1498,17 @@ const map = {
       visible: false,
       properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'rough' }],
     },
+    {
+      ...tileLayer(12, 'Boost', 'SurfaceLayer', boostLayer),
+      visible: false,
+      properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'boost' }],
+    },
     objectLayer(9, 'Furniture', furniture),
     objectLayer(3, 'Actions', objects),
     objectLayer(10, 'Text', texts),
     objectLayer(11, 'Images', images),
   ],
-  nextlayerid: 12,
+  nextlayerid: 13,
   nextobjectid: objectId,
   orientation: 'orthogonal',
   properties: [

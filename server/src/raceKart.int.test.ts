@@ -496,3 +496,66 @@ test('a coasting kart at a standstill is not wedged — only one asking for some
   assert.equal(kart.stuckMs, 0, 'a parked kart with no throttle must never count as stuck');
   assert.equal(kart.recoverMs, 0);
 });
+
+/**
+ * A BOOST pad throws you down the road, and only while you are on it.
+ *
+ * The second surface kind, and the first one that is ON the racing line rather than off it — which
+ * is the whole reason surfaces are a layer with a NAMED kind rather than a rough/not-rough flag.
+ *
+ * Three claims, and each is a way a pad goes wrong: it has to be worth more than the throttle
+ * alone, it has to work on a car that is not accelerating (a pad throws you; lifting is not a way
+ * to refuse it), and the speed it gives has to come BACK — a pad that raised the top speed for
+ * good would be a pad you drive over once and never need again.
+ */
+test('a boost pad is worth more than the throttle, and the gift is temporary', () => {
+  const { track } = world();
+  const SIDE = 80;
+  const tileMap: number[][] = Array.from({ length: SIDE }, () => new Array<number>(SIDE).fill(0));
+  const plain: KartWorld = { tileMap, blockedTiles: new Set<string>(), track };
+  // The same world with a strip of pad down the row the car drives along.
+  const pads = new Set<string>();
+  for (let c = 0; c < SIDE; c++) pads.add(`${c},${SIDE / 2}`);
+  const boosted: KartWorld = { tileMap, blockedTiles: new Set<string>(), track: { ...track, boost: pads } };
+
+  const run = (w: KartWorld, throttle: 0 | 1, seconds: number): Kart => {
+    const kart = createKart(1, at(4, SIDE / 2), 0);
+    kart.driverId = 42;
+    kart.state = 'drive';
+    kart.vx = KART_MAX_SPEED_PX_PER_SEC;
+    drive(kart, w, seconds, { throttle });
+    return kart;
+  };
+
+  const flat = run(plain, 1, 1.5);
+  const pad = run(boosted, 1, 1.5);
+  assert.ok(
+    Math.hypot(pad.vx, pad.vy) > Math.hypot(flat.vx, flat.vy) * 1.15,
+    `a pad added nothing: ${Math.hypot(pad.vx, pad.vy).toFixed(0)} against ${Math.hypot(flat.vx, flat.vy).toFixed(0)}`,
+  );
+  // …and it does not need the throttle. A pad is something the road does to you.
+  const coasting = run(boosted, 0, 1.5);
+  const coastingFlat = run(plain, 0, 1.5);
+  assert.ok(
+    Math.hypot(coasting.vx, coasting.vy) > Math.hypot(coastingFlat.vx, coastingFlat.vy),
+    'a pad did nothing for a car with the throttle up',
+  );
+
+  // Off the end of the strip, the drag takes the extra back: the ceiling is raised only ON a pad.
+  const short = new Set<string>();
+  for (let c = 4; c <= 10; c++) short.add(`${c},${SIDE / 2}`);
+  const brief: KartWorld = { tileMap, blockedTiles: new Set<string>(), track: { ...track, boost: short } };
+  const kart = createKart(2, at(4, SIDE / 2), 0);
+  kart.driverId = 42;
+  kart.state = 'drive';
+  kart.vx = KART_MAX_SPEED_PX_PER_SEC;
+  drive(kart, brief, 0.5, { throttle: 1 });
+  const peak = Math.hypot(kart.vx, kart.vy);
+  assert.ok(peak > KART_MAX_SPEED_PX_PER_SEC * 1.05, `the pad never lifted it past the limit: ${peak.toFixed(0)}`);
+  drive(kart, brief, 3, { throttle: 1 });
+  const after = Math.hypot(kart.vx, kart.vy);
+  assert.ok(
+    after <= KART_MAX_SPEED_PX_PER_SEC * 1.02,
+    `three seconds past the pad and it is still boosted: ${after.toFixed(0)}`,
+  );
+});

@@ -37,6 +37,9 @@ import {
   KART_BUMP_MIN_PX_PER_SEC,
   KART_BUMP_TRANSFER,
   KART_DRAG_PER_SEC,
+  BOOST_ACCEL_FACTOR,
+  BOOST_CARRY_SEC,
+  BOOST_SPEED_FACTOR,
   KART_FALL_SEC,
   KART_RESPAWN_REACH_TILES,
   KART_MAX_REVERSE_PX_PER_SEC,
@@ -54,7 +57,7 @@ import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
 import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
-import { gateAt, headingFrom, isRough, nextGate, nextPoint, wrapAngle, type RaceTrack } from './track.js';
+import { gateAt, headingFrom, isBoost, isRough, nextGate, nextPoint, wrapAngle, type RaceTrack } from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
 export interface KartInput {
@@ -85,6 +88,9 @@ export interface Kart {
   lap: number;
   /** Counts down while falling. */
   fallTimer: number;
+  /** Milliseconds of raised speed ceiling left from a boost pad. Engine-only: the client sees the
+   *  speed, which is the whole of what a boost looks like. */
+  boostMs: number;
   /** Set once the kart has crossed the finish for the last lap. Owned by the RACE, never by the
    *  model: without a race running there is no finish, because there is no lap limit. */
   finished: boolean;
@@ -159,6 +165,7 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     gate: 0,
     lap: 0,
     fallTimer: 0,
+    boostMs: 0,
     finished: false,
     spec: DEFAULT_KART_SPEC.id,
     art: 0,
@@ -274,10 +281,21 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // fatal — a run-off you cannot drive out of is a wall with grass painted on it.
   const offRoad = isRough(world.track, tileOf(kart.x), tileOf(kart.y));
   const surface = offRoad ? ROUGH_GRIP : 1;
+  // A BOOST pad: road that throws you down it. The shove lands whether or not the throttle is
+  // down — lifting on one is not a way to refuse it — and only while the car is actually on the
+  // pad, so what you get is the length of it and not a switch you flicked.
+  const boosting = !offRoad && isBoost(world.track, tileOf(kart.x), tileOf(kart.y)) && kart.driverId !== null;
   if (input.throttle > 0) along += spec.accel * dt * (offRoad ? ROUGH_SPEED : 1);
   else if (input.throttle < 0) along -= spec.brake * dt;
+  if (boosting && along >= 0) along += spec.accel * BOOST_ACCEL_FACTOR * dt;
   along -= along * Math.min(1, KART_DRAG_PER_SEC * dt);
-  const ceiling = spec.maxSpeed * (offRoad ? ROUGH_SPEED : 1);
+  // The raised ceiling OUTLIVES the pad, and it has to. The cap is applied every tick, so without
+  // this the extra speed is cut away the instant the car rolls off the last cell — measured, a lap
+  // improved by three tenths of a second, which is a pad that may as well not be there. Held up
+  // for BOOST_CARRY_SEC, the ordinary drag is what takes the speed back, and a pad becomes a run
+  // down the straight instead of four tiles of nothing.
+  kart.boostMs = boosting ? BOOST_CARRY_SEC * 1000 : Math.max(0, kart.boostMs - dt * 1000);
+  const ceiling = spec.maxSpeed * (offRoad ? ROUGH_SPEED : kart.boostMs > 0 ? BOOST_SPEED_FACTOR : 1);
   along = Math.max(-KART_MAX_REVERSE_PX_PER_SEC, Math.min(ceiling, along));
 
   // The tyres kill at most this much sideways speed this tick — a LIMIT, not a fraction. Beyond

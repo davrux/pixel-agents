@@ -36,7 +36,7 @@ import { KART_MAX_SPEED_PX_PER_SEC, RACE_TICK_HZ } from '@pixel/shared/office/co
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
-import { wrapAngle } from '@pixel/shared/office/race/track.js';
+import { isRough, wrapAngle } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -216,4 +216,47 @@ test('a car driven backwards is still warned', () => {
     if (kart.wrongWay) break;
   }
   assert.equal(kart.wrongWay, true, 'a kart driven back down the course was not warned');
+});
+
+/**
+ * A boost pad is on the road, off the grid, and worth having.
+ *
+ * The placement rules are the interesting half: a pad belongs on a STRAIGHT, because the ceiling
+ * it raises is taken back by drag within a second or so and a corner is where you cannot spend it;
+ * and nowhere near the starting grid, because a pad under one column of the grid is a free launch
+ * for whoever drew it, which is the opposite of the choice a pad is meant to be.
+ */
+test('every circuit has boost pads, on its road and clear of its grid', () => {
+  for (const zone of TRACKS) {
+    const layout = layouts.get(zone) as unknown as {
+      cols: number;
+      surfaces?: Record<string, number[]>;
+      tileActions?: Array<{ kind?: string } | null>;
+    };
+    const pads = layout.surfaces?.boost ?? [];
+    assert.ok(pads.length >= 8, `${zone}: only ${pads.length} boost cells`);
+    const os = new OfficeState(layout as never);
+    const track = os.raceTrack();
+    assert.ok(track);
+    for (const cell of pads) {
+      const col = cell % layout.cols;
+      const row = (cell - col) / layout.cols;
+      // ON the racing surface — that is the whole difference from `rough`, and a pad in the grass
+      // would be a reward for leaving the road.
+      assert.equal(isRough(track, col, row), false, `${zone}: a pad at (${col}, ${row}) is off the racing surface`);
+    }
+    // …and clear of the grid. Measured as the nearest grid slot to any pad.
+    const slots: Array<{ col: number; row: number }> = [];
+    (layout.tileActions ?? []).forEach((a, i) => {
+      if (a?.kind === 'raceStart') slots.push({ col: i % layout.cols, row: Math.floor(i / layout.cols) });
+    });
+    assert.ok(slots.length > 0, `${zone}: no grid to measure against`);
+    let nearest = Infinity;
+    for (const cell of pads) {
+      const col = cell % layout.cols;
+      const row = (cell - col) / layout.cols;
+      for (const s of slots) nearest = Math.min(nearest, Math.hypot(s.col - col, s.row - row));
+    }
+    assert.ok(nearest > 12, `${zone}: a boost pad is ${nearest.toFixed(0)} tiles from a grid slot`);
+  }
 });

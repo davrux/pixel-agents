@@ -1014,17 +1014,16 @@ export interface WallEdges {
  * Adding one is a value here, a row in the Tiled enum, and a branch wherever the physics reads it
  * — a kind nothing implements would be a surface that lies.
  *
- * **Why there is only one**, since the mechanism plainly takes more (asked directly): the list is
- * short because the expensive part of a surface is not the enum, it is the ART. A cell that
- * changes how a car behaves and looks exactly like the cell beside it is a trap, and the one
- * surface that exists is free of that problem because it is painted on grass and sand — the
- * picture already says "this is not the road". Ice, a boost strip and mud are each a value, a
- * branch of three lines in `updateKart`, and a tile somebody has to draw that reads as ice, as a
- * boost strip or as mud at 16 px. The drawing is the work; the plumbing is done.
+ * **The expensive part of a surface is the ART, not the enum**, and that is what decides whether a
+ * kind is worth having: a cell that changes how a car behaves and looks exactly like the cell
+ * beside it is a trap. `rough` escapes that because it is painted on grass and sand — the picture
+ * already says "this is not the road" — and `boost` because it is painted with chevrons that point
+ * the way you are about to be thrown. Ice and mud are each a value here, a branch of three lines
+ * in `updateKart`, and a tile somebody has to draw that reads as ice or as mud at 16 px.
  */
-export type SurfaceKind = 'rough';
+export type SurfaceKind = 'rough' | 'boost';
 
-export const SURFACE_KINDS: readonly SurfaceKind[] = ['rough'];
+export const SURFACE_KINDS: readonly SurfaceKind[] = ['rough', 'boost'];
 
 export function isSurfaceKind(value: unknown): value is SurfaceKind {
   return typeof value === 'string' && (SURFACE_KINDS as readonly string[]).includes(value);
