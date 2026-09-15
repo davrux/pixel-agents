@@ -48,6 +48,8 @@ import {
   KART_STEER_AT_REST,
   KART_STUCK_SEC,
   KART_STUCK_SPEED_PX_PER_SEC,
+  KART_LOST_MOVE_TILES,
+  KART_LOST_SEC,
   KART_WRONG_WAY_SEC,
   KART_STEER_RAD_PER_SEC,
   ROUGH_GRIP,
@@ -123,6 +125,19 @@ export interface Kart {
   wrongWay: boolean;
   /** How long, in ms, this car has been losing ground — what the warning is actually made of. */
   wrongMs: number;
+  /**
+   * How long, in ms, since this car last got anywhere — and where it was then.
+   *
+   * A DISPLACEMENT from an anchor rather than a per-tick test, which is what makes it immune to a
+   * car bouncing off a barrier: see `KART_LOST_MOVE_TILES` for the measurement that settled the
+   * shape. Separate from `wrongMs` because the two answer different questions — that one is a
+   * warning a driver can act on, this one is whether anything is happening at all, and a car
+   * jammed nose-first into a wall is as lost as one pointing back down the road while deserving a
+   * different thing said to it.
+   */
+  lostMs: number;
+  anchorX: number;
+  anchorY: number;
   /** How far it was from the point it is heading for, last tick. -1 before the first one. */
   /**
    * How long, in ms, the engine has been asking for something and the ground has not moved.
@@ -172,6 +187,9 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     sliding: false,
     wrongWay: false,
     wrongMs: 0,
+    lostMs: 0,
+    anchorX: at.x,
+    anchorY: at.y,
     stuckMs: 0,
     recoverMs: 0,
     lapMs: 0,
@@ -461,6 +479,16 @@ export function respawn(kart: Kart, world: KartWorld): void {
   kart.vy = 0;
   kart.fallTimer = 0;
   kart.state = kart.driverId === null ? 'idle' : 'drive';
+  // A car that has just been put somewhere starts a fresh spell of trouble, and both halves of
+  // that matter. The rescue measures a displacement from where the trouble STARTED, which is now
+  // behind the car — so without re-anchoring, every fall would be followed by a rescue five
+  // seconds later. And the jam is over by construction, so the backing-out manoeuvre the physics
+  // was arming must not carry over and drive the fresh start into reverse.
+  kart.anchorX = kart.x;
+  kart.anchorY = kart.y;
+  kart.lostMs = 0;
+  kart.stuckMs = 0;
+  kart.recoverMs = 0;
 }
 
 /**
@@ -514,57 +542,99 @@ export function bumpKarts(a: Kart, b: Kart): boolean {
 }
 
 /**
- * Is this car going the wrong way — decided against the direction of the LEG it is on.
+ * Is this car getting anywhere — and if it has not been for a while, put it back on the track.
  *
- * The leg is the straight line from the gate just passed to the point being driven towards, and
- * the question is whether the car's velocity has a component along it or against it. Not where the
- * car is POINTING (a car spun by a bump points backwards for a moment while still sliding
- * forwards, and warning for that is noise), and not the distance to the next gate either, which is
- * what this replaced twice:
+ * Two questions with one answer, because they are the same measurement read at two lengths:
  *
- *  - `raceProgress` clamps its fraction to the leg so a running order stays monotone, which means
- *    progress stops falling exactly when a car is most obviously going backwards.
- *  - Raw distance to the next gate fires on a CORNER. A leg that bends takes the car away from the
- *    point it is heading for while it is being driven perfectly: measured on Monza, six spells on
- *    a clean three-lap run, twice a lap, at the same two corners — "durch die erste Kurve kommt
- *    kurz Wrong Way".
- *  - Requiring it to be gaining on the gate BEHIND as well fixes that and breaks the other half: a
- *    circuit has a checkpoint every twenty tiles now, which at racing speed is a second, so a car
- *    turned round passes the gate behind it before the counter can reach its threshold. Measured:
- *    it never warned at all.
+ *  - **Going the wrong way** is decided against the direction of the LEG the car is on: the
+ *    straight line from the gate just passed to the point being driven towards, and whether the
+ *    car's velocity has a component along it or against it. Not where the car is POINTING (a car
+ *    spun by a bump points backwards for a moment while still sliding forwards, and warning for
+ *    that is noise), and not the distance to the next gate either, which is what this replaced
+ *    twice:
+ *      - `raceProgress` clamps its fraction to the leg so a running order stays monotone, which
+ *        means progress stops falling exactly when a car is most obviously going backwards.
+ *      - Raw distance to the next gate fires on a CORNER. A leg that bends takes the car away from
+ *        the point it is heading for while it is being driven perfectly: measured on Monza, six
+ *        spells on a clean three-lap run, twice a lap, at the same two corners — "durch die erste
+ *        Kurve kommt kurz Wrong Way".
+ *      - Requiring it to be gaining on the gate BEHIND as well fixes that and breaks the other
+ *        half: a circuit has a checkpoint every twenty tiles now, which at racing speed is a
+ *        second, so a car turned round passes the gate behind it before the counter can reach its
+ *        threshold. Measured: it never warned at all.
+ *    The chord is what has neither problem. Measured across the three circuits, the worst a leg
+ *    bends away from the local direction of travel is 55°, where the warning needs 110°.
+ *  - **Being LOST** is that, or being jammed: asking for thrust and going nowhere. A car pressed
+ *    into a barrier is not going the wrong way — it is going no way at all — and until this existed
+ *    it stayed there, because the backing-out manoeuvre the physics arms (`recoverMs`) is acted on
+ *    by the computer drivers alone. Forty-five seconds of banner and three laps lost, measured in a
+ *    browser; see `KART_LOST_RESET_SEC` for the numbers and for why the respawn cannot be abused.
  *
- * The chord is what has neither problem. A leg twenty tiles long is close enough to straight that
- * driving it correctly keeps the dot product positive through any corner this world can draw, and
- * a car driven back down the road has it firmly negative for as long as that lasts.
- *
- * The counter lives on the CAR rather than being recomputed, because "for how long" is the whole
+ * The counters live on the CAR rather than being recomputed, because "for how long" is the whole
  * point: a spin crosses the line for a moment, and a warning that fires on a single tick of that
  * is the false alarm all of this exists to avoid.
+ *
+ * The caller must not ask while the field is HELD on the grid — a driver leaning on the throttle
+ * before the lights go out is asking for thrust and going nowhere, which is exactly what being
+ * wedged looks like.
  */
-export function updateWrongWay(kart: Kart, world: KartWorld, dt: number): void {
+export function updateLost(kart: Kart, world: KartWorld, dt: number): void {
   const driving = kart.driverId !== null && kart.state === 'drive' && !kart.finished;
-  const speed = Math.hypot(kart.vx, kart.vy);
-  // Below a crawl the question is meaningless: a stopped car is going neither way, and asking
-  // would flap the warning every time somebody nudged it.
-  if (!driving || speed < 30) {
+  if (!driving) {
     kart.wrongMs = 0;
+    kart.lostMs = 0;
+    kart.anchorX = kart.x;
+    kart.anchorY = kart.y;
     kart.wrongWay = false;
     return;
   }
+  const speed = Math.hypot(kart.vx, kart.vy);
   const ahead = nextPoint(world.track, kart.gate);
   const behind = world.track.gates[kart.gate] ?? world.track.gates[0];
   const lx = ahead.x - behind.x;
   const ly = ahead.y - behind.y;
   const leg = Math.hypot(lx, ly);
-  if (leg < 1) {
-    kart.wrongMs = 0;
-    kart.wrongWay = false;
+
+  // ── the warning ───────────────────────────────────────────────────────────
+  // Below a crawl the DIRECTION question is meaningless: a stopped car is going neither way, and
+  // asking would flap the warning every time somebody nudged it. Being stopped is the other half's
+  // business, not this one's.
+  let backwards = false;
+  if (speed >= 30 && leg >= 1) {
+    // The cosine between where the car is going and where this leg goes. A bend is normal, so only
+    // a genuine reversal counts.
+    backwards = (kart.vx * lx + kart.vy * ly) / (speed * leg) < -0.35;
+  }
+  kart.wrongMs = backwards ? kart.wrongMs + dt * 1000 : 0;
+  kart.wrongWay = kart.wrongMs >= KART_WRONG_WAY_SEC * 1000;
+
+  // ── the rescue ────────────────────────────────────────────────────────────
+  // A car nobody is asking anything of is PARKED, not lost. Read off the INPUT rather than off the
+  // speed, deliberately: a driver leaning on the throttle against a barrier is the case this whole
+  // thing exists for, while a player who stopped to look at the scenery must not be picked up and
+  // set down again every five seconds. Reading the input cannot twitch either — it is what the
+  // client last sent and it stays until a key changes.
+  // HELD rather than cleared, which is the same lesson as the anchor: a driver pumping the throttle
+  // against a wall is not parked for the beats in between, and a rule that reset on those would put
+  // the twitching case straight back. A car that really is standing still simply keeps whatever it
+  // had — and gets it cleared by the displacement below the moment it drives off.
+  if (kart.input.throttle === 0 && kart.input.steer === 0) return;
+  // How far the car has got since the trouble started, measured ALONG the leg. One question covers
+  // both shapes of being lost: a car pressed into a barrier has got nowhere because it has not
+  // moved, and a car driven back down the road has got nowhere because the progress is negative.
+  const dx = kart.x - kart.anchorX;
+  const dy = kart.y - kart.anchorY;
+  const got = leg >= 1 ? (dx * lx + dy * ly) / leg : Math.hypot(dx, dy);
+  if (got >= KART_LOST_MOVE_TILES * TILE_SIZE) {
+    kart.anchorX = kart.x;
+    kart.anchorY = kart.y;
+    kart.lostMs = 0;
     return;
   }
-  // The cosine between where the car is going and where this leg goes. A bend is normal, so only
-  // a genuine reversal counts — the same threshold `goingBackwards` uses, and for the same reason.
-  const along = (kart.vx * lx + kart.vy * ly) / (speed * leg);
-  if (along < -0.35) kart.wrongMs += dt * 1000;
-  else kart.wrongMs = 0;
-  kart.wrongWay = kart.wrongMs >= KART_WRONG_WAY_SEC * 1000;
+  kart.lostMs += dt * 1000;
+  if (kart.lostMs < KART_LOST_SEC * 1000) return;
+  respawn(kart, world);
+  kart.lostMs = 0;
+  kart.wrongMs = 0;
+  kart.wrongWay = false;
 }

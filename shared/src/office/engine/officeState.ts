@@ -46,7 +46,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
-import { bumpKarts, createKart, facingFromHeading, updateKart, updateWrongWay, type Kart } from '../race/kart.js';
+import { bumpKarts, createKart, facingFromHeading, updateKart, updateLost, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
 import { racerInput } from '../race/racerDriver.js';
 import { DEFAULT_DIFFICULTY, DIFFICULTY, isDifficulty, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
@@ -1427,9 +1427,14 @@ export class OfficeState {
       }
       if (lead) markFinalLap(this.race, lead.lap, lapFraction(track, lead.gate, lead.x, lead.y));
     }
-    // Who is going the wrong way — asked every tick, of everyone, because it is a warning and a
-    // warning that arrives late is no warning. The car keeps the tally; see `updateWrongWay`.
-    for (const kart of this.karts.values()) updateWrongWay(kart, world, dt);
+    // Who is getting nowhere — asked every tick, of everyone, because it is a warning and a
+    // warning that arrives late is no warning. The car keeps the tally; see `updateLost`.
+    //
+    // Never while the field is HELD, and that is not tidiness: a driver leaning on the throttle
+    // before the lights go out is asking for thrust and going nowhere, which is exactly what a car
+    // jammed against a barrier looks like, so the whole grid would be picked up and set down again
+    // during the countdown.
+    if (!held) for (const kart of this.karts.values()) updateLost(kart, world, dt);
     const list = [...this.karts.values()];
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) bumpKarts(list[i], list[j]);

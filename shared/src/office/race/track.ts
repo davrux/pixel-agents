@@ -253,24 +253,3 @@ export function lapFraction(track: RaceTrack, gate: number, x: number, y: number
   const whole = raceProgress(track, 0, gate, x, y);
   return Math.max(0, Math.min(1, whole / track.gates.length));
 }
-
-/**
- * Is this kart travelling the wrong way round?
- *
- * Taken from the direction it is MOVING against the direction of the next gate, not from its
- * heading: a kart spun round by a bump points backwards for a moment while still sliding forwards,
- * and warning somebody for that is noise. Below a crawl the question is meaningless, so it is not
- * asked — the answer there would flap every time a stopped kart was nudged.
- */
-export function goingBackwards(track: RaceTrack, gate: number, x: number, y: number, vx: number, vy: number): boolean {
-  const speed = Math.hypot(vx, vy);
-  if (speed < 30) return false;
-  const target = nextPoint(track, gate);
-  const tx = target.x - x;
-  const ty = target.y - y;
-  const len = Math.hypot(tx, ty);
-  if (len < 1) return false;
-  // The cosine of the angle between where it is going and where the next gate is. A track bends,
-  // so "not straight at it" is normal; only a genuine reversal counts.
-  return (vx * tx + vy * ty) / (speed * len) < -0.35;
-}

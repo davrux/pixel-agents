@@ -41,7 +41,7 @@ import {
   takeNotices,
   tickRace,
 } from '@pixel/shared/office/race/raceState.js';
-import { createKart, updateWrongWay } from '@pixel/shared/office/race/kart.js';
+import { createKart, updateLost } from '@pixel/shared/office/race/kart.js';
 import { raceProgress, raceTrack } from '@pixel/shared/office/race/track.js';
 import { ControllerKind, type OfficeLayout } from '@pixel/shared/office/types';
 
@@ -582,7 +582,7 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
     for (let i = 0; i < Math.round(seconds / DT); i++) {
       kart.x += kart.vx * DT;
       kart.y += kart.vy * DT;
-      updateWrongWay(kart, world, DT);
+      updateLost(kart, world, DT);
     }
   };
 

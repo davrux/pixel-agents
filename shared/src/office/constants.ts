@@ -551,6 +551,38 @@ export const KART_STUCK_SEC = 0.8;
  * twice that; a real U-turn keeps losing ground for as long as it lasts and is caught a beat later.
  */
 export const KART_WRONG_WAY_SEC = 1.1;
+/**
+ * How long a car may get NOWHERE before it is put back on the track.
+ *
+ * The warning was the end of the story, and that is what made it useless. Measured in a browser,
+ * seventy-five seconds of ordinary human driving on Monza with a full field: the car ended up
+ * nose-first against the outside barrier and then wedged in the infield grass between the two
+ * straights, three laps down, with nothing it could do about it — the backing-out manoeuvre the
+ * physics arms (`recoverMs`) is acted on by the computer drivers alone ("a human is simply told
+ * nothing and reverses if they like").
+ *
+ * Five seconds is long enough that a spin, a bump or a deliberate reverse to free a wheel costs
+ * nothing, and short enough that nobody loses a lap to a barrier. Where the car goes is the
+ * respawn's business and needs no new rule: `roadNear` already hands back the nearest road that is
+ * NO NEARER the next gate, so being lost can never become the fast way round.
+ */
+export const KART_LOST_SEC = 5;
+/**
+ * How far a car has to get, along the leg it is on, to count as having got somewhere.
+ *
+ * The question is asked as a DISPLACEMENT from where the trouble started rather than as a test per
+ * tick, and that shape is the whole fix. The first version pooled two per-tick conditions — going
+ * backwards, and asking for thrust while standing still — into one counter, and a car bouncing off
+ * a barrier satisfies neither for a tick at a time: measured on Monza, a flailing driver spent
+ * **64 of 75 seconds in trouble (56 % of ticks jammed, 20 % backwards) and was rescued three
+ * times**, because every twitch paid part of the counter back. A displacement cannot twitch.
+ *
+ * Three tiles in five seconds is 9 px/s, a twentieth of walking pace; a car in the slowest corner
+ * any of these circuits has covers that in a fifth of a second. Measured ALONG the leg, so driving
+ * backwards is not "getting somewhere" however much ground it covers — which is what lets one rule
+ * cover both halves of being lost.
+ */
+export const KART_LOST_MOVE_TILES = 3;
 /** Below this, with the engine asking for something, a kart is not moving in any useful sense. */
 export const KART_STUCK_SPEED_PX_PER_SEC = 14;
 /**
