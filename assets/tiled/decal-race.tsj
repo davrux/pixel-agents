@@ -1,7 +1,7 @@
 {
   "columns": 0,
   "name": "decal-race",
-  "tilecount": 3,
+  "tilecount": 7,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -62,6 +62,82 @@
           "name": "label",
           "type": "string",
           "value": "Race plant"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_TYRE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_TYRE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Race tyre"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_GRANDSTAND.png",
+      "imagewidth": 96,
+      "imageheight": 96,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_GRANDSTAND"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Grandstand"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_BRAKE_SIGN.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_BRAKE_SIGN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Brake sign"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "DecalTile",
+      "image": "png/src/decal/RACE_BUSH.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "RACE_BUSH"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Race bush"
         }
       ]
     }

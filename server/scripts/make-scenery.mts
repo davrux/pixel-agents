@@ -54,6 +54,23 @@ const GROUND: ReadonlyArray<{ name: string; file: string; at: [number, number] }
   { name: 'sandB', file: 'sand.png', at: [96, 32] },
   { name: 'sandC', file: 'sand.png', at: [160, 128] },
   { name: 'sandD', file: 'sand.png', at: [32, 192] },
+  /**
+   * The ROAD, and this is the one that changes how a circuit looks.
+   *
+   * The tracks were drawn with ten tiles this repository generated itself, and a flat grey field
+   * with a red-and-white border is what that gets you — reported as "Raceway ist nicht schön
+   * geworden". Dust Racing's asphalt is a photographed-looking grain with real tonal variation,
+   * which is the whole difference between a road and a grey rectangle. Four cells again, because
+   * one repeated is wallpaper.
+   *
+   * It lands in THIS sheet rather than in `track.png` deliberately: that one is ours and MIT, this
+   * one is CC BY-SA, and a file is the smallest thing a licence can attach to (see the README).
+   * Mixing them would put a share-alike obligation on a sheet whose other tiles owe nothing.
+   */
+  { name: 'asphaltA', file: 'asphalt.png', at: [0, 0] },
+  { name: 'asphaltB', file: 'asphalt.png', at: [128, 32] },
+  { name: 'asphaltC', file: 'asphalt.png', at: [64, 160] },
+  { name: 'asphaltD', file: 'asphalt.png', at: [192, 192] },
 ];
 
 /** The decals: one image each, scaled to whole cells. A tree is two cells tall so it reads as one. */
@@ -61,6 +78,16 @@ const DECALS: ReadonlyArray<{ id: string; file: string; w: number; h: number; la
   { id: 'RACE_TREE', file: 'tree.png', w: 32, h: 32, label: 'Race tree' },
   { id: 'RACE_ROCK', file: 'rock.png', w: 16, h: 16, label: 'Race rock' },
   { id: 'RACE_PLANT', file: 'plant.png', w: 16, h: 16, label: 'Race plant' },
+  /** A single tyre, laid flat — a row of them along the barrier is a tyre wall, which is what a
+   *  circuit actually has where ours had a stripe of kerb pretending to be one. */
+  { id: 'RACE_TYRE', file: 'tire.png', w: 16, h: 16, label: 'Race tyre' },
+  /** A grandstand full of people. The single biggest thing that makes a circuit read as a PLACE
+   *  rather than as a shape: somewhere for the race to be watched from. */
+  { id: 'RACE_GRANDSTAND', file: 'grandstand.png', w: 96, h: 96, label: 'Grandstand' },
+  /** A trackside board. Dust puts it where you have to brake; so do we. */
+  { id: 'RACE_BRAKE_SIGN', file: 'brake.png', w: 32, h: 16, label: 'Brake sign' },
+  /** Scrub, for the outfield — busier than a tuft and cheaper than a tree. */
+  { id: 'RACE_BUSH', file: 'bushArea.png', w: 32, h: 32, label: 'Race bush' },
 ];
 
 const read = (file: string): PNG => PNG.sync.read(fs.readFileSync(path.join(SRC, file)));

@@ -1,9 +1,23 @@
 # Art from Dust Racing 2D
 
 The PNGs in this directory are from **[Dust Racing 2D](https://github.com/juzzlin/DustRacing2D)**
-by Jussi Lind and contributors, taken from `data/images/`: the **scenery** this
-world's tracks are landscaped with — `grass.png`, `sand.png`, `tree.png`,
-`rock.png`, `plant.png`.
+by Jussi Lind and contributors, taken from `data/images/`:
+
+- the **ground** a track is made of — `grass.png`, `sand.png` and, since
+  2026-09-15, `asphalt.png`. The road used to be drawn with tiles this repository
+  generated itself, and a flat grey field with a red-and-white border is what that
+  gets you; the pack's asphalt has real grain and is the single biggest difference
+  between a road and a grey rectangle.
+- the **things beside it** — `tree.png`, `rock.png`, `plant.png`, and now
+  `bushArea.png`, `tire.png` (a tyre wall on the outside of every corner),
+  `grandstand.png` (somewhere for the race to be watched from) and `brake.png`
+  (the board before the tightest corner).
+
+What was deliberately NOT taken is their track PIECES (`straight.png`,
+`corner.png`, `corner45Left.png` …). Those are masks, not finished art — pure
+green means "no road here", and Dust composites them over the asphalt at runtime.
+This world states its road as a distance from a centreline instead, so it needs
+the texture and not the stencil.
 
 Its eight **cars** were here too and are not any more: the race went back to
 hand-drawn karts on 2026-09-13 (`scripts/draw-karts.sh`), which owe Dust Racing
@@ -27,8 +41,10 @@ travel with them:
   would any repaint of them:
   - `assets/tiled/png/src/scenery.png` and `assets/tiled/scenery.tsj` — the ground
     a track is landscaped with, from `scripts/make-scenery.sh`
-  - `assets/tiled/png/src/decal/race-*.png` and `assets/tiled/decal-race.tsj` —
-    the trees and rocks beside it, from the same script
+  - `assets/tiled/png/src/decal/RACE_*.png` and `assets/tiled/decal-race.tsj` —
+    the trees, rocks, bushes, tyres, grandstands and signs beside it, from the
+    same script
+  - `assets/tiled/png/baked/atlas-furniture.png` insofar as it packs those decals
 
 The rest of the repository is unaffected: a licence attaches to these image
 files, not to the code that loads them.

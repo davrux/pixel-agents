@@ -54,14 +54,18 @@ type TrackTile = (typeof TRACK_TILES)[number];
  * Its own tileset rather than more rows in ours, because the two carry different licences and a
  * file is the smallest thing a licence can attach to. See assets/third-party/dust-racing/README.md.
  */
-const SCENERY_TILES = ['grassA', 'grassB', 'grassC', 'grassD', 'sandA', 'sandB', 'sandC', 'sandD'] as const;
+const SCENERY_TILES = [
+  'grassA', 'grassB', 'grassC', 'grassD',
+  'sandA', 'sandB', 'sandC', 'sandD',
+  'asphaltA', 'asphaltB', 'asphaltC', 'asphaltD',
+] as const;
 type SceneryTile = (typeof SCENERY_TILES)[number];
 /**
  * What STANDS in that landscape — a tree, a rock, a tuft — in the order `decal-race.tsj` carries
  * them. Grass alone is still a flat green rectangle; what makes a circuit read as a place is
  * something with a height in it.
  */
-const DECAL_TILES = ['RACE_TREE', 'RACE_ROCK', 'RACE_PLANT'] as const;
+const DECAL_TILES = ['RACE_TREE', 'RACE_ROCK', 'RACE_PLANT', 'RACE_TYRE', 'RACE_GRANDSTAND', 'RACE_BRAKE_SIGN', 'RACE_BUSH'] as const;
 type DecalTile = (typeof DECAL_TILES)[number];
 const COLLISION_GID = 7021;
 
@@ -131,9 +135,11 @@ const sandAt = (col: number, row: number): number =>
 /** Alternating pairs, along whichever axis the stripe runs — a real kerb, red and white. */
 const kerbAt = (col: number, row: number): number =>
   Math.floor((col + row) / 2) % 2 === 0 ? gidOf('kerbRed') : gidOf('kerbPale');
-/** Two asphalt tiles in a coarse patchwork, so a long straight is not one flat grey field. */
+/** FOUR asphalt cells in a coarse patchwork, so a long straight is not one flat grey field — and
+ *  they are the pack's, not ours: see the asphalt entry in `make-scenery.mts` for why that is the
+ *  single biggest difference between a road and a grey rectangle. */
 const roadAt = (col: number, row: number): number =>
-  (Math.floor(col / 3) + Math.floor(row / 3)) % 2 === 0 ? gidOf('asphalt') : gidOf('asphaltB');
+  sceneryGid((['asphaltA', 'asphaltB', 'asphaltC', 'asphaltD'] as const)[variant(col + 41, row + 17, 4)]);
 
 
 interface Pt {
@@ -610,7 +616,11 @@ const onBarrier = (col: number, row: number): boolean => {
   return d > HALF + SAND && d <= HALF + SAND + 1;
 };
 const onOutfield = (col: number, row: number): boolean => {
-  if (col <= 0 || row <= 0 || col >= COLS - 1 || row >= ROWS - 1) return CLOSED && !onBarrier(col, row) && !inBridgeAir(col, row);
+  // OFF THE MAP IS NOT OUTFIELD. The edge case used to answer "is it a barrier?" for cells that
+  // are not cells at all, and a barrier they are not — so `roomFor` happily found six clear cells
+  // past the bottom edge and put three grandstands where there is no map. They were in the file
+  // and nowhere on the screen.
+  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return false;
   if (onRoad(col, row) || onBarrier(col, row) || onRunOff(col, row) || inBridgeAir(col, row)) return false;
   if (!CLOSED && stageWall[row * COLS + col] === 1) return false;
   return true;
@@ -788,8 +798,18 @@ for (let row = 0; row < ROWS; row++) {
  * `--check` compares bytes, and a random layout would fail it every run.
  */
 const decal = new Array(COLS * ROWS).fill(0);
-const roomForTree = (col: number, row: number): boolean =>
-  isOutfield(col, row) && isOutfield(col, row - 1) && isOutfield(col + 1, row) && isOutfield(col + 1, row - 1);
+/** The FLAT decal layer: things that lie on the ground and never sort against anybody — tyres,
+ *  tufts on the verge. The standing layer above is for things you see the side of. */
+const flat = new Array(COLS * ROWS).fill(0);
+/** Room for a piece this many cells wide and tall, anchored bottom-left the way Tiled anchors an
+ *  oversized tile: it reaches UP and to the RIGHT, so those are the cells that must be free. */
+const roomFor = (col: number, row: number, w: number, h: number): boolean => {
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) if (!isOutfield(col + dx, row - dy)) return false;
+  }
+  return true;
+};
+const roomForTree = (col: number, row: number): boolean => roomFor(col, row, 2, 2);
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
     if (!isOutfield(col, row)) continue;
@@ -800,6 +820,32 @@ for (let row = 0; row < ROWS; row++) {
     if (roll < 4 && roomForTree(col, row)) decal[row * COLS + col] = decalGid('RACE_TREE');
     else if (roll >= 4 && roll < 6) decal[row * COLS + col] = decalGid('RACE_ROCK');
     else if (roll >= 6 && roll < 10) decal[row * COLS + col] = decalGid('RACE_PLANT');
+    else if (roll >= 10 && roll < 13 && roomForTree(col, row)) decal[row * COLS + col] = decalGid('RACE_BUSH');
+  }
+}
+
+/**
+ * A TYRE WALL on the outside of every corner, and grandstands to watch from.
+ *
+ * What a circuit has where ours had a stripe of kerb pretending to be a barrier. Both are placed
+ * from the curve rather than by hand: tyres go on the barrier cells whose stretch of road is a
+ * corner (the same radius test the kerbs use, so the two agree by construction), and only on the
+ * OUTSIDE, because that is the side a car leaves the road on.
+ *
+ * The tyres lie on the FLAT decal layer — they are on the ground, not standing up — which is also
+ * the layer that had nothing on it but a few tufts.
+ */
+if (CLOSED) {
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      if (!isBarrier(col, row)) continue;
+      if (radiusAtRun(nearAt(col, row)) >= KERB_RADIUS_TILES) continue;
+      // Outside only: the cell is further from the middle of the map than the road it guards.
+      const p = lineAt(nearAt(col, row));
+      const outward = (col - COLS / 2) ** 2 + (row - ROWS / 2) ** 2 > (p.x - COLS / 2) ** 2 + (p.y - ROWS / 2) ** 2;
+      if (!outward) continue;
+      flat[row * COLS + col] = decalGid('RACE_TYRE');
+    }
   }
 }
 
@@ -965,7 +1011,6 @@ const label = (col: number, row: number, text: string, cells = 8) => ({
 const furniture: Array<ReturnType<typeof furn>> = [];
 const texts: Array<ReturnType<typeof label>> = [];
 const images: Array<Record<string, unknown>> = [];
-const flat = new Array(COLS * ROWS).fill(0);
 /**
  * Where a piece stands, measured OUTWARD from the road in tiles, and why each number is that one.
  *
@@ -1062,6 +1107,44 @@ if (CLOSED) {
     x: hoarding.col * TILE,
     y: (hoarding.row + 1) * TILE,
   });
+  /**
+   * GRANDSTANDS along the main straight, and a brake board before the tightest corner.
+   *
+   * Both are placed off the curve, outside the barrier, in the outfield where nothing can reach
+   * them — so they need no approach tile and cannot be driven into. A grandstand is six cells
+   * square, which is why it asks `roomFor` rather than being dropped at a computed spot: the
+   * outfield is not the same width all the way round, and a stand half-buried in the barrier is
+   * worse than no stand.
+   */
+  for (const k of [4, 16, 28]) {
+    // Outwards first, then INWARDS — because the band between the barrier and the edge of the map
+    // is rarely six cells deep, while the infield always is. A stand is six cells square and
+    // anchored bottom-left, so it reaches up and right: it goes down only where all thirty-six of
+    // those cells are outfield, and it lands nowhere at all if that is never true.
+    const offsets: number[] = [];
+    for (let out = 0; out < 8; out++) offsets.push(HALF + 8 + out);
+    for (let into = 0; into < 10; into++) offsets.push(-(HALF + 8 + into));
+    for (const off of offsets) {
+      const spot = beside(startRun - k, off);
+      if (roomFor(spot.col, spot.row, 6, 6)) {
+        flat[spot.row * COLS + spot.col] = decalGid('RACE_GRANDSTAND');
+        break;
+      }
+    }
+  }
+  // The brake board goes where the lap is tightest — found by walking the curve rather than
+  // written down, so it follows the shape if the shape changes.
+  let tightest = 0;
+  for (let run = 0; run < LINE_LENGTH; run += 2) {
+    if (radiusAtRun(run) < radiusAtRun(tightest)) tightest = run;
+  }
+  for (let tryOut = 0; tryOut < 6; tryOut++) {
+    const sign = beside(tightest - 16, HALF + 2.5 + tryOut);
+    if (roomFor(sign.col, sign.row, 2, 1)) {
+      flat[sign.row * COLS + sign.col] = decalGid('RACE_BRAKE_SIGN');
+      break;
+    }
+  }
   // And a flat decal field on the verge by the paddock — the layer that lies UNDER everybody, as
   // opposed to the scenery layer, which sorts against them.
   for (let k = 6; k < 34; k += 2) {
