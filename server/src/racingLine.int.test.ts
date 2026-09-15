@@ -36,6 +36,7 @@ import { KART_MAX_SPEED_PX_PER_SEC, RACE_TICK_HZ } from '@pixel/shared/office/co
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
+import { wrapAngle } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -68,6 +69,8 @@ interface Run {
   seconds: number;
   meanSpeed: number;
   falls: number;
+  /** Seconds the wrong-way warning was up. On a clean lap this is zero. */
+  wrongWaySec: number;
 }
 
 /** One computer driver of a given skill, alone on a track, driven to the flag. */
@@ -92,6 +95,7 @@ function drive(zone: string, level: number): Run {
   let falls = 0;
   let sum = 0;
   let n = 0;
+  let wrong = 0;
   let last = kart.state;
   const max = Math.round(240 / DT);
   while (!kart.finished && ticks < max) {
@@ -102,10 +106,17 @@ function drive(zone: string, level: number): Run {
     }
     os.update(DT);
     if (kart.state === 'fall' && last !== 'fall') falls++;
+    if (kart.wrongWay) wrong++;
     last = kart.state;
     ticks++;
   }
-  return { finished: kart.finished, seconds: ticks * DT, meanSpeed: sum / Math.max(1, n), falls };
+  return {
+    finished: kart.finished,
+    seconds: ticks * DT,
+    meanSpeed: sum / Math.max(1, n),
+    falls,
+    wrongWaySec: wrong * DT,
+  };
 }
 
 test('a quick driver carries most of the car through every committed track', () => {
@@ -141,4 +152,68 @@ test('skill orders the field, and the cautious one still gets round', () => {
       `${zone}: the slow driver crawled — ${slow.seconds.toFixed(1)} s against ${quick.seconds.toFixed(1)}`,
     );
   }
+});
+
+/**
+ * A clean lap is never called the wrong way round.
+ *
+ * Reported from Monza: "durch die erste Kurve kommt kurz Wrong Way". Measured before the fix, on
+ * a lap driven perfectly by the computer: SIX spells, two a lap, at the same two corners every
+ * time. The rule asked only whether the car was losing ground on the gate ahead, and a ninety-tile
+ * leg that bends does exactly that for over a second while you drive it correctly.
+ *
+ * Two things had to change and this covers both: the rule now wants the car to be GAINING on the
+ * gate behind as well (a corner that turns away loses ground on both ends, a car turned round does
+ * not), and a circuit gets a checkpoint every twenty tiles instead of four however long it is.
+ *
+ * Driven by the computer rather than by a script, because the claim is about a lap somebody could
+ * actually drive — a hand-written path round the centreline would prove nothing about corners.
+ */
+test('the wrong-way warning never fires on a lap driven properly', () => {
+  for (const zone of TRACKS) {
+    const run = drive(zone, 1);
+    assert.equal(run.finished, true, `${zone}: never finished`);
+    assert.equal(
+      run.wrongWaySec.toFixed(1),
+      '0.0',
+      `${zone}: the warning was up for ${run.wrongWaySec.toFixed(1)} s of a clean ${run.seconds.toFixed(1)} s run`,
+    );
+  }
+});
+
+/** …and it still fires when a car IS turned round, which is the half a stricter rule could break. */
+test('a car driven backwards is still warned', () => {
+  const os = new OfficeState(layouts.get('raceway') as never);
+  const track = os.raceTrack();
+  assert.ok(track);
+  const kart = [...os.karts.values()][0];
+  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
+  const driver = os.addPlayer('char_0', 'Backwards', undefined, 'backwards');
+  const ch = os.characters.get(driver);
+  assert.ok(ch);
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  assert.equal(os.startRace(), true);
+  while (os.raceInfo().phase === 'countdown') os.update(DT);
+  const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
+  const world = { tileMap: inner.tileMap, blockedTiles: inner.blockedTiles, walls: inner.walls, track } as never;
+  // Driven properly for three seconds first, so it is somewhere real — BETWEEN two gates, on the
+  // road, with a gate behind it to gain on. Turning a car round on top of the gate it just passed
+  // is not driving backwards, it is standing at a checkpoint, and the rule is right to say nothing.
+  for (let i = 0; i < Math.round(3 / DT); i++) {
+    kart.input = racerInput(kart, world, { level: 1 });
+    os.update(DT);
+  }
+  assert.equal(kart.wrongWay, false, 'three clean seconds already tripped the warning');
+  // Now turn it round and hold the throttle down.
+  kart.heading = wrapAngle(kart.heading + Math.PI);
+  kart.vx = 0;
+  kart.vy = 0;
+  for (let i = 0; i < Math.round(4 / DT); i++) {
+    kart.input = { throttle: 1, steer: 0 };
+    os.update(DT);
+    if (kart.wrongWay) break;
+  }
+  assert.equal(kart.wrongWay, true, 'a kart driven back down the course was not warned');
 });

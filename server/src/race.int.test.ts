@@ -52,6 +52,9 @@ import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 const ROOT = join(import.meta.dirname, '..', '..');
 let layout: OfficeLayout;
 let stageLayout: OfficeLayout;
+/** The other committed circuit. Its chicane is the sharpest corner either map has, and a test that
+ *  wants a sharp corner has to look where there is one. */
+let monzaLayout: OfficeLayout;
 
 before(async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
@@ -60,6 +63,7 @@ before(async () => {
     importTmjToLayout(JSON.parse(readFileSync(join(ROOT, 'assets', 'tiled', 'zones', `${zone}.tmj`), 'utf8')), registry, () => null)
       .layout;
   layout = read('raceway');
+  monzaLayout = read('monza');
   stageLayout = straightStage();
 });
 
@@ -597,15 +601,19 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
   run(crawling, 3);
   assert.equal(crawling.wrongWay, false, 'a car at walking pace was accused of turning round');
 
-  // THE REGRESSION, on every committed track: each of them has a corner where the next gate lies
-  // behind the direction you arrive in — 130° at the raceway's last one, and the cosine at
-  // hillroad's hairpin is -0.65. Arriving there on the racing line and carrying on is correct
-  // driving, and the old direction test called every one of them the wrong way.
-  // At least one committed track has to still HAVE a corner sharp enough to have triggered the
-  // old rule, or this test would quietly stop testing anything the day the maps got gentler —
-  // which is exactly what happened to hillroad when its hairpins were spread over a bigger map.
-  let anySharp = false;
-  for (const [name, l] of [['raceway', layout]] as const) {
+  // THE REGRESSION: arriving at a corner on the racing line and carrying on is correct driving,
+  // and the first direction-based rule called it the wrong way.
+  //
+  // This used to also assert that some committed track still HAD a corner sharp enough to trip
+  // that old rule — a guard against the maps quietly getting gentler. It cannot any more, and the
+  // reason is worth writing down rather than relaxing the number: a circuit now gets a checkpoint
+  // every twenty tiles instead of four per lap, so the angle from one gate to the next is gentle
+  // EVERYWHERE by construction. The guard would be measuring the gate spacing, not the map.
+  //
+  // What covers the real thing now is stronger than this ever was: `racingLine.int.test.ts` drives
+  // both circuits at racing speed with the computer driver and asserts the warning never comes on
+  // — over the actual corners, on the actual line, rather than over a car placed at a gate.
+  for (const [name, l] of [['raceway', layout], ['monza', monzaLayout]] as const) {
     const t = raceTrack(l);
     assert.ok(t);
     let sharpest = 0;
@@ -623,7 +631,6 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
         sharpest = i;
       }
     }
-    if (worst < -0.35) anySharp = true;
     const prev = t.gates[(sharpest - 1 + t.gates.length) % t.gates.length];
     const arriving = Math.atan2(t.gates[sharpest].y - prev.y, t.gates[sharpest].x - prev.x);
     const through = carAt(sharpest, t.gates[sharpest], arriving);
@@ -635,7 +642,6 @@ test('driving backwards is warned about, and a hairpin taken correctly is not', 
       `${name}: taking the sharpest corner on the racing line was called the wrong way`,
     );
   }
-  assert.ok(anySharp, 'no committed track has a corner the old direction rule would have failed on');
 });
 
 test('a running order is by progress, and progress is monotone within a leg', () => {

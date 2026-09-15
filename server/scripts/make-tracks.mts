@@ -116,6 +116,37 @@ const FURN = {
   PINE_TREE: furnGid('PINE_TREE'),
   LARGE_PLANT: furnGid('LARGE_PLANT'),
 };
+/**
+ * A cell of a GRID tileset by name and position — the other half of `furnGid`, for sheets that are
+ * a grid of pictures rather than a collection of files.
+ *
+ * Same rule and same reason: the first gid is looked up from the map's own tileset table and the
+ * column count from the file on disk, because both are positions in tables that grow.
+ */
+const sheetGid = (file: string, col: number, row: number): number => {
+  const set = srcSets.find((x) => x.source.endsWith(file));
+  if (!set) throw new Error(`this map carries no tileset called ${file}`);
+  const sheet = JSON.parse(
+    fs.readFileSync(path.join(REPO, 'assets', 'tiled', file), 'utf8'),
+  ) as { columns: number };
+  return set.firstgid + row * sheet.columns + col;
+};
+/**
+ * WATER under the bridge.
+ *
+ * "Die Brücke im raceway sollte über Wasser gehen, findest du nicht?" — yes, and it costs nothing
+ * that matters: the cells stay VOID, so only ground makes a cell drivable and the drop is exactly
+ * as real as it was. What changes is that a decal is drawn whether or not there is ground beneath
+ * it, so the hole can have something at the bottom of it. A black gap reads as missing map; water
+ * reads as a reason for a bridge.
+ *
+ * Four cells from the overworld pack rather than one, for the same reason the grass has four.
+ */
+const WATER: ReadonlyArray<readonly [number, number]> = [[16, 0], [19, 1], [21, 2], [17, 3]];
+const waterAt = (col: number, row: number): number => {
+  const [c, r] = WATER[variant(col + 313, row + 977, WATER.length)];
+  return sheetGid('decal-overworld.tsj', c, r);
+};
 /** The images tileset's own first gid — a picture is a tile object like any other. */
 const IMAGE_FIRSTGID = (srcSets.find((set) => set.source.endsWith('images.tsj')) ?? { firstgid: 0 }).firstgid;
 const gidOf = (name: TrackTile): number => TRACK_FIRSTGID + TRACK_TILES.indexOf(name);
@@ -586,6 +617,9 @@ for (let i = 0; i < linePts.length; i++) {
  *  driver starts using the width of the road, measured against the lap's own profile: the raceway
  *  reads as four corner sequences and three straights at this threshold. */
 const KERB_RADIUS_TILES = 22;
+/** How much road there is between checkpoints, in tiles. Twenty is about six seconds at racing
+ *  speed — near enough that "how far to the next gate" still means something on a bend. */
+const GATE_EVERY_TILES = 20;
 const radiusAtRun = (run: number): number => {
   if (run < 0) return Infinity;
   let lo = 0;
@@ -742,10 +776,21 @@ const gateCellsAt = (run: number): Array<{ col: number; row: number }> => {
   const nx = -Math.sin(p.dir);
   const ny = Math.cos(p.dir);
   const cells = new Map<string, { col: number; row: number }>();
-  for (let u = -HALF - 1; u <= HALF + 1; u += 0.25) {
-    const col = Math.round(p.x + nx * u);
-    const row = Math.round(p.y + ny * u);
-    if (onRoad(col, row)) cells.set(`${col},${row}`, { col, row });
+  // Sampled a little way ALONG the road as well as across it, and that second axis is not
+  // belt-and-braces. A gate across a diagonal stretch rounds to a STAIRCASE of cells, and a
+  // staircase touches only at its corners — so a kart travelling diagonally can pass between two
+  // of them without ever standing on one. With four gates, all of them on straights, that never
+  // happened; at one gate every twenty tiles some of them land on the diagonals, and the raceway
+  // stopped completing a lap at all. Half a tile either side closes the corners and makes the band
+  // continuous whatever angle it crosses at.
+  for (let along = -0.5; along <= 0.5; along += 0.5) {
+    const cx = p.x + Math.cos(p.dir) * along;
+    const cy = p.y + Math.sin(p.dir) * along;
+    for (let u = -HALF - 1; u <= HALF + 1; u += 0.25) {
+      const col = Math.round(cx + nx * u);
+      const row = Math.round(cy + ny * u);
+      if (onRoad(col, row)) cells.set(`${col},${row}`, { col, row });
+    }
   }
   return [...cells.values()];
 };
@@ -775,14 +820,20 @@ const layOutGrid = (startRun: number): void => {
 };
 if (CLOSED) {
   /**
-   * Four gates, evenly spaced round the lap, with gate 0 on the start line.
+   * Gates evenly spaced round the lap, with gate 0 on the start line — one roughly every
+   * `GATE_EVERY_TILES`, never fewer than four.
    *
-   * Evenly spaced by RUN rather than placed at the ends of straights: a curve has no ends to name,
-   * and four quarters of a lap is exactly what the ring of checkpoints is for — you may only pass
-   * them in order, so a quarter is as much of the lap as can be cut in one go, which is none of it.
+   * Evenly spaced by RUN rather than placed at the ends of straights: a curve has no ends to name.
+   * The COUNT used to be four full stop, which is a number from when a circuit was a rectangle and
+   * four was one per side. On Monza that leaves legs ninety tiles long, and a leg that long is a
+   * leg that bends — which the wrong-way warning read as a car losing ground, twice a lap, on a
+   * clean lap. The rule was fixed to ask about both ends of the leg, and this is the other half:
+   * a checkpoint every twenty tiles is about six seconds of driving, which is the granularity the
+   * standings, the respawn and the warning all quietly assumed they had.
    */
   const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
-  for (let g = 0; g < 4; g++) gateCells.push(gateCellsAt(startRun + (LINE_LENGTH * g) / 4));
+  const gates = Math.max(4, Math.round(LINE_LENGTH / GATE_EVERY_TILES));
+  for (let g = 0; g < gates; g++) gateCells.push(gateCellsAt(startRun + (LINE_LENGTH * g) / gates));
   for (const c of gateCells[0]) chequered.add(`${c.col},${c.row}`);
   layOutGrid(startRun);
 } else {
@@ -809,6 +860,10 @@ if (CLOSED) {
 const ground = new Array(COLS * ROWS).fill(0);
 const collision = new Array(COLS * ROWS).fill(0);
 const roughLayer = new Array(COLS * ROWS).fill(0);
+/** The FLAT decal layer: things that lie on the ground and never sort against anybody — the water
+ *  under the bridge, tyres, tufts on the verge. The standing layer is for things you see the side
+ *  of. Declared up here because the ground pass writes the water into it. */
+const flat = new Array(COLS * ROWS).fill(0);
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
     const i = row * COLS + col;
@@ -841,6 +896,11 @@ for (let row = 0; row < ROWS; row++) {
       // whole point: a circuit in a black square reads as a diagram of a circuit.
       ground[i] = grassAt(col, row);
       roughLayer[i] = COLLISION_GID;
+    } else if (inBridgeAir(col, row)) {
+      // The one place that is still a hole: the air either side of the bridge. It stays VOID —
+      // nothing is written to `ground`, so nothing is drivable — and the water goes on the FLAT
+      // decal layer, which is drawn whether or not there is ground under it.
+      flat[i] = waterAt(col, row);
     }
   }
 }
@@ -862,9 +922,6 @@ for (let row = 0; row < ROWS; row++) {
  * `--check` compares bytes, and a random layout would fail it every run.
  */
 const decal = new Array(COLS * ROWS).fill(0);
-/** The FLAT decal layer: things that lie on the ground and never sort against anybody — tyres,
- *  tufts on the verge. The standing layer above is for things you see the side of. */
-const flat = new Array(COLS * ROWS).fill(0);
 /** Room for a piece this many cells wide and tall, anchored bottom-left the way Tiled anchors an
  *  oversized tile: it reaches UP and to the RIGHT, so those are the cells that must be free. */
 const roomFor = (col: number, row: number, w: number, h: number): boolean => {

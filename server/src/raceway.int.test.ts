@@ -57,7 +57,12 @@ const world = (): OfficeState => new OfficeState(layout as never);
 test('the committed map imports as a track: four gates, a grid, its lap count', () => {
   const track = raceTrack(layout);
   assert.ok(track, 'raceway.tmj is not recognised as a race track');
-  assert.equal(track.gates.length, 4, `gates: ${track.gates.length}`);
+  // A COUNT is not written down here, the same way the lap count is read off the map: a circuit
+  // gets a checkpoint roughly every twenty tiles, so the number follows the length of the lap and
+  // changing the shape must not be a test edit. What matters is that there are enough of them to
+  // mean something and that they are evenly spread.
+  assert.ok(track.gates.length >= 8, `only ${track.gates.length} gates on a lap this long`);
+  assert.deepEqual(track.gates.map((g) => g.index), track.gates.map((_, i) => i), 'gates are not in lap order');
   // Whatever the map says, not a number written here as well: the distance is a track design
   // decision and changing it must not be a test edit.
   assert.equal(track.laps, (layout as { laps?: number }).laps, 'the laps property did not survive the import');
@@ -79,7 +84,7 @@ test('the map survives the save path: a stored track is still a track', () => {
   ) as unknown as OfficeLayout;
   const track = raceTrack(stored);
   assert.ok(track, 'the stored map is no longer a race track');
-  assert.equal(track.gates.length, 4, `gates after a save: ${track.gates.length}`);
+  assert.ok(track.gates.length >= 8, `only ${track.gates.length} gates survived a save`);
   assert.equal(track.grid.length, 12, `grid slots after a save: ${track.grid.length}`);
   assert.equal(track.laps, (layout as { laps?: number }).laps, 'the lap count did not survive a save');
 });

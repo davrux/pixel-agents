@@ -118,7 +118,6 @@ export interface Kart {
   /** How long, in ms, this car has been losing ground — what the warning is actually made of. */
   wrongMs: number;
   /** How far it was from the point it is heading for, last tick. -1 before the first one. */
-  lastGap: number;
   /**
    * How long, in ms, the engine has been asking for something and the ground has not moved.
    *
@@ -166,7 +165,6 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     sliding: false,
     wrongWay: false,
     wrongMs: 0,
-    lastGap: -1,
     stuckMs: 0,
     recoverMs: 0,
     lapMs: 0,
@@ -498,40 +496,57 @@ export function bumpKarts(a: Kart, b: Kart): boolean {
 }
 
 /**
- * Is this car going the wrong way — decided from whether it is LOSING GROUND on the point it is
- * heading for, not from where it is pointing.
+ * Is this car going the wrong way — decided against the direction of the LEG it is on.
  *
- * Direction is the wrong question on any track with a real corner in it (see KART_WRONG_WAY_SEC
- * for the measurement that retired it). Distance is the right one, and it needs no notion of the
- * road's shape: a car that is getting further from what it is driving towards, and keeps getting
- * further, is going backwards whatever it is pointing at.
+ * The leg is the straight line from the gate just passed to the point being driven towards, and
+ * the question is whether the car's velocity has a component along it or against it. Not where the
+ * car is POINTING (a car spun by a bump points backwards for a moment while still sliding
+ * forwards, and warning for that is noise), and not the distance to the next gate either, which is
+ * what this replaced twice:
  *
- * It is the raw distance rather than `raceProgress`, and that is not a detail: `raceProgress`
- * clamps its fraction to the leg, deliberately, so that a running order stays monotone. A car
- * driving away from the gate it should be reaching pins that clamp at zero after a second or two —
- * so progress stops falling exactly when the car is most obviously going the wrong way, and the
- * warning never fires. The clamp is right for standings and wrong here.
+ *  - `raceProgress` clamps its fraction to the leg so a running order stays monotone, which means
+ *    progress stops falling exactly when a car is most obviously going backwards.
+ *  - Raw distance to the next gate fires on a CORNER. A leg that bends takes the car away from the
+ *    point it is heading for while it is being driven perfectly: measured on Monza, six spells on
+ *    a clean three-lap run, twice a lap, at the same two corners — "durch die erste Kurve kommt
+ *    kurz Wrong Way".
+ *  - Requiring it to be gaining on the gate BEHIND as well fixes that and breaks the other half: a
+ *    circuit has a checkpoint every twenty tiles now, which at racing speed is a second, so a car
+ *    turned round passes the gate behind it before the counter can reach its threshold. Measured:
+ *    it never warned at all.
+ *
+ * The chord is what has neither problem. A leg twenty tiles long is close enough to straight that
+ * driving it correctly keeps the dot product positive through any corner this world can draw, and
+ * a car driven back down the road has it firmly negative for as long as that lasts.
  *
  * The counter lives on the CAR rather than being recomputed, because "for how long" is the whole
- * point: a correctly driven hairpin briefly moves away from the gate it is heading for, and a
- * warning that fires on a single tick of that is the false alarm this replaced.
+ * point: a spin crosses the line for a moment, and a warning that fires on a single tick of that
+ * is the false alarm all of this exists to avoid.
  */
 export function updateWrongWay(kart: Kart, world: KartWorld, dt: number): void {
-  const target = nextPoint(world.track, kart.gate);
-  const gap = Math.hypot(target.x - kart.x, target.y - kart.y);
-  const was = kart.lastGap;
-  kart.lastGap = gap;
   const driving = kart.driverId !== null && kart.state === 'drive' && !kart.finished;
-  // Below a crawl the question is meaningless: a stopped car neither gains nor loses ground, and
-  // asking would flap the warning every time somebody nudged it.
-  if (!driving || was < 0 || Math.hypot(kart.vx, kart.vy) < 30) {
+  const speed = Math.hypot(kart.vx, kart.vy);
+  // Below a crawl the question is meaningless: a stopped car is going neither way, and asking
+  // would flap the warning every time somebody nudged it.
+  if (!driving || speed < 30) {
     kart.wrongMs = 0;
     kart.wrongWay = false;
     return;
   }
-  // Passing a gate moves the target, so the gap jumps; one tick of that is 16 ms against a
-  // threshold of more than a second, and the ticks after it close again.
-  if (gap > was) kart.wrongMs += dt * 1000;
+  const ahead = nextPoint(world.track, kart.gate);
+  const behind = world.track.gates[kart.gate] ?? world.track.gates[0];
+  const lx = ahead.x - behind.x;
+  const ly = ahead.y - behind.y;
+  const leg = Math.hypot(lx, ly);
+  if (leg < 1) {
+    kart.wrongMs = 0;
+    kart.wrongWay = false;
+    return;
+  }
+  // The cosine between where the car is going and where this leg goes. A bend is normal, so only
+  // a genuine reversal counts — the same threshold `goingBackwards` uses, and for the same reason.
+  const along = (kart.vx * lx + kart.vy * ly) / (speed * leg);
+  if (along < -0.35) kart.wrongMs += dt * 1000;
   else kart.wrongMs = 0;
   kart.wrongWay = kart.wrongMs >= KART_WRONG_WAY_SEC * 1000;
 }
