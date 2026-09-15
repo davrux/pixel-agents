@@ -17,6 +17,7 @@ import test, { before } from 'node:test';
 
 import {
   RACE_COUNTDOWN_CHOICES,
+  RACE_DEFAULT_BOTS,
   RACE_DEFAULT_COUNTDOWN_SEC,
   RACE_MAX_LAPS,
   RACE_MIN_LAPS,
@@ -67,9 +68,11 @@ test('the map is the default, not the rule', () => {
   assert.ok(track);
   const setup = os.raceSetup();
   assert.equal(setup.laps, track.laps, 'the lap count did not start at what the mapper drew');
-  // A full grid, which is what starting a race did before anybody could say otherwise: everybody
-  // else's seat taken by a computer driver.
-  assert.equal(setup.bots, track.grid.length - 1);
+  // NOT a full grid, and that is the point of the number: a map's grid says how many cars it can
+  // hold, which is not how many a race wants. Eleven opponents is a queue — asked for as "nicht
+  // mehr als 6 Autos" — and the panel still goes to the grid's full size for anybody who wants it.
+  assert.equal(setup.bots, Math.min(RACE_DEFAULT_BOTS, track.grid.length - 1));
+  assert.ok(track.grid.length - 1 > RACE_DEFAULT_BOTS, 'this map is too small for the cap to mean anything');
   assert.equal(setup.countdownSec, RACE_DEFAULT_COUNTDOWN_SEC);
   assert.equal(setup.difficulty, 'medium');
 });
@@ -145,7 +148,7 @@ test('a fresh track brings its own defaults, and drops the last one’s', () => 
   os.rebuildFromLayout(second as never);
   const setup = os.raceSetup();
   assert.equal(setup.laps, os.raceTrack()!.laps);
-  assert.equal(setup.bots, os.raceTrack()!.grid.length - 1);
+  assert.equal(setup.bots, Math.min(RACE_DEFAULT_BOTS, os.raceTrack()!.grid.length - 1));
   assert.equal(setup.countdownSec, RACE_DEFAULT_COUNTDOWN_SEC);
   assert.equal(setup.difficulty, 'medium');
 });

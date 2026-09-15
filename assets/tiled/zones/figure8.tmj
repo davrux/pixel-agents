@@ -146,7 +146,7 @@
     {
      "gid": 7401,
      "height": 64,
-     "id": 145,
+     "id": 214,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -167,7 +167,7 @@
     {
      "gid": 7400,
      "height": 32,
-     "id": 146,
+     "id": 215,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -194,7 +194,7 @@
     {
      "gid": 7061,
      "height": 16,
-     "id": 147,
+     "id": 216,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -215,7 +215,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 148,
+     "id": 217,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -228,7 +228,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 149,
+     "id": 218,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -241,7 +241,7 @@
     {
      "gid": 7382,
      "height": 48,
-     "id": 150,
+     "id": 219,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -254,7 +254,7 @@
     {
      "gid": 7389,
      "height": 48,
-     "id": 151,
+     "id": 220,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -267,7 +267,7 @@
     {
      "gid": 7051,
      "height": 48,
-     "id": 152,
+     "id": 221,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -280,7 +280,7 @@
     {
      "gid": 7047,
      "height": 48,
-     "id": 153,
+     "id": 222,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -293,7 +293,7 @@
     {
      "gid": 7046,
      "height": 48,
-     "id": 154,
+     "id": 223,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -324,8 +324,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 648,
-     "y": 680,
+     "x": 680,
+     "y": 696,
      "properties": [
       {
        "name": "actionKind",
@@ -349,8 +349,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 632,
-     "y": 664,
+     "x": 664,
+     "y": 696,
      "properties": [
       {
        "name": "actionKind",
@@ -374,8 +374,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 616,
-     "y": 664,
+     "x": 664,
+     "y": 680,
      "properties": [
       {
        "name": "actionKind",
@@ -399,8 +399,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 616,
-     "y": 648,
+     "x": 648,
+     "y": 680,
      "properties": [
       {
        "name": "actionKind",
@@ -424,8 +424,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 600,
-     "y": 648,
+     "x": 632,
+     "y": 664,
      "properties": [
       {
        "name": "actionKind",
@@ -449,8 +449,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 600,
-     "y": 632,
+     "x": 616,
+     "y": 664,
      "properties": [
       {
        "name": "actionKind",
@@ -474,8 +474,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 584,
-     "y": 632,
+     "x": 616,
+     "y": 648,
      "properties": [
       {
        "name": "actionKind",
@@ -499,8 +499,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 568,
-     "y": 616,
+     "x": 600,
+     "y": 648,
      "properties": [
       {
        "name": "actionKind",
@@ -524,8 +524,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 632,
-     "y": 680,
+     "x": 600,
+     "y": 632,
      "properties": [
       {
        "name": "actionKind",
@@ -550,7 +550,7 @@
      "width": 0,
      "height": 0,
      "x": 584,
-     "y": 648,
+     "y": 632,
      "properties": [
       {
        "name": "actionKind",
@@ -575,7 +575,7 @@
      "width": 0,
      "height": 0,
      "x": 568,
-     "y": 632,
+     "y": 616,
      "properties": [
       {
        "name": "actionKind",
@@ -599,8 +599,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 632,
-     "y": 696,
+     "x": 552,
+     "y": 600,
      "properties": [
       {
        "name": "actionKind",
@@ -624,8 +624,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 616,
-     "y": 680,
+     "x": 648,
+     "y": 696,
      "properties": [
       {
        "name": "actionKind",
@@ -649,8 +649,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 600,
-     "y": 664,
+     "x": 632,
+     "y": 680,
      "properties": [
       {
        "name": "actionKind",
@@ -674,7 +674,7 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 568,
+     "x": 584,
      "y": 648,
      "properties": [
       {
@@ -699,8 +699,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 488,
-     "y": 968,
+     "x": 568,
+     "y": 632,
      "properties": [
       {
        "name": "actionKind",
@@ -711,7 +711,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -724,8 +724,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 488,
-     "y": 952,
+     "x": 552,
+     "y": 616,
      "properties": [
       {
        "name": "actionKind",
@@ -736,7 +736,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -749,8 +749,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 488,
-     "y": 936,
+     "x": 664,
+     "y": 712,
      "properties": [
       {
        "name": "actionKind",
@@ -761,7 +761,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -774,8 +774,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 472,
-     "y": 936,
+     "x": 632,
+     "y": 696,
      "properties": [
       {
        "name": "actionKind",
@@ -786,7 +786,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -799,8 +799,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 472,
-     "y": 920,
+     "x": 616,
+     "y": 680,
      "properties": [
       {
        "name": "actionKind",
@@ -811,7 +811,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -824,8 +824,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 472,
-     "y": 904,
+     "x": 600,
+     "y": 664,
      "properties": [
       {
        "name": "actionKind",
@@ -836,7 +836,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -849,8 +849,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 456,
-     "y": 904,
+     "x": 568,
+     "y": 648,
      "properties": [
       {
        "name": "actionKind",
@@ -861,7 +861,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -874,8 +874,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 456,
-     "y": 888,
+     "x": 552,
+     "y": 632,
      "properties": [
       {
        "name": "actionKind",
@@ -886,7 +886,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -899,8 +899,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 456,
-     "y": 872,
+     "x": 536,
+     "y": 616,
      "properties": [
       {
        "name": "actionKind",
@@ -911,7 +911,7 @@
       {
        "name": "actionGate",
        "type": "int",
-       "value": 1
+       "value": 0
       }
      ]
     },
@@ -924,8 +924,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 440,
-     "y": 872,
+     "x": 504,
+     "y": 984,
      "properties": [
       {
        "name": "actionKind",
@@ -949,8 +949,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 472,
-     "y": 952,
+     "x": 504,
+     "y": 968,
      "properties": [
       {
        "name": "actionKind",
@@ -974,8 +974,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 456,
-     "y": 920,
+     "x": 488,
+     "y": 968,
      "properties": [
       {
        "name": "actionKind",
@@ -999,8 +999,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 440,
-     "y": 888,
+     "x": 488,
+     "y": 952,
      "properties": [
       {
        "name": "actionKind",
@@ -1024,8 +1024,8 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 472,
-     "y": 968,
+     "x": 488,
+     "y": 936,
      "properties": [
       {
        "name": "actionKind",
@@ -1049,7 +1049,7 @@
      "visible": true,
      "width": 0,
      "height": 0,
-     "x": 456,
+     "x": 472,
      "y": 936,
      "properties": [
       {
@@ -1074,6 +1074,406 @@
      "visible": true,
      "width": 0,
      "height": 0,
+     "x": 472,
+     "y": 920,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 32,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 472,
+     "y": 904,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 33,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 456,
+     "y": 904,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 34,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 456,
+     "y": 888,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 35,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 456,
+     "y": 872,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 36,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 872,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 37,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 856,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 38,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 840,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 39,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 488,
+     "y": 984,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 40,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 472,
+     "y": 952,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 41,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 456,
+     "y": 920,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 42,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 888,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 43,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 424,
+     "y": 856,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 44,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 488,
+     "y": 1000,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 45,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 472,
+     "y": 968,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 46,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 456,
+     "y": 936,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 47,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
      "x": 440,
      "y": 904,
      "properties": [
@@ -1091,7 +1491,107 @@
      ]
     },
     {
-     "id": 32,
+     "id": 48,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 424,
+     "y": 872,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 1
+      }
+     ]
+    },
+    {
+     "id": 49,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 120,
+     "y": 920,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 50,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 136,
+     "y": 920,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 51,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 136,
+     "y": 904,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 52,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1116,7 +1616,7 @@
      ]
     },
     {
-     "id": 33,
+     "id": 53,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1141,7 +1641,7 @@
      ]
     },
     {
-     "id": 34,
+     "id": 54,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1166,7 +1666,7 @@
      ]
     },
     {
-     "id": 35,
+     "id": 55,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1191,7 +1691,7 @@
      ]
     },
     {
-     "id": 36,
+     "id": 56,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1216,7 +1716,7 @@
      ]
     },
     {
-     "id": 37,
+     "id": 57,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1241,7 +1741,7 @@
      ]
     },
     {
-     "id": 38,
+     "id": 58,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1266,7 +1766,7 @@
      ]
     },
     {
-     "id": 39,
+     "id": 59,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1291,7 +1791,7 @@
      ]
     },
     {
-     "id": 40,
+     "id": 60,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1316,7 +1816,82 @@
      ]
     },
     {
-     "id": 41,
+     "id": 61,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 248,
+     "y": 840,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 62,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 264,
+     "y": 840,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 63,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 120,
+     "y": 904,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 64,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1341,7 +1916,7 @@
      ]
     },
     {
-     "id": 42,
+     "id": 65,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1366,7 +1941,7 @@
      ]
     },
     {
-     "id": 43,
+     "id": 66,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1391,7 +1966,7 @@
      ]
     },
     {
-     "id": 44,
+     "id": 67,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1416,7 +1991,57 @@
      ]
     },
     {
-     "id": 45,
+     "id": 68,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 248,
+     "y": 824,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 69,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 120,
+     "y": 888,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 70,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1441,7 +2066,7 @@
      ]
     },
     {
-     "id": 46,
+     "id": 71,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1466,7 +2091,7 @@
      ]
     },
     {
-     "id": 47,
+     "id": 72,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1491,7 +2116,132 @@
      ]
     },
     {
-     "id": 48,
+     "id": 73,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 232,
+     "y": 824,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 74,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 248,
+     "y": 808,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 2
+      }
+     ]
+    },
+    {
+     "id": 75,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 184,
+     "y": 520,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 76,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 184,
+     "y": 536,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 77,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 200,
+     "y": 536,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 78,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1516,7 +2266,7 @@
      ]
     },
     {
-     "id": 49,
+     "id": 79,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1541,7 +2291,7 @@
      ]
     },
     {
-     "id": 50,
+     "id": 80,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1566,7 +2316,7 @@
      ]
     },
     {
-     "id": 51,
+     "id": 81,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1591,7 +2341,7 @@
      ]
     },
     {
-     "id": 52,
+     "id": 82,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1616,7 +2366,7 @@
      ]
     },
     {
-     "id": 53,
+     "id": 83,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1641,7 +2391,7 @@
      ]
     },
     {
-     "id": 54,
+     "id": 84,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1666,7 +2416,7 @@
      ]
     },
     {
-     "id": 55,
+     "id": 85,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1691,7 +2441,7 @@
      ]
     },
     {
-     "id": 56,
+     "id": 86,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1716,7 +2466,107 @@
      ]
     },
     {
-     "id": 57,
+     "id": 87,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 248,
+     "y": 648,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 88,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 264,
+     "y": 648,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 89,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 264,
+     "y": 664,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 90,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 200,
+     "y": 520,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 91,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1741,7 +2591,7 @@
      ]
     },
     {
-     "id": 58,
+     "id": 92,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1766,7 +2616,7 @@
      ]
     },
     {
-     "id": 59,
+     "id": 93,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1791,7 +2641,7 @@
      ]
     },
     {
-     "id": 60,
+     "id": 94,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1816,7 +2666,7 @@
      ]
     },
     {
-     "id": 61,
+     "id": 95,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1841,7 +2691,7 @@
      ]
     },
     {
-     "id": 62,
+     "id": 96,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1866,7 +2716,7 @@
      ]
     },
     {
-     "id": 63,
+     "id": 97,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1891,7 +2741,107 @@
      ]
     },
     {
-     "id": 64,
+     "id": 98,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 280,
+     "y": 648,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 3
+      }
+     ]
+    },
+    {
+     "id": 99,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 424,
+     "y": 408,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 100,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 408,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 101,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 424,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 102,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1916,7 +2866,7 @@
      ]
     },
     {
-     "id": 65,
+     "id": 103,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1941,7 +2891,7 @@
      ]
     },
     {
-     "id": 66,
+     "id": 104,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1966,7 +2916,7 @@
      ]
     },
     {
-     "id": 67,
+     "id": 105,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -1991,7 +2941,7 @@
      ]
     },
     {
-     "id": 68,
+     "id": 106,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2016,7 +2966,7 @@
      ]
     },
     {
-     "id": 69,
+     "id": 107,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2041,7 +2991,7 @@
      ]
     },
     {
-     "id": 70,
+     "id": 108,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2066,7 +3016,7 @@
      ]
     },
     {
-     "id": 71,
+     "id": 109,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2091,7 +3041,82 @@
      ]
     },
     {
-     "id": 72,
+     "id": 110,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 536,
+     "y": 488,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 111,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 552,
+     "y": 488,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 112,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 552,
+     "y": 504,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 113,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2116,7 +3141,7 @@
      ]
     },
     {
-     "id": 73,
+     "id": 114,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2141,7 +3166,7 @@
      ]
     },
     {
-     "id": 74,
+     "id": 115,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2166,7 +3191,7 @@
      ]
     },
     {
-     "id": 75,
+     "id": 116,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2191,7 +3216,57 @@
      ]
     },
     {
-     "id": 76,
+     "id": 117,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 568,
+     "y": 488,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 118,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 440,
+     "y": 392,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 119,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2216,7 +3291,7 @@
      ]
     },
     {
-     "id": 77,
+     "id": 120,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2241,7 +3316,7 @@
      ]
     },
     {
-     "id": 78,
+     "id": 121,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2266,7 +3341,107 @@
      ]
     },
     {
-     "id": 79,
+     "id": 122,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 552,
+     "y": 472,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 4
+      }
+     ]
+    },
+    {
+     "id": 123,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 584,
+     "y": 120,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 124,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 600,
+     "y": 120,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 125,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 600,
+     "y": 136,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 126,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2291,7 +3466,7 @@
      ]
     },
     {
-     "id": 80,
+     "id": 127,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2316,7 +3491,7 @@
      ]
     },
     {
-     "id": 81,
+     "id": 128,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2341,7 +3516,7 @@
      ]
     },
     {
-     "id": 82,
+     "id": 129,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2366,7 +3541,7 @@
      ]
     },
     {
-     "id": 83,
+     "id": 130,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2391,7 +3566,7 @@
      ]
     },
     {
-     "id": 84,
+     "id": 131,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2416,7 +3591,7 @@
      ]
     },
     {
-     "id": 85,
+     "id": 132,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2441,7 +3616,7 @@
      ]
     },
     {
-     "id": 86,
+     "id": 133,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2466,7 +3641,7 @@
      ]
     },
     {
-     "id": 87,
+     "id": 134,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2491,7 +3666,32 @@
      ]
     },
     {
-     "id": 88,
+     "id": 135,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 664,
+     "y": 248,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 136,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2516,7 +3716,7 @@
      ]
     },
     {
-     "id": 89,
+     "id": 137,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2541,7 +3741,7 @@
      ]
     },
     {
-     "id": 90,
+     "id": 138,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2566,7 +3766,7 @@
      ]
     },
     {
-     "id": 91,
+     "id": 139,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2591,7 +3791,82 @@
      ]
     },
     {
-     "id": 92,
+     "id": 140,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 680,
+     "y": 232,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 141,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 680,
+     "y": 248,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 142,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 616,
+     "y": 120,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 143,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2616,7 +3891,7 @@
      ]
     },
     {
-     "id": 93,
+     "id": 144,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2641,7 +3916,7 @@
      ]
     },
     {
-     "id": 94,
+     "id": 145,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2666,7 +3941,7 @@
      ]
     },
     {
-     "id": 95,
+     "id": 146,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2691,7 +3966,107 @@
      ]
     },
     {
-     "id": 96,
+     "id": 147,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 696,
+     "y": 248,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 5
+      }
+     ]
+    },
+    {
+     "id": 148,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 984,
+     "y": 184,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 149,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 984,
+     "y": 200,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 150,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 968,
+     "y": 200,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 151,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2716,7 +4091,7 @@
      ]
     },
     {
-     "id": 97,
+     "id": 152,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2741,7 +4116,7 @@
      ]
     },
     {
-     "id": 98,
+     "id": 153,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2766,7 +4141,7 @@
      ]
     },
     {
-     "id": 99,
+     "id": 154,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2791,7 +4166,7 @@
      ]
     },
     {
-     "id": 100,
+     "id": 155,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2816,7 +4191,7 @@
      ]
     },
     {
-     "id": 101,
+     "id": 156,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2841,7 +4216,7 @@
      ]
     },
     {
-     "id": 102,
+     "id": 157,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2866,7 +4241,7 @@
      ]
     },
     {
-     "id": 103,
+     "id": 158,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2891,7 +4266,7 @@
      ]
     },
     {
-     "id": 104,
+     "id": 159,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2916,7 +4291,57 @@
      ]
     },
     {
-     "id": 105,
+     "id": 160,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 856,
+     "y": 264,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 161,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 840,
+     "y": 264,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 162,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2941,7 +4366,7 @@
      ]
     },
     {
-     "id": 106,
+     "id": 163,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2966,7 +4391,7 @@
      ]
     },
     {
-     "id": 107,
+     "id": 164,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -2991,7 +4416,7 @@
      ]
     },
     {
-     "id": 108,
+     "id": 165,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3016,7 +4441,32 @@
      ]
     },
     {
-     "id": 109,
+     "id": 166,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 984,
+     "y": 216,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 167,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3041,7 +4491,7 @@
      ]
     },
     {
-     "id": 110,
+     "id": 168,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3066,7 +4516,7 @@
      ]
     },
     {
-     "id": 111,
+     "id": 169,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3091,7 +4541,107 @@
      ]
     },
     {
-     "id": 112,
+     "id": 170,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 872,
+     "y": 280,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 171,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 856,
+     "y": 280,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 6
+      }
+     ]
+    },
+    {
+     "id": 172,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 920,
+     "y": 568,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 173,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 920,
+     "y": 552,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 174,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3116,7 +4666,7 @@
      ]
     },
     {
-     "id": 113,
+     "id": 175,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3141,7 +4691,7 @@
      ]
     },
     {
-     "id": 114,
+     "id": 176,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3166,7 +4716,7 @@
      ]
     },
     {
-     "id": 115,
+     "id": 177,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3191,7 +4741,7 @@
      ]
     },
     {
-     "id": 116,
+     "id": 178,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3216,7 +4766,7 @@
      ]
     },
     {
-     "id": 117,
+     "id": 179,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3241,7 +4791,7 @@
      ]
     },
     {
-     "id": 118,
+     "id": 180,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3266,7 +4816,7 @@
      ]
     },
     {
-     "id": 119,
+     "id": 181,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3291,7 +4841,7 @@
      ]
     },
     {
-     "id": 120,
+     "id": 182,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3316,7 +4866,82 @@
      ]
     },
     {
-     "id": 121,
+     "id": 183,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 840,
+     "y": 456,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 184,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 920,
+     "y": 584,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 185,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 904,
+     "y": 568,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 186,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3341,7 +4966,7 @@
      ]
     },
     {
-     "id": 122,
+     "id": 187,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3366,7 +4991,7 @@
      ]
     },
     {
-     "id": 123,
+     "id": 188,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3391,7 +5016,7 @@
      ]
     },
     {
-     "id": 124,
+     "id": 189,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3416,7 +5041,57 @@
      ]
     },
     {
-     "id": 125,
+     "id": 190,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 824,
+     "y": 456,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 191,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 904,
+     "y": 584,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 192,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3441,7 +5116,7 @@
      ]
     },
     {
-     "id": 126,
+     "id": 193,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3466,7 +5141,57 @@
      ]
     },
     {
-     "id": 127,
+     "id": 194,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 824,
+     "y": 472,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 195,
+     "name": "",
+     "point": true,
+     "rotation": 0,
+     "type": "ActionArea",
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "x": 808,
+     "y": 456,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "raceGate",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionGate",
+       "type": "int",
+       "value": 7
+      }
+     ]
+    },
+    {
+     "id": 196,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3496,7 +5221,7 @@
      ]
     },
     {
-     "id": 128,
+     "id": 197,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3521,7 +5246,7 @@
      ]
     },
     {
-     "id": 129,
+     "id": 198,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3546,7 +5271,7 @@
      ]
     },
     {
-     "id": 130,
+     "id": 199,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3571,7 +5296,7 @@
      ]
     },
     {
-     "id": 131,
+     "id": 200,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3596,7 +5321,7 @@
      ]
     },
     {
-     "id": 132,
+     "id": 201,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3621,7 +5346,7 @@
      ]
     },
     {
-     "id": 133,
+     "id": 202,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3646,7 +5371,7 @@
      ]
     },
     {
-     "id": 134,
+     "id": 203,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3671,7 +5396,7 @@
      ]
     },
     {
-     "id": 135,
+     "id": 204,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3696,7 +5421,7 @@
      ]
     },
     {
-     "id": 136,
+     "id": 205,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3721,7 +5446,7 @@
      ]
     },
     {
-     "id": 137,
+     "id": 206,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3746,7 +5471,7 @@
      ]
     },
     {
-     "id": 138,
+     "id": 207,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3771,7 +5496,7 @@
      ]
     },
     {
-     "id": 139,
+     "id": 208,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3791,7 +5516,7 @@
      ]
     },
     {
-     "id": 140,
+     "id": 209,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3811,7 +5536,7 @@
      ]
     },
     {
-     "id": 141,
+     "id": 210,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3831,7 +5556,7 @@
      ]
     },
     {
-     "id": 142,
+     "id": 211,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3851,7 +5576,7 @@
      ]
     },
     {
-     "id": 143,
+     "id": 212,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3871,7 +5596,7 @@
      ]
     },
     {
-     "id": 144,
+     "id": 213,
      "name": "",
      "point": true,
      "rotation": 0,
@@ -3904,7 +5629,7 @@
    "objects": [
     {
      "height": 16,
-     "id": 155,
+     "id": 224,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -3936,7 +5661,7 @@
     {
      "gid": 7023,
      "height": 37,
-     "id": 156,
+     "id": 225,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -3955,7 +5680,7 @@
   }
  ],
  "nextlayerid": 13,
- "nextobjectid": 157,
+ "nextobjectid": 226,
  "orientation": "orthogonal",
  "properties": [
   {

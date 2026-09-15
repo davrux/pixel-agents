@@ -638,6 +638,15 @@ export const ROUGH_SPEED = 0.62;
  * short enough that the drag has it back to normal within about a second and a half.
  */
 export const BOOST_SPEED_FACTOR = 1.45;
+/**
+ * How many computer drivers a track offers to start with — not "as many as the grid holds".
+ *
+ * A grid of twelve is what the MAP can take, and it was the default for as long as filling it was
+ * the only behaviour there was. Asked to be fewer: eleven opponents on a circuit is a queue rather
+ * than a race, and what you mostly see of it is the car in front. Six is a field you can move
+ * through, and the panel still goes to the grid's full size for anybody who wants the queue.
+ */
+export const RACE_DEFAULT_BOTS = 6;
 /** …and the shove itself, as a multiple of the engine. Applied whether or not the throttle is
  *  down, because a pad throws you: lifting on one is not a way to refuse it. */
 export const BOOST_ACCEL_FACTOR = 2.2;

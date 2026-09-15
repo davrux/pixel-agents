@@ -23,6 +23,7 @@ import {
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
   RACE_COUNTDOWN_CHOICES,
+  RACE_DEFAULT_BOTS,
   RACE_DEFAULT_COUNTDOWN_SEC,
   RACE_MAX_LAPS,
   RACE_MIN_LAPS,
@@ -2948,11 +2949,12 @@ export class OfficeState {
    */
   private buildTrack(): void {
     this.track = raceTrack(this.layout);
-    // The map's own numbers become the defaults — a full grid of computer drivers and the lap
-    // count the mapper drew — and anything anybody had set for the PREVIOUS track goes with it.
+    // The map's own numbers become the defaults — the lap count the mapper drew — and anything
+    // anybody had set for the PREVIOUS track goes with it. The FIELD is not the map's business
+    // though: a grid of twelve is what the map can take, not what a race wants.
     this.setup = {
       laps: this.track?.laps ?? 3,
-      bots: Math.max(0, (this.track?.grid.length ?? 1) - 1),
+      bots: Math.max(0, Math.min(RACE_DEFAULT_BOTS, (this.track?.grid.length ?? 1) - 1)),
       countdownSec: RACE_DEFAULT_COUNTDOWN_SEC,
       difficulty: DEFAULT_DIFFICULTY,
     };

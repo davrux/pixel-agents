@@ -891,10 +891,23 @@ const gateCellsAt = (run: number): Array<{ col: number; row: number }> => {
   for (let along = -0.5; along <= 0.5; along += 0.5) {
     const cx = p.x + Math.cos(p.dir) * along;
     const cy = p.y + Math.sin(p.dir) * along;
-    for (let u = -HALF - 1; u <= HALF + 1; u += 0.25) {
+    for (let u = -(HALF + SAND + 1); u <= HALF + SAND + 1; u += 0.25) {
       const col = Math.round(cx + nx * u);
       const row = Math.round(cy + ny * u);
-      if (onRoad(col, row)) cells.set(`${col},${row}`, { col, row });
+      // The whole DRIVABLE corridor, verge included — not just the racing surface.
+      //
+      // This is the difference between a checkpoint and a trap. A gate that stops at the edge of
+      // the tarmac is a gate you miss by running wide, and missing one is not a small thing: the
+      // leg you are on then points at a gate BEHIND you, so every metre of correct driving reads
+      // as going backwards and the warning stays up until you turn round and fetch it. Reported as
+      // "wenn man nicht genau die Strecke erwischt, steht da oft wrong way", and measured: not one
+      // of the 575 gate cells across the three circuits was on the verge, while 190 drivable verge
+      // cells sat directly beside a gate without being part of it.
+      //
+      // Cutting is still impossible — that is what the ORDER of the ring is for, and the infield is
+      // behind a barrier either way. What this allows is running wide, which is a mistake the road
+      // already punishes with sand.
+      if (onRoad(col, row) || onRunOff(col, row)) cells.set(`${col},${row}`, { col, row });
     }
   }
   return [...cells.values()];
@@ -939,7 +952,9 @@ if (CLOSED) {
   const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
   const gates = Math.max(4, Math.round(LINE_LENGTH / GATE_EVERY_TILES));
   for (let g = 0; g < gates; g++) gateCells.push(gateCellsAt(startRun + (LINE_LENGTH * g) / gates));
-  for (const c of gateCells[0]) chequered.add(`${c.col},${c.row}`);
+  // Painted on the ROAD only, even though the gate is wider: a chequered band across the sand
+  // would make the verge look like somewhere to drive.
+  for (const c of gateCells[0]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
   layOutGrid(startRun);
 
   /**
@@ -994,9 +1009,10 @@ if (CLOSED) {
       ),
     );
   }
-  // The line at either end is painted: the start you set off from and the one that ends it.
-  for (const c of gateCells[0]) chequered.add(`${c.col},${c.row}`);
-  for (const c of gateCells[STAGE_GATES]) chequered.add(`${c.col},${c.row}`);
+  // The line at either end is painted, on the road only: the start you set off from and the one
+  // that ends it.
+  for (const c of gateCells[0]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
+  for (const c of gateCells[STAGE_GATES]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
   layOutGrid(STAGE_GRID_RUN);
 }
 

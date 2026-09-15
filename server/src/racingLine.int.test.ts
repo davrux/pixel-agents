@@ -36,7 +36,7 @@ import { KART_MAX_SPEED_PX_PER_SEC, RACE_TICK_HZ } from '@pixel/shared/office/co
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
-import { isRough, wrapAngle } from '@pixel/shared/office/race/track.js';
+import { isRough, wrapAngle, type RaceGate } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -258,5 +258,79 @@ test('every circuit has boost pads, on its road and clear of its grid', () => {
       for (const s of slots) nearest = Math.min(nearest, Math.hypot(s.col - col, s.row - row));
     }
     assert.ok(nearest > 12, `${zone}: a boost pad is ${nearest.toFixed(0)} tiles from a grid slot`);
+  }
+});
+
+/**
+ * Running wide still counts as passing the checkpoint.
+ *
+ * Reported as "wenn man nicht genau die Strecke erwischt, steht da oft wrong way", and the cause
+ * was that a gate stopped at the edge of the tarmac. Missing one is not a small thing: the leg you
+ * are then on points at a gate BEHIND you, so every metre of correct driving reads as going
+ * backwards and the warning stays up until you turn round and fetch it. Measured before the fix:
+ * not one of the 575 gate cells across the three circuits was on the verge, while 190 drivable
+ * verge cells sat directly beside a gate without belonging to it.
+ *
+ * Driven on the VERGE rather than on the road, gate by gate, which is the mistake this is about —
+ * and the lap has to complete, because a gate that is missed is a lap that never ends.
+ */
+test('a lap driven on the verge still passes every gate', () => {
+  for (const zone of TRACKS) {
+    const os = new OfficeState(layouts.get(zone) as never);
+    const track = os.raceTrack();
+    assert.ok(track);
+    const kart = [...os.karts.values()][0];
+    for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
+    const driver = os.addPlayer('char_0', 'Wide', undefined, `wide-${zone}`);
+    const ch = os.characters.get(driver);
+    assert.ok(ch);
+    ch.x = kart.x;
+    ch.y = kart.y;
+    assert.equal(os.boardKart(driver), true);
+    assert.equal(os.startRace(), true);
+    while (os.raceInfo().phase === 'countdown') os.update(DT);
+
+    const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string> };
+    const drivable = (c: number, r: number): boolean =>
+      (inner.tileMap[r]?.[c] ?? -1) !== -1 && !inner.blockedTiles.has(`${c},${r}`);
+    const gates: readonly RaceGate[] = track.gates;
+    for (let g = 1; g <= gates.length; g++) {
+      const gate = gates[g % gates.length];
+      const cells = [...gate.tiles].map((k) => k.split(',').map(Number) as [number, number]);
+      // A cell of this gate that is OFF the racing surface: the verge, where a car that ran wide
+      // actually is.
+      const onVerge = cells.find(([col, row]) => isRough(track, col, row));
+      if (!onVerge) {
+        // No verge to cover — the BRIDGE is the case, where beside the road there is only air.
+        // What must still hold is that there is nothing drivable beside the gate to slip past on.
+        const escape = cells.some(([col, row]) =>
+          [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) =>
+            drivable(col + dc, row + dr) && !gate.tiles.has(`${col + dc},${row + dr}`) && isRough(track, col + dc, row + dr),
+          ),
+        );
+        assert.equal(escape, false, `${zone}: gate ${gate.index} has no verge but there is verge beside it`);
+        // Cross it on the road instead, so the lap still advances.
+        kart.x = gate.x;
+        kart.y = gate.y;
+        kart.vx = 0;
+        kart.vy = 0;
+        kart.input = { throttle: 0, steer: 0 };
+        os.update(DT);
+        assert.equal(kart.gate, gate.index, `${zone}: crossing gate ${gate.index} did not count`);
+        continue;
+      }
+      kart.x = onVerge[0] * 16 + 8;
+      kart.y = onVerge[1] * 16 + 8;
+      kart.vx = 0;
+      kart.vy = 0;
+      kart.input = { throttle: 0, steer: 0 };
+      os.update(DT);
+      assert.equal(
+        kart.gate,
+        gate.index,
+        `${zone}: crossing gate ${gate.index} on the verge did not count (still at ${kart.gate})`,
+      );
+    }
+    assert.equal(kart.lap, 1, `${zone}: a full lap on the verge did not complete a lap`);
   }
 });

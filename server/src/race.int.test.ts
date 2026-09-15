@@ -276,9 +276,10 @@ test('starting a race gathers every driven kart onto the grid and holds it there
   // constant — a test that hardcodes it passes only for whatever the default happens to be.
   const countdownMs = os.raceInfo().timerMs;
   assert.equal(countdownMs, os.raceSetup().countdownSec * 1000 + RACE_GREEN_MS, 'the lights ignore the setting');
-  // Three humans, and the rest of the grid filled with computer drivers — a race with nobody in
-  // it is not a race.
-  assert.equal(os.raceInfo().entries.size, track.grid.length, 'the grid was not filled out');
+  // Three humans and the computer drivers the SETTING asks for — a race with nobody in it is not
+  // a race, and a race with every slot taken is a queue. The field is no longer the grid's size
+  // (see RACE_DEFAULT_BOTS), so this reads what was asked for rather than what the map can hold.
+  assert.equal(os.raceInfo().entries.size, 3 + os.raceSetup().bots, 'the field is not the size that was asked for');
   for (const kart of karts.slice(0, 3)) {
     assert.equal(kart.lap, 0, 'a kart brought its old lap count into the race');
     assert.ok(
@@ -363,10 +364,15 @@ test('the grid is filled with computer drivers, and they leave with the race', (
   assert.equal(os.boardKart(driver), true);
   const before = os.characters.size;
 
+  // The field is the SETTING, not the grid: a map's grid says how many cars it can hold, and the
+  // default asks for fewer (see RACE_DEFAULT_BOTS). Asked for explicitly, so this reads the
+  // setting rather than the map.
+  const wanted = os.raceSetup().bots;
+  assert.ok(wanted > 0 && wanted < track.grid.length, `the default field is ${wanted} of ${track.grid.length} slots`);
   assert.equal(os.startRace(), true);
   const field = [...os.karts.values()].filter((k) => k.driverId !== null);
-  assert.equal(field.length, track.grid.length, 'the grid is not full');
-  assert.equal(os.characters.size, before + track.grid.length - 1, 'the opponents were not spawned');
+  assert.equal(field.length, wanted + 1, 'the field is not the size that was asked for');
+  assert.equal(os.characters.size, before + wanted, 'the opponents were not spawned');
   for (const k of field) {
     const who = os.characters.get(k.driverId!)!;
     assert.ok(who, 'a kart has a driver that does not exist');
