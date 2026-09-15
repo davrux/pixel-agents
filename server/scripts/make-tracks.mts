@@ -32,6 +32,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+/** The same ceiling a pushed map is refused against — read from the shared table rather than
+ *  written here, so a generator cannot produce a map the server would turn away. */
+import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
+
 const REPO = path.join(import.meta.dirname, '..', '..');
 const SRC = path.join(REPO, 'assets', 'tiled', 'zones', 'uponu.tmj');
 const ZONES = path.join(REPO, 'assets', 'tiled', 'zones');
@@ -264,11 +268,76 @@ function fromDust(file: string, opts: { scale: number; pad: number; smooth: numb
     });
   }
   const line = pts.filter((_, i) => i % opts.every === 0);
-  return {
-    cols: Math.ceil(Math.max(...line.map((p) => p.x)) + opts.pad),
-    rows: Math.ceil(Math.max(...line.map((p) => p.y)) + opts.pad),
-    line,
+  const cols = Math.ceil(Math.max(...line.map((p) => p.x)) + opts.pad);
+  const rows = Math.ceil(Math.max(...line.map((p) => p.y)) + opts.pad);
+
+  /**
+   * Four refusals, because the walk is a HEURISTIC and a bad answer must not become a map.
+   *
+   * It is greedy — straightest continuation, close when the finish comes back round — and on some
+   * of their sixteen layouts that is simply not enough: a crossing sends it down the wrong branch,
+   * a wide paddock lets it cut a corner, a lobe that doubles back gets missed. Surveyed over all
+   * of them, four pass and twelve do not, and each of the four checks below is what catches a
+   * specific kind of wrong answer:
+   *
+   *  - **COVERAGE.** Suzuka's walk reaches 38 % of its road cells and closes a tidy little loop
+   *    that is not Suzuka. Shipping that under the name would be the worst outcome here — a map
+   *    that claims to be a famous circuit and is not. Monza's 69 % is the honest floor: what it
+   *    misses is the second cell of each diagonal pair, which is the ribbon's other side and not a
+   *    piece of the lap.
+   *  - **CLEARANCE.** Two parts of the lap closer than twice the road's half-width plus its verge
+   *    and barrier means the road runs into itself, and the distance field cannot express that.
+   *  - **RADIUS.** Below about three and a half tiles the corner is tighter than a kart can take
+   *    even using the full width of the road.
+   *  - **WINDING.** A clean lap turns once. Desert Storm's walk turns 4.7 times — it is zigzagging
+   *    across the ribbon, which the radius and clearance checks both miss because a small wobble
+   *    has a large radius and hits nothing.
+   *
+   * Four of their sixteen pass all four. Two of those four — Ring and Western Valley — were built,
+   * driven and then NOT kept, and the reason is worth recording because it is about this world and
+   * not about their maps: both put a tight corner at the end of a long straight, and the computer
+   * driver cannot brake for one. It has no lookahead that can see a corner before it is in it (its
+   * pursuit arc reaches about eleven tiles, and an arc that short is never tighter than the kart's
+   * own turning circle), so it arrives flat out, runs wide and wedges on the outside barrier.
+   * Measured on Ring: the TOP skill took 86.5 s where the SLOWEST took 56.8, half the race at
+   * walking pace. Three physically correct rules were tried against it — refusing arcs the tyres
+   * cannot hold, capping the speed by the aim's curvature, and scanning the road beyond the aim —
+   * and all three measured as exact no-ops, because at racing speed none of those quantities is
+   * large enough to bite. Braking points are a real piece of work (see the note in constants.ts),
+   * and until they exist a circuit with that shape is a circuit this driver cannot race on.
+   */
+  const closed = Math.hypot(line[0].x - line[line.length - 1].x, line[0].y - line[line.length - 1].y) < opts.scale * 3;
+  const coverage = best.length / road.length;
+  let minR = Infinity;
+  let turn = 0;
+  const n = line.length;
+  for (let i = 0; i < n; i++) {
+    const a = line[(i - 1 + n) % n];
+    const b = line[i];
+    const c = line[(i + 1) % n];
+    const area = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2;
+    if (area > 1e-9) {
+      minR = Math.min(minR, (Math.hypot(b.x - a.x, b.y - a.y) * Math.hypot(c.x - b.x, c.y - b.y) * Math.hypot(c.x - a.x, c.y - a.y)) / (4 * area));
+    }
+    let da = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x);
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    turn += Math.abs(da);
+  }
+  const winding = turn / (Math.PI * 2);
+  const refuse = (why: string): never => {
+    throw new Error(
+      `${file} cannot be imported: ${why}. ` +
+        `(covered ${(coverage * 100).toFixed(0)}% of its road, closed=${closed}, ` +
+        `${cols}x${rows}, tightest corner ${minR.toFixed(1)} tiles, winding ${winding.toFixed(2)})`,
+    );
   };
+  if (!closed) refuse('the walk never came back to the finish');
+  if (coverage < 0.6) refuse('the walk missed most of the road, so this would not be that track');
+  if (cols > MAX_COLS || rows > MAX_ROWS) refuse(`it does not fit in ${MAX_COLS}x${MAX_ROWS}`);
+  if (minR < 3.5) refuse('it has a corner no kart could take');
+  if (winding > 2.5) refuse('the line zigzags rather than laps');
+  return { cols, rows, line };
 }
 
 /** What makes one circuit different from another. Everything else is the same generator. */
@@ -397,6 +466,22 @@ const TRACKS: readonly TrackSpec[] = [
     // Run 0 of the walk is the finish tile itself, and the walk sets off down the start-finish
     // straight — so the grid, which is laid out BACKWARDS from the line, lands on the straight
     // that leads up to it. That is not luck: the line is where a lap starts in their file too.
+    startAt: 0,
+    bridge: null,
+  },
+  {
+    /**
+     * FIGURE 8 — the only one of their layouts whose walk covers every road cell it has, and the
+     * one with the most room in its corners (5.7 tiles). It does not actually cross itself at our
+     * scale: the two lobes pass thirteen tiles apart, which is exactly the clearance a road this
+     * wide needs, so what would be a bridge in their game is simply a narrow neck in ours.
+     */
+    id: 'figure8',
+    label: 'Figure 8',
+    kind: 'ring',
+    ...fromDust('figure8.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
+    width: 7,
+    laps: 5,
     startAt: 0,
     bridge: null,
   },

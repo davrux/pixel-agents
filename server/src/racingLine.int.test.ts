@@ -44,7 +44,7 @@ import { importTmjToLayout } from './tiled/mapBridge.js';
 import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-const TRACKS = ['raceway', 'monza'] as const;
+const TRACKS = ['raceway', 'monza', 'figure8'] as const;
 const layouts = new Map<string, OfficeLayout>();
 
 before(async () => {
