@@ -191,7 +191,7 @@ export interface KartWorld {
   track: RaceTrack;
 }
 
-export const NEUTRAL_INPUT: KartInput = { throttle: 0, steer: 0 };
+const NEUTRAL_INPUT: KartInput = { throttle: 0, steer: 0 };
 
 export function createKart(
   id: number,

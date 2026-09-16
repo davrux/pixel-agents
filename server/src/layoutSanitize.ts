@@ -194,8 +194,6 @@ export function sanitizeAction(raw: unknown): Action | null {
         // arrives from outside, because it ends up steering twelve cars at once.
         dir: rec.dir === undefined || Number(rec.dir) < 0 ? -1 : Math.floor(Number(rec.dir) || 0) % 360,
       };
-    case 'raceRough':
-      return { kind: 'raceRough' };
     case 'raceFinish':
       return { kind: 'raceFinish' };
     case 'raceRecords':

@@ -2417,8 +2417,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // simulation (AGENTS.md § Security — a NaN passes a uint8 quietly and a string throws).
       ks.item = Math.min(255, Math.max(0, kart.item | 0));
       ks.shieldTenths = Math.min(255, Math.max(0, Math.round(kart.shieldMs / 100)));
-      ks.spinning = kart.spinMs > 0;
-      ks.spec = String(kart.spec ?? '');
       ks.ownerId = kart.ownerId ?? 0;
     }
     // Oil is world state, not kart state: it outlives whoever dropped it, so it travels once for

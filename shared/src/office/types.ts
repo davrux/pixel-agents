@@ -555,14 +555,6 @@ export type Action =
    * and crossing this ends your race, so a circuit is not the only shape a race can have.
    */
   | { kind: 'raceFinish' }
-  /**
-   * Off the racing surface but still ground: grass, sand, the run-off.
-   *
-   * Drivable and slow rather than fatal, which is how Dust Racing treats leaving the road and is
-   * what turns a black square round a circuit into somewhere. What stays fatal is where there is
-   * genuinely NOTHING — the infield pit, and the drop beside the bridge.
-   */
-  | { kind: 'raceRough' }
   /** A board that shows this track's records. Like `petScores`, it is a property of a PLACEMENT —
    *  one whiteboard becomes the timing screen and every other one stays a whiteboard. */
   | { kind: 'raceRecords' }

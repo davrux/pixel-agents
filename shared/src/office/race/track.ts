@@ -136,16 +136,14 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
       g.n++;
     } else if (action.kind === 'raceStart') {
       grid.push({ slot: action.slot, dir: action.dir ?? -1, ...centre(col, row) });
-    } else if (action.kind === 'raceRough') {
-      // The older way of saying it, one Action per cell. Still read, because a map that was
-      // authored that way must keep meaning what it meant — but `SurfaceLayer` is what a mapper
-      // paints now, and it is a list of numbers where this was an object per cell.
-      rough.add(key(col, row));
     } else if (action.kind === 'raceFinish') {
       finish = centre(col, row);
     }
   }
-  // …and the same fact painted on a surface layer, which is where it comes from now.
+  // Off the racing surface, painted as a SURFACE. There used to be a second way to say this — one
+  // `raceRough` Action per cell — and it was removed on 2026-09-16 because two ways to state one
+  // fact is one way too many: no generator wrote it, the dropdown offered it, and a map that used
+  // it would have had its rough painted in objects while the layer beside it said nothing.
   for (const cell of layout.surfaces?.rough ?? []) {
     const col = cell % layout.cols;
     rough.add(key(col, (cell - col) / layout.cols));

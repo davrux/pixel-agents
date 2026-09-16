@@ -108,21 +108,29 @@ test('surfaces survive a save, and nothing outside the map can be one', () => {
   );
 });
 
-test('the track reads both ways of saying it, so an older map keeps meaning what it meant', () => {
-  // `raceRough` as one Action per cell is how the first race maps said this, and they must not
-  // change meaning because a better way of writing it arrived.
+/**
+ * The LAYER is the only way to say what a surface is, and there used to be two.
+ *
+ * `raceRough` was an Action per cell — how the first race maps said this — and it was kept for a
+ * while so those maps would not change meaning. It went on 2026-09-16, asked for in exactly those
+ * terms ("wofür ist raceRough, macht das nicht ein Layer?"): no generator wrote it any more, the
+ * Tiled dropdown still offered it, and a map that took the offer would have had its rough painted
+ * in objects while the layer beside it said nothing. Two ways to state one fact is one too many.
+ */
+test('rough comes from the surface layer and from nothing else', () => {
   const base = {
     version: 3, cols: COLS, rows: ROWS, tiles: new Array(CELLS).fill(0), furniture: [],
     tileActions: new Array(CELLS).fill(null),
   } as unknown as OfficeLayout & { tileActions: Array<unknown> };
-  base.tileActions[7] = { kind: 'raceRough' };
   base.tileActions[0] = { kind: 'raceGate', gate: 0 };
   base.tileActions[4] = { kind: 'raceGate', gate: 1 };
   base.tileActions[8] = { kind: 'raceStart', slot: 0, dir: 0 };
-  const withLayer = { ...base, surfaces: { rough: [9] } } as OfficeLayout;
-  const track = raceTrack(withLayer);
+  const track = raceTrack({ ...base, surfaces: { rough: [9] } } as OfficeLayout);
   assert.ok(track);
-  assert.equal(track.rough.has('7,0'), true, 'a raceRough action stopped being rough');
   assert.equal(track.rough.has('1,1'), true, 'a painted surface cell is not rough');
-  assert.equal(track.rough.size, 2);
+  assert.equal(track.rough.size, 1, 'something other than the layer made a cell rough');
+  // And a map with no layer at all has no rough, rather than falling back to anything.
+  const bare = raceTrack(base as OfficeLayout);
+  assert.ok(bare);
+  assert.equal(bare.rough.size, 0);
 });

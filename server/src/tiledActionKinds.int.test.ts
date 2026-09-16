@@ -52,7 +52,7 @@ test('every action kind the server accepts is in the Tiled dropdown', () => {
   for (const kind of [
     'meetingRoom', 'meetingManager', 'iframe', 'appliance', 'arcade', 'timeClock', 'petScores',
     'portal', 'toggle', 'spawnPoint', 'talkingObject',
-    'raceGate', 'raceStart', 'raceRough', 'raceFinish', 'raceRecords',
+    'raceGate', 'raceStart', 'raceFinish', 'raceRecords',
   ]) {
     // Each of these really is accepted — so the list below is the server's own answer, not a
     // second copy of it that could drift in the other direction.

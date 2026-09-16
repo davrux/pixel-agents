@@ -187,12 +187,15 @@ export class KartSync extends PawnSync {
   /** Counts down while a shield is up, in tenths of a second — so the HUD can show it running out
    *  rather than blinking off. */
   @type('uint8') shieldTenths = 0;
-  /** Spinning on somebody's oil: the renderer turns the art with the heading either way, so this
-   *  is here for the sound and for the HUD, not for the picture. */
-  @type('boolean') spinning = false;
-  /** Which `KartSpec` this car is, as an id. What a car IS is decided when somebody gets in, so
-   *  two viewers must not be able to disagree about it. */
-  @type('string') spec = '';
+  /**
+   * Nothing about the SPIN or the kart's spec travels, and both were tried.
+   *
+   * `spinning` was synced "for the sound and the HUD" and read by neither: the renderer turns the
+   * art by the heading either way, which is what a spin looks like. `spec` was synced so the HUD
+   * could name the car and then no HUD did. Both were a byte per kart per patch buying nothing —
+   * removed the day they were noticed. Sync a decision when something reads it (AGENTS.md
+   * invariant 2), and not a moment before.
+   */
   /**
    * Whose car this is — the character it was spawned for, 0 for nobody's.
    *
