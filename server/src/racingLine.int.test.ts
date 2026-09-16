@@ -44,7 +44,7 @@ import { importTmjToLayout } from './tiled/mapBridge.js';
 import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-const TRACKS = ['raceway', 'monza', 'figure8', 'ring', 'valley'] as const;
+const TRACKS = ['raceway', 'monza'] as const;
 const layouts = new Map<string, OfficeLayout>();
 
 before(async () => {
@@ -322,7 +322,8 @@ test('every circuit has boost pads, on its road and clear of its grid', () => {
  * Closing the corner where there IS one is the smaller answer, and these are the two properties
  * that says it worked: every gate is a single 4-CONNECTED run (so nothing can pass through it),
  * and no gate is more than one cell thick across its own line (so it is not drawn twice). Measured
- * across the five circuits: 1.13 to 1.31 tiles, where a doubled band is 2.3.
+ * measured across the five circuits that existed then: 1.13 to 1.31 tiles, where a doubled
+ * band is 2.3.
  */
 test('every gate is one cell thick and still unbroken', () => {
   for (const zone of TRACKS) {

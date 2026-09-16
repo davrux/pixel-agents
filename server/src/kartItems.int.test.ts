@@ -45,7 +45,7 @@ import { importTmjToLayout } from './tiled/mapBridge.js';
 import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-const TRACKS = ['raceway', 'monza', 'figure8', 'ring', 'valley'] as const;
+const TRACKS = ['raceway', 'monza'] as const;
 const layouts = new Map<string, OfficeLayout>();
 
 before(async () => {
@@ -285,7 +285,7 @@ test('a computer driver spends what it picks up', () => {
   // Without this the field fills its hands at the first box and drives round armed for the rest of
   // the race — measured in a browser before it existed: four pickups in a minute across seven
   // cars, not one of them used, against fourteen uses a minute afterwards.
-  const sim = seated('ring', 'i-bot');
+  const sim = seated('monza', 'i-bot');
   const inner = sim.os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
   const world = {
     tileMap: inner.tileMap,
