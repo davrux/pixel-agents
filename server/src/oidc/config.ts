@@ -165,11 +165,6 @@ function readConfig(): OidcConfig | null {
   };
 }
 
-/** Whether a "sign in with …" button should exist at all. */
-export function oidcEnabled(): boolean {
-  return oidcConfig() !== null;
-}
-
 /** The endpoints this flow uses, from the provider's discovery document. */
 export interface OidcEndpoints {
   authorizationEndpoint: string;

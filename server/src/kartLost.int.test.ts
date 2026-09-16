@@ -25,6 +25,7 @@ import test, { before } from 'node:test';
 
 import {
   KART_LOST_SEC,
+  KART_RESCUE_NOTICE_SEC,
   KART_WRONG_WAY_SEC,
   RACE_TICK_HZ,
 } from '@pixel/shared/office/constants.js';
@@ -249,6 +250,31 @@ test('a car that keeps twitching against the barrier is still rescued', () => {
   // The other half of the same claim — that getting somewhere CLEARS the counter — is pinned by
   // the clean run below rather than here, and that is the stronger test: if progress did not clear
   // it, a car racing for ninety seconds would be picked up every five of them.
+});
+
+/**
+ * Being put back says so, and only for a moment.
+ *
+ * The rescue was silent: you were wedged, and then you were somewhere else. A teleport is the one
+ * thing that happens to a driver without them doing it, and the client cannot derive it — a fall
+ * looks exactly the same from the outside, which is the point: both deserve the line.
+ */
+test('a car that is put back says so, briefly', () => {
+  const sim = seated('monza');
+  assert.equal(sim.kart.rescueMs, 0, 'a car said it had been rescued before anything happened');
+  const spot = barrierNear(sim);
+  sim.kart.x = spot.x;
+  sim.kart.y = spot.y;
+  sim.kart.heading = spot.heading;
+  const moved = holdUntilMoved(sim, { throttle: 1, steer: 0 }, LOST_SEC + 1.5);
+  assert.ok(moved >= 0, 'the wedged car was never put back');
+  assert.ok(sim.kart.rescueMs > 0, 'the car was put back without a word');
+  // …and it is over quickly, rather than sitting on the screen for the rest of the lap.
+  for (let i = 0; i < Math.round((KART_RESCUE_NOTICE_SEC + 0.5) / DT); i++) {
+    sim.kart.input = { throttle: 0, steer: 0 };
+    sim.os.update(DT);
+  }
+  assert.equal(sim.kart.rescueMs, 0, 'the notice never cleared');
 });
 
 test('a short reverse is not being lost', () => {

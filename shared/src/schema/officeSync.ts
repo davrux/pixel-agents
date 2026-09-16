@@ -187,6 +187,10 @@ export class KartSync extends PawnSync {
   /** Counts down while a shield is up, in tenths of a second — so the HUD can show it running out
    *  rather than blinking off. */
   @type('uint8') shieldTenths = 0;
+  /** True for a moment after the car has been PUT somewhere — a fall, or the rescue at the end of
+   *  the wrong-way countdown. One bit, and the HUD is the only reader: being teleported is the one
+   *  thing that happens to a driver without them doing it, and it used to happen in silence. */
+  @type('boolean') rescued = false;
   /**
    * Nothing about the SPIN or the kart's spec travels, and both were tried.
    *

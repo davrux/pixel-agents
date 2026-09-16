@@ -166,6 +166,8 @@ type RenderKart = {
    *  shield up is one there is no point shoving. */
   item: number;
   shieldTenths: number;
+  /** Just been put back on the track — a fall, or the wrong-way rescue. */
+  rescued: boolean;
   /** Whose car it is — the character it was spawned for, 0 for nobody's. */
   ownerId: number;
 };
@@ -1133,6 +1135,7 @@ export class OfficeScene extends Phaser.Scene {
         progress: 0,
         item: 0,
         shieldTenths: 0,
+        rescued: false,
         ownerId: 0,
       };
       this.applyKart(rk, ks);
@@ -1230,6 +1233,7 @@ export class OfficeScene extends Phaser.Scene {
     rk.ownerId = (ks.ownerId as number) ?? 0;
     rk.item = (ks.item as number) ?? 0;
     rk.shieldTenths = (ks.shieldTenths as number) ?? 0;
+    rk.rescued = !!ks.rescued;
   }
 
   /**
@@ -1355,6 +1359,7 @@ export class OfficeScene extends Phaser.Scene {
             wrongWay: mine.wrongWay,
             item: mine.item,
             shieldSec: mine.shieldTenths / 10,
+            rescued: mine.rescued,
           }
         : null,
       drivers: [...this.karts.values()]

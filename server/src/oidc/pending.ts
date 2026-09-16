@@ -222,7 +222,3 @@ export function clearPending(): void {
   pendingLinks.clear();
 }
 
-/** For tests: how much is in flight. */
-export function pendingCounts(): { flows: number; pairings: number; links: number } {
-  return { flows: flows.size, pairings: pairings.size, links: pendingLinks.size };
-}

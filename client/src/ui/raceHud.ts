@@ -93,6 +93,8 @@ export interface RaceHudModel {
     item: number;
     /** Seconds of shield left, 0 when none is up. */
     shieldSec: number;
+    /** Just been put back on the track. */
+    rescued: boolean;
     } | null;
   drivers: RaceHudDriver[];
 }
@@ -492,7 +494,14 @@ export class RaceHud {
     this.banner = this.el(this.banner, 'pa-race-banner');
     let text = '';
     let cls = '';
-    if (m.phase === 'idle') {
+    // Being PUT somewhere is the one thing that happens to a driver without them doing it, so it
+    // outranks everything: a fall and the end of the wrong-way countdown both land here, and both
+    // used to happen in silence. It is over in two seconds, which is why it can take the top slot
+    // without hiding anything for long.
+    if (m.own?.rescued) {
+      text = '↻ BACK ON TRACK';
+      cls = ' warn';
+    } else if (m.phase === 'idle') {
       // Practice has one thing worth a banner, and it is the one you can act on.
       if (m.own?.wrongWay) {
         text = '⟲ WRONG WAY';

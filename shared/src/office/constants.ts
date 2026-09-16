@@ -571,6 +571,14 @@ export const KART_LOST_SEC = 5;
  * cover both halves of being lost.
  */
 export const KART_LOST_MOVE_TILES = 3;
+/**
+ * How long the screen says a car has been put back, in seconds.
+ *
+ * Being teleported is the only thing that happens to a driver without them doing it — a fall, or
+ * the end of the wrong-way countdown — and it happened in silence: wedged one moment, somewhere
+ * else the next. Two seconds is long enough to read and short enough to be gone before the corner.
+ */
+export const KART_RESCUE_NOTICE_SEC = 2;
 
 /**
  * How far from a zone's arrival point a newcomer may be put when it is occupied, in tiles.

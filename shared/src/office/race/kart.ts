@@ -50,6 +50,7 @@ import {
   KART_STUCK_SPEED_PX_PER_SEC,
   ITEM_SPIN_GRIP,
   ITEM_SPIN_RAD_PER_SEC,
+  KART_RESCUE_NOTICE_SEC,
   KART_LOST_MOVE_TILES,
   KART_LOST_SEC,
   KART_WRONG_WAY_SEC,
@@ -182,6 +183,16 @@ export interface Kart {
   shieldMs: number;
   /** While > 0, this car is spinning: it turns on its own and has almost no grip. */
   spinMs: number;
+  /**
+   * Counts down after the car has been PUT somewhere — a fall, or the rescue at the end of the
+   * wrong-way countdown.
+   *
+   * It exists for one line on the screen. Being teleported is the only thing that happens to a
+   * driver without them doing it, and it happened in silence: you were wedged, and then you were
+   * somewhere else. The client cannot derive it — a jump is also what a fall looks like, and
+   * guessing from successive positions is the kind of decision invariant 2 says to sync.
+   */
+  rescueMs: number;
 }
 
 export interface KartWorld {
@@ -221,6 +232,7 @@ export function createKart(
     item: KartItem.None,
     shieldMs: 0,
     spinMs: 0,
+    rescueMs: 0,
     wrongWay: false,
     wrongMs: 0,
     lostMs: 0,
@@ -309,6 +321,7 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
     kart.shieldMs = Math.max(0, kart.shieldMs - dt * 1000);
     kart.spinMs = Math.max(0, kart.spinMs - dt * 1000);
   }
+  kart.rescueMs = Math.max(0, kart.rescueMs - dt * 1000);
   // A SPIN turns the car and nothing else. The steering below still runs — a driver fighting it is
   // what makes a spin something you recover from rather than something you watch — but the tyres
   // are down to `ITEM_SPIN_GRIP` further down, so what the car does is slide on where it was
@@ -543,6 +556,8 @@ export function respawn(kart: Kart, world: KartWorld): void {
   kart.lostMs = 0;
   kart.stuckMs = 0;
   kart.recoverMs = 0;
+  // …and say so. Both callers put the car somewhere it was not: a fall and the wrong-way rescue.
+  kart.rescueMs = KART_RESCUE_NOTICE_SEC * 1000;
 }
 
 /**
