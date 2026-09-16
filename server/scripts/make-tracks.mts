@@ -1000,6 +1000,13 @@ const layOutGrid = (startRun: number): void => {
     // Arrive IN the grid, down the lane between its two rows — not wherever the free-tile search
     // happens to land. On a lap this long that is the difference between getting in a kart and
     // walking half of it to find one.
+    //
+    // One per grid ROW, and the extra five are not decoration: the FIRST becomes the zone's
+    // arrival tile (zoneImport reads one), and the whole set becomes the POOL an automatic
+    // placement draws from when that tile is taken (`spawnablePool`). Without them the pool is
+    // every walkable cell, and since the infield was landscaped that includes the middle of the
+    // circuit — people were dropped inside the track with the cars a corner away, seen twice in a
+    // browser. Six markers, two jobs.
     spawns.push({ col: Math.round(p.x), row: Math.round(p.y) });
   }
 };

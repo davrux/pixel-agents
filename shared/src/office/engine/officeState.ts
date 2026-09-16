@@ -28,6 +28,7 @@ import {
   ITEM_SPIN_SEC,
   KART_RADIUS_PX,
   RACE_COUNTDOWN_CHOICES,
+  SPAWN_SPREAD_TILES,
   RACE_DEFAULT_BOTS,
   RACE_DEFAULT_COUNTDOWN_SEC,
   RACE_MAX_LAPS,
@@ -1696,6 +1697,28 @@ export class OfficeState {
       this.areaIdAt(t.col, t.row) === null;
 
     if (preferred && isFree(preferred)) return preferred;
+    /**
+     * The arrival tile is TAKEN — so look next to it before looking anywhere.
+     *
+     * Without this the second person to arrive at the same moment landed on a random walkable tile
+     * of the whole map, which on a circuit 167 tiles across is the other side of the track. The
+     * race maps tried to work around it by marking SIX arrival points; only the first is ever read
+     * (see zoneImport), so what they actually bought was five markers that decide nothing. The fix
+     * belongs here, where it helps every zone: a busy arrival spreads into the cells around it.
+     *
+     * Rings outward, nearest first, so "beside the arrival point" means beside it.
+     */
+    if (preferred) {
+      for (let r = 1; r <= SPAWN_SPREAD_TILES; r++) {
+        for (let dr = -r; dr <= r; dr++) {
+          for (let dc = -r; dc <= r; dc++) {
+            if (Math.max(Math.abs(dc), Math.abs(dr)) !== r) continue;
+            const near = { col: preferred.col + dc, row: preferred.row + dr };
+            if (isFree(near)) return near;
+          }
+        }
+      }
+    }
     const spawnable = this.spawnableTiles(); // walkable, outside any meeting area
     // One free tile is all this needs, so draw at random rather than filtering all of them:
     // rejection sampling, so the choice stays uniform over the free tiles. See

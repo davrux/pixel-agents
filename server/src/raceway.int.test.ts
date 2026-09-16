@@ -402,7 +402,10 @@ test('you can walk from the grid to the timing board and to the water', () => {
     .map((a, i) => ({ a, i }))
     .filter((x) => (x.a as { kind?: string } | null)?.kind === 'spawnPoint')
     .map((x) => ({ col: x.i % layout.cols, row: Math.floor(x.i / layout.cols) }));
-  assert.ok(spawnTiles.length > 0, 'the map places no spawn points');
+  // Several arrival markers, and the extra ones are not decoration: the first becomes the zone's
+  // arrival tile and the whole set is the pool an automatic placement draws from when that tile is
+  // taken (`spawnablePool`) — which is what keeps a busy arrival out of the middle of the circuit.
+  assert.ok(spawnTiles.length > 1, `the map marks ${spawnTiles.length} arrival points`);
 
   for (const kind of ['raceRecords', 'appliance', 'portal']) {
     const item = layout.furniture.find((f) => (f.action as { kind?: string } | undefined)?.kind === kind);
@@ -428,6 +431,38 @@ test('you can walk from the grid to the timing board and to the water', () => {
       `"${kind}" is placed at (${item.col}, ${item.row}) and cannot be walked to from the grid`,
     );
   }
+});
+
+/**
+ * Several people arriving at once arrive TOGETHER.
+ *
+ * The arrival tile holds one person; the rest used to be scattered over the whole spawnable pool,
+ * which on a race map is the six grid-lane markers — measured on Monza, a median of 15 tiles from
+ * the arrival point and up to 25, i.e. the far end of the grid. (On an ordinary map, where nothing
+ * is marked, the pool is every walkable cell and it was the whole floor.) The cells AROUND the
+ * arrival point are tried first now, nearest ring first.
+ */
+test('a busy arrival point spreads into the cells beside it', () => {
+  const os = world();
+  const actions = (layout.tileActions ?? []) as Array<{ kind?: string } | null>;
+  const i = actions.findIndex((a) => a?.kind === 'spawnPoint');
+  assert.ok(i >= 0, 'the map marks no arrival point');
+  const at = { col: i % layout.cols, row: Math.floor(i / layout.cols) };
+  const far: number[] = [];
+  for (let n = 0; n < 10; n++) {
+    const id = os.addPlayer('char_0', `P${n}`, at, `spread-${n}`);
+    const ch = os.characters.get(id);
+    assert.ok(ch);
+    far.push(Math.max(Math.abs(ch.tileCol - at.col), Math.abs(ch.tileRow - at.row)));
+  }
+  assert.equal(far[0], 0, 'the first arrival did not get the arrival tile');
+  const worst = Math.max(...far);
+  assert.ok(worst <= 3, `the tenth arrival landed ${worst} tiles away`);
+  // …and on distinct tiles: spreading that stacks people is not spreading.
+  const where = new Set(
+    [...os.characters.values()].map((c) => `${c.tileCol},${c.tileRow}`),
+  );
+  assert.equal(where.size, 10, `ten arrivals ended up on ${where.size} tiles`);
 });
 
 /**

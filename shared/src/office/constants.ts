@@ -585,6 +585,17 @@ export const KART_LOST_SEC = 5;
 export const KART_LOST_MOVE_TILES = 3;
 
 /**
+ * How far from a zone's arrival point a newcomer may be put when it is occupied, in tiles.
+ *
+ * Six is about a room's width and about the depth of a starting grid, which is the case it was
+ * measured against: before this, a second arrival at the same instant went to a random walkable
+ * tile of the WHOLE map — on Monza, 167 tiles across, that is the far side of the circuit and a
+ * long walk back to a kart. Past six the search gives up and takes the old random tile, because at
+ * that point the arrival area really is full and anywhere is as good as anywhere.
+ */
+export const SPAWN_SPREAD_TILES = 6;
+
+/**
  * How long a kart's BOOST item lasts, in seconds.
  *
  * Longer than a pad's carry (`BOOST_CARRY_SEC`), because a pad is somewhere you drive over and an
