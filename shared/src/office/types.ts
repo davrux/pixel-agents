@@ -544,10 +544,18 @@ export type Action =
   /**
    * A grid slot, and the beacon that says which way the race sets off.
    *
-   * `dir` is a compass heading in DEGREES (0 = east, 90 = south on screen), or -1 for "work it out
-   * from the gates". It exists because the direction of a lap used to be implicit in the NUMBERING
-   * of the gates — gate 0 to gate 1 — which is invisible to whoever is placing them in Tiled and
-   * impossible to check by looking at the map. A beacon states it.
+   * `dir` is a COMPASS bearing in whole degrees — **0 = north** (up the screen), 90 = east,
+   * 180 = south, 270 = west — or -1 for "work it out from the gates". It exists because the
+   * direction of a lap used to be implicit in the NUMBERING of the gates — gate 0 to gate 1 —
+   * which is invisible to whoever is placing them in Tiled and impossible to check by looking at
+   * the map. A beacon states it.
+   *
+   * It used to be measured from EAST, because that is where the engine measures its own headings
+   * from (a heading is `cos`/`sin` of a screen vector, and screen y grows downward). That made a
+   * mapper write 270 to mean north and made a test spell out which number meant which direction —
+   * reported as "fängt man nicht in Norden an?". A property a person types is in the units that
+   * person thinks in; `raceTrack` turns the bearing into the engine's frame at the one place it
+   * enters.
    *
    * ONE slot states it and the rest say -1, which is why a generated grid looks lopsided in Tiled:
    * "ich habe raceStart mit actionDir 358 und alle anderen mit -1, was soll das?" Twelve copies of

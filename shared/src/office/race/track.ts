@@ -167,7 +167,13 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   // drawn before beacons existed means.
   const stated = ordered.find((g) => g.dir >= 0);
   const startHeading = stated
-    ? wrapAngle((stated.dir * Math.PI) / 180)
+    // A COMPASS bearing, and the −90 is that word taken seriously: a beacon says 0 for north, 90
+    // for east, and the engine measures its own headings from east because they are `cos`/`sin` of
+    // a screen vector. It used to be authored in the engine's frame, so a mapper wanting north had
+    // to write 270 and a test had to spell out which number meant which direction — reported as
+    // "fängt man nicht in Norden an?". The conversion belongs here, at the one place a stated
+    // bearing enters; everything downstream is radians from east as it always was.
+    ? wrapAngle(((stated.dir - 90) * Math.PI) / 180)
     : wrapAngle(Math.atan2(gates[1].y - gates[0].y, gates[1].x - gates[0].x));
   return {
     gates,

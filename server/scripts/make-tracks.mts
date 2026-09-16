@@ -948,8 +948,11 @@ const layOutGrid = (startRun: number): void => {
    */
   const front = lineAt(startRun - 3);
   const back = lineAt(startRun - 3 - (RING_GRID_ROWS - 1) * 5);
+  // A COMPASS bearing: 0 is north. The centreline's own angle is measured from east like every
+  // heading in the model, so +90 turns it into the thing the property says it is (see Action's
+  // `raceStart`) — the number a mapper would type if they were placing the beacon themselves.
   const beacon =
-    ((Math.round((Math.atan2(front.y - back.y, front.x - back.x) * 180) / Math.PI) % 360) + 360) % 360;
+    ((Math.round((Math.atan2(front.y - back.y, front.x - back.x) * 180) / Math.PI) + 90) % 360 + 360) % 360;
   let slot = 0;
   for (let i = 0; i < RING_GRID_ROWS; i++) {
     const p = lineAt(startRun - 3 - i * 5);

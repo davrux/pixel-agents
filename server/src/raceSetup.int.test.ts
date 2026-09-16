@@ -58,27 +58,43 @@ test('with no beacon, the gates say which way it goes', () => {
   assert.equal(deg(track.startHeading), ((expected % 360) + 360) % 360);
 });
 
-test('a beacon overrides it, and north is a perfectly good direction', () => {
-  // The question this answers, asked in as many words: "könnte ja auch sein, dass die Rennstrecke
-  // Richtung Norden startet".
-  for (const [degrees, name] of [
-    [0, 'east'],
-    [90, 'south'],
-    [180, 'west'],
-    [270, 'north'],
+/**
+ * A beacon is a COMPASS bearing: 0 is north.
+ *
+ * Two questions, a fortnight apart, and the second is why this test has a table in it. "Könnte ja
+ * auch sein, dass die Rennstrecke Richtung Norden startet" is what the beacon exists for; "fängt
+ * man nicht in Norden an?" is what the numbers used to get wrong — they were measured from EAST,
+ * because that is the frame the engine's own headings live in, so north was 270 and this test had
+ * to say so out loud. A property somebody types is in the units that person thinks in.
+ *
+ * The expectation is written as the SCREEN vector each bearing should produce, not as another
+ * angle: an assertion in the same units as the thing it checks would pass just as happily with
+ * both sides rotated the same wrong way.
+ */
+test('a beacon overrides it, and it reads as a compass', () => {
+  for (const [bearing, name, dx, dy] of [
+    [0, 'north', 0, -1],
+    [90, 'east', 1, 0],
+    [180, 'south', 0, 1],
+    [270, 'west', -1, 0],
   ] as const) {
-    const track = raceTrack(layoutWith(ring(degrees)));
+    const track = raceTrack(layoutWith(ring(bearing)));
     assert.ok(track, `${name} did not build`);
-    assert.equal(deg(track.startHeading), degrees, `a beacon pointing ${name} was ignored`);
+    assert.ok(
+      Math.abs(Math.cos(track.startHeading) - dx) < 1e-9 && Math.abs(Math.sin(track.startHeading) - dy) < 1e-9,
+      `a beacon of ${bearing}° should send the field ${name}, and it goes ` +
+        `(${Math.cos(track.startHeading).toFixed(2)}, ${Math.sin(track.startHeading).toFixed(2)})`,
+    );
   }
 });
 
 test('a beacon is honoured even when it disagrees with the gates', () => {
   // Deliberately: the beacon is the statement, the gate order is the fallback. A map that says
-  // one thing and means another is a map to fix, not a rule to average.
+  // one thing and means another is a map to fix, not a rule to average. This fixture's gates run
+  // up and to the right; the beacon says west, and west is what comes out.
   const track = raceTrack(layoutWith(ring(270)));
   assert.ok(track);
-  assert.equal(deg(track.startHeading), 270);
+  assert.ok(Math.cos(track.startHeading) < -0.99, `the gates won: ${deg(track.startHeading)}°`);
 });
 
 test('a finish line makes it a sprint, and its absence makes it laps', () => {
