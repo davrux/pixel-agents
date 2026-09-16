@@ -41,7 +41,7 @@ import {
   takeNotices,
   tickRace,
 } from '@pixel/shared/office/race/raceState.js';
-import { createKart, updateLost } from '@pixel/shared/office/race/kart.js';
+import { createKart, updateLost, type Kart } from '@pixel/shared/office/race/kart.js';
 import { raceProgress, raceTrack } from '@pixel/shared/office/race/track.js';
 import { ControllerKind, type OfficeLayout } from '@pixel/shared/office/types';
 
@@ -217,9 +217,10 @@ test('a race ends when everyone is home, and again when the clock runs out', () 
 
 test('with no race running a kart laps for ever and finishes nothing', () => {
   const os = world();
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Cruiser', undefined, 'cruiser');
   const ch = os.characters.get(driver);
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   assert.ok(ch);
   ch.x = kart.x;
   ch.y = kart.y;
@@ -255,15 +256,18 @@ test('starting a race gathers every driven kart onto the grid and holds it there
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
-  const karts = [...os.karts.values()];
+  // Three people, three cars — one each, spawned for them as they arrive.
+  const karts: Kart[] = [];
   const ids: number[] = [];
   for (let i = 0; i < 3; i++) {
     const driver = os.addPlayer('char_0', `Racer${i}`, undefined, `racer${i}`);
     const ch = os.characters.get(driver)!;
-    ch.x = karts[i].x;
-    ch.y = karts[i].y;
+    const mine = [...os.karts.values()].find((k) => k.ownerId === driver)!;
+    ch.x = mine.x;
+    ch.y = mine.y;
     assert.equal(os.boardKart(driver), true);
     ids.push(driver);
+    karts.push(mine);
   }
   // One kart is driven away from the grid first: starting a race must gather it back.
   karts[0].x = track.gates[2].x;
@@ -302,9 +306,10 @@ test('starting a race gathers every driven kart onto the grid and holds it there
 
 test('calling a race off hands the track straight back', () => {
   const os = world();
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Quitter', undefined, 'quitter');
   const ch = os.characters.get(driver)!;
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   os.boardKart(driver);
@@ -326,9 +331,10 @@ test('a race is refused where there is no track', () => {
 
 test('replacing the map ends a race that was running on the old one', () => {
   const os = world();
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Pusher', undefined, 'pusher');
   const ch = os.characters.get(driver)!;
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   os.boardKart(driver);
@@ -356,9 +362,10 @@ test('the grid is filled with computer drivers, and they leave with the race', (
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Human', undefined, 'human');
   const ch = os.characters.get(driver)!;
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true);
@@ -399,9 +406,10 @@ test('a computer driver gets round the circuit on its own', () => {
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Human', undefined, 'human');
   const ch = os.characters.get(driver)!;
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   os.boardKart(driver);
@@ -436,9 +444,10 @@ test('a driver who leaves mid-race retires, so the race can still end', () => {
   // crosses a line. The computer drivers stayed on track for all of it — which is how a "ghost"
   // is reported.
   const os = world();
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Leaver', undefined, 'leaver');
   const ch = os.characters.get(driver)!;
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   os.boardKart(driver);
@@ -451,7 +460,10 @@ test('a driver who leaves mid-race retires, so the race can still end', () => {
   os.update(DT);
   assert.equal(os.raceInfo().entries.has(kart.id), false, 'the empty kart is still in the race');
   assert.equal(os.raceInfo().entries.size, field - 1);
-  assert.equal(kart.driverId, null, 'the kart was not handed back');
+  // The car goes with them: it was theirs, and a kart with a dead character at the wheel is the
+  // ghost this test is named after. It used to be handed back to the grid instead, which is the
+  // same thing standing still.
+  assert.equal(os.karts.has(kart.id), false, 'the car outlived its driver');
 
   // And the race finishes on the opponents alone, in well under the timeout.
   let ticks = 0;
@@ -720,9 +732,10 @@ test('a stage is won at the line, and only after every gate', () => {
   assert.ok(track);
   assert.equal(track.sprint, true, 'the fixture stopped being a stage');
   assert.ok(track.finish);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Rally', undefined, 'rally');
   const ch = os.characters.get(driver);
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   assert.ok(ch);
   ch.x = kart.x;
   ch.y = kart.y;
@@ -750,9 +763,10 @@ test('crossing the start line again never finishes a stage', () => {
   const os = stage();
   const track = os.raceTrack();
   assert.ok(track);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Wanderer', undefined, 'wanderer');
   const ch = os.characters.get(driver);
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   assert.ok(ch);
   ch.x = kart.x;
   ch.y = kart.y;

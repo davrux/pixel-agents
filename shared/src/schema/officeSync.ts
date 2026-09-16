@@ -193,6 +193,14 @@ export class KartSync extends PawnSync {
   /** Which `KartSpec` this car is, as an id. What a car IS is decided when somebody gets in, so
    *  two viewers must not be able to disagree about it. */
   @type('string') spec = '';
+  /**
+   * Whose car this is — the character it was spawned for, 0 for nobody's.
+   *
+   * Synced because the CLIENT has to know before it offers anything: there is one car per person
+   * now, so a double-click on somebody else's would be a click that silently does nothing. The
+   * server refuses it either way (see `boardKart`); this is what stops the question being asked.
+   */
+  @type('int32') ownerId = 0;
 }
 
 /**

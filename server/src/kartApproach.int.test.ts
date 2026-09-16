@@ -67,7 +67,7 @@ function walker(os: OfficeState, name: string): number {
   const ch = os.characters.get(id);
   assert.ok(ch);
   const karts = [...os.karts.values()];
-  const grid = karts[0];
+  const grid = karts.find((k) => k.ownerId === id) ?? karts[0];
   ch.tileCol = Math.floor(grid.x / TILE_SIZE);
   ch.tileRow = Math.floor(grid.y / TILE_SIZE);
   ch.x = grid.x;
@@ -95,9 +95,10 @@ function runUntilBoarded(os: OfficeState, id: number, ticks = 2000): number | nu
 
 test('out of reach walks; in reach is immediate', () => {
   const os = new OfficeState(circuit as never);
-  const kart = [...os.karts.values()][0];
   const id = walker(os, 'Walker');
   const ch = os.characters.get(id)!;
+  // Their own car, which is the only one they may drive: one is spawned per person.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === id)!;
 
   assert.equal(os.walkPlayerToKart(id, kart.id), true, 'the walk was refused');
   assert.equal(os.kartOf(id), null, 'boarded from across the map without walking');
@@ -109,7 +110,7 @@ test('out of reach walks; in reach is immediate', () => {
 
   // …and from beside it, the same call is simply a board.
   const other = os.addPlayer('char_0', 'Near', undefined, 'near');
-  const free = [...os.karts.values()].find((k) => k.driverId === null)!;
+  const free = [...os.karts.values()].find((k) => k.ownerId === other)!;
   const nearCh = os.characters.get(other)!;
   nearCh.x = free.x;
   nearCh.y = free.y;
@@ -117,51 +118,70 @@ test('out of reach walks; in reach is immediate', () => {
   assert.equal(os.kartOf(other)?.id, free.id, 'standing on the kart did not board it');
 });
 
-test('the kart you clicked is the kart you get, even standing beside another', () => {
+/**
+ * Somebody else's car is not yours, even standing on it.
+ *
+ * This used to be "the kart you clicked is the kart you get, even standing beside another", which
+ * is the same question asked of a world where the grid was full of cars nobody owned. There is one
+ * car per person now, so the interesting case is the other way round: the near car belongs to
+ * somebody else and the answer has to be no rather than a walk that ends in a refusal.
+ */
+test('a car that is not yours is refused, even from on top of it', () => {
   const os = new OfficeState(circuit as never);
-  const karts = [...os.karts.values()];
-  const near = karts[0];
-  const far = karts.reduce((a, b) => (Math.hypot(b.x - near.x, b.y - near.y) > Math.hypot(a.x - near.x, a.y - near.y) ? b : a));
-  assert.notEqual(far.id, near.id, 'this map has only one kart');
+  const theirs = os.addPlayer('char_0', 'Owner', undefined, 'owner');
+  const other = [...os.karts.values()].find((k) => k.ownerId === theirs)!;
   const id = os.addPlayer('char_0', 'Picky', undefined, 'picky');
+  const mine = [...os.karts.values()].find((k) => k.ownerId === id)!;
+  assert.notEqual(mine.id, other.id, 'two people were given the same car');
   const ch = os.characters.get(id)!;
-  ch.tileCol = Math.floor(near.x / TILE_SIZE);
-  ch.tileRow = Math.floor(near.y / TILE_SIZE);
-  ch.x = near.x;
-  ch.y = near.y;
+  ch.tileCol = Math.floor(other.x / TILE_SIZE);
+  ch.tileRow = Math.floor(other.y / TILE_SIZE);
+  ch.x = other.x;
+  ch.y = other.y;
 
-  assert.equal(os.walkPlayerToKart(id, far.id), true, 'the walk to the far kart was refused');
-  assert.equal(os.kartOf(id), null, 'got into the kart it was standing on instead of walking');
+  assert.equal(os.walkPlayerToKart(id, other.id), false, 'somebody else’s car was offered');
+  // `boardKart` with no kart named takes the nearest of YOUR OWN, and on a grid the slots are a
+  // tile apart — so what this pins is not that it refuses, but that whatever it finds is never
+  // somebody else's car.
+  os.boardKart(id);
+  const got = os.kartOf(id);
+  assert.ok(got === null || got.id === mine.id, 'boarded somebody else’s car');
+  if (got) assert.equal(os.boardKart(id), true, 'could not get back out');
+  // Their own, asked for by name, works.
+  assert.equal(os.walkPlayerToKart(id, mine.id), true, 'their own car was refused');
   const took = runUntilBoarded(os, id);
   assert.ok(took !== null, 'the walker never arrived');
-  assert.equal(os.kartOf(id)?.id, far.id, 'ended up in the near kart, not the one asked for');
+  assert.equal(os.kartOf(id)?.id, mine.id, 'ended up somewhere other than their own car');
 });
 
-test('a kart taken while you walk is not taken from its driver', () => {
+/**
+ * A car that stops existing while you walk to it leaves nothing behind.
+ *
+ * This was "a kart taken while you walk is not taken from its driver", which cannot happen any
+ * more — a car is its owner's and nobody else can get in. What CAN happen is the shape underneath
+ * it: the thing you are walking to goes away. Their car is removed the moment they are no longer a
+ * kart's owner, and the intent on the walker's body has to go with it rather than being carried
+ * round for the rest of the session.
+ */
+test('a car that vanishes while you walk leaves no intent behind', () => {
   const os = new OfficeState(circuit as never);
-  const kart = [...os.karts.values()][0];
   const id = walker(os, 'Late');
+  const kart = [...os.karts.values()].find((k) => k.ownerId === id)!;
   assert.equal(os.walkPlayerToKart(id, kart.id), true);
-
-  // Somebody who was standing right there gets in first.
-  const quick = os.addPlayer('char_0', 'Quick', undefined, 'quick');
-  const qch = os.characters.get(quick)!;
-  qch.x = kart.x;
-  qch.y = kart.y;
-  assert.equal(os.boardKart(quick), true);
-  assert.equal(kart.driverId, quick, 'the near player did not get in');
-
-  for (let i = 0; i < 2000; i++) os.update(DT);
-  assert.equal(kart.driverId, quick, 'the walker took a kart that was already being driven');
-  assert.equal(os.kartOf(id), null, 'the walker ended up in a kart anyway');
   const ch = os.characters.get(id)!;
+  assert.equal(ch.pendingBoard, kart.id, 'the intent was not set');
+
+  // …and the car is gone: on a real server this is the owner's own zone switch or disconnect.
+  os.karts.delete(kart.id);
+  for (let i = 0; i < 2000; i++) os.update(DT);
+  assert.equal(os.kartOf(id), null, 'the walker ended up in a car anyway');
   assert.equal(ch.pendingBoard ?? null, null, 'the intent was left on the body');
 });
 
 test('a change of mind cancels the intent', () => {
   const os = new OfficeState(circuit as never);
-  const kart = [...os.karts.values()][0];
   const id = walker(os, 'Fickle');
+  const kart = [...os.karts.values()].find((k) => k.ownerId === id)!;
   const ch = os.characters.get(id)!;
   assert.equal(os.walkPlayerToKart(id, kart.id), true);
   assert.equal(ch.pendingBoard, kart.id);
@@ -176,23 +196,28 @@ test('a change of mind cancels the intent', () => {
 
 test('asking to approach a kart while driving does not throw you out', () => {
   const os = new OfficeState(circuit as never);
-  const karts = [...os.karts.values()];
   const id = os.addPlayer('char_0', 'Driver', undefined, 'driver');
+  const mine = [...os.karts.values()].find((k) => k.ownerId === id)!;
   const ch = os.characters.get(id)!;
-  ch.x = karts[0].x;
-  ch.y = karts[0].y;
+  ch.x = mine.x;
+  ch.y = mine.y;
   assert.equal(os.boardKart(id), true);
+  const someone = os.addPlayer('char_0', 'Bystander', undefined, 'bystander');
+  const theirs = [...os.karts.values()].find((k) => k.ownerId === someone)!;
 
-  assert.equal(os.walkPlayerToKart(id, karts[1].id), false, 'a driver was sent walking');
-  assert.equal(os.kartOf(id)?.id, karts[0].id, 'the driver was tipped out of their kart');
+  assert.equal(os.walkPlayerToKart(id, theirs.id), false, 'a driver was sent walking');
+  assert.equal(os.kartOf(id)?.id, mine.id, 'the driver was tipped out of their kart');
 });
 
-test('an unknown or occupied kart is refused outright', () => {
+test('an unknown, occupied or borrowed kart is refused outright', () => {
   const os = new OfficeState(circuit as never);
   const id = walker(os, 'Asker');
   assert.equal(os.walkPlayerToKart(id, 999999), false, 'a kart that does not exist was walked to');
 
-  const kart = [...os.karts.values()][0];
+  const kart = [...os.karts.values()].find((k) => k.ownerId === id)!;
   kart.driverId = 12345; // somebody else's
   assert.equal(os.walkPlayerToKart(id, kart.id), false, 'a kart with a driver was walked to');
+  kart.driverId = null;
+  kart.ownerId = 12345; // …and now it is not theirs at all
+  assert.equal(os.walkPlayerToKart(id, kart.id), false, 'somebody else’s car was walked to');
 });

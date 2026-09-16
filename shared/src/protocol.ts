@@ -100,7 +100,7 @@ export const WORLD_ROOM = 'world';
  *     a kart holding full throttle slides 0.0 s on these circuits. A simulation detail that never
  *     fires is a bar going down, not a decision, and this is a kart game.
  */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

@@ -87,6 +87,18 @@ export interface Kart {
   state: KartState;
   /** The character driving, or null for a parked kart. */
   driverId: number | null;
+  /**
+   * Whose car this is — the character it was spawned for, and the only one who may drive it.
+   *
+   * A kart is not scenery any more: there is one per person on the track and it comes and goes
+   * with them (see `syncPlayerKarts`). Ownership rather than "any free car" is what makes that
+   * make sense — with one each, somebody taking yours leaves you on foot, and a grid of cars
+   * nobody owns is the thing that used to put nine parked bots in front of a single driver.
+   *
+   * A computer driver's kart is owned by the racer character the race invented for it, so the same
+   * rule cleans up after the race with no second case.
+   */
+  ownerId: number | null;
   input: KartInput;
   /** Last gate passed, as an index into the track's gates. */
   gate: number;
@@ -181,7 +193,12 @@ export interface KartWorld {
 
 export const NEUTRAL_INPUT: KartInput = { throttle: 0, steer: 0 };
 
-export function createKart(id: number, at: { x: number; y: number }, heading: number): Kart {
+export function createKart(
+  id: number,
+  at: { x: number; y: number },
+  heading: number,
+  ownerId: number | null = null,
+): Kart {
   return {
     id,
     x: at.x,
@@ -191,6 +208,7 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     vy: 0,
     state: 'idle',
     driverId: null,
+    ownerId,
     input: { ...NEUTRAL_INPUT },
     gate: 0,
     lap: 0,

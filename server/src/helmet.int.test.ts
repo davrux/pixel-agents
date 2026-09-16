@@ -82,15 +82,16 @@ test('the store refuses an id the table does not have, in both directions', () =
 
 test('a helmet is worn only while driving, and comes from the ACCOUNT', () => {
   const os = new OfficeState(circuit as never) as never as {
-    karts: Map<number, { x: number; y: number }>;
+    karts: Map<number, { x: number; y: number; ownerId: number | null }>;
     characters: Map<number, { x: number; y: number; helmet: string }>;
     addPlayer: (skin: string, name: string, a: undefined, owner: string) => number;
     boardKart: (id: number) => boolean;
     setHelmetPref: (owner: string, id: string) => void;
   };
-  const kart = [...os.karts.values()][0];
   const id = os.addPlayer('char_0', 'Helm', undefined, 'helm');
   const ch = os.characters.get(id);
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === id)!;
   assert.ok(ch);
   assert.equal(ch.helmet, '', 'a pawn on foot is wearing a helmet');
 
@@ -108,19 +109,22 @@ test('a helmet is worn only while driving, and comes from the ACCOUNT', () => {
 
 test('somebody else’s preference is never worn by mistake', () => {
   const os = new OfficeState(circuit as never) as never as {
-    karts: Map<number, { x: number; y: number }>;
+    karts: Map<number, { x: number; y: number; ownerId: number | null }>;
     characters: Map<number, { x: number; y: number; helmet: string }>;
     addPlayer: (skin: string, name: string, a: undefined, owner: string) => number;
     boardKart: (id: number) => boolean;
     setHelmetPref: (owner: string, id: string) => void;
   };
   os.setHelmetPref('helm', HELMETS[2].id);
-  const karts = [...os.karts.values()];
   const other = os.addPlayer('char_0', 'Other', undefined, 'helm2');
   const ch = os.characters.get(other);
   assert.ok(ch);
-  ch.x = karts[1].x;
-  ch.y = karts[1].y;
+  // Their own car — one is spawned per person, so the other account's preference has no seat here
+  // to leak through in the first place.
+  const theirs = [...os.karts.values()].find((k) => k.ownerId === other);
+  assert.ok(theirs);
+  ch.x = theirs.x;
+  ch.y = theirs.y;
   assert.equal(os.boardKart(other), true);
   assert.equal(ch.helmet, '', 'a driver wore an account that is not theirs');
 });

@@ -74,14 +74,19 @@ interface Sim {
 function seated(zone: string, owner = 'items'): Sim {
   const os = new OfficeState(layouts.get(zone) as never);
   assert.ok(os.raceTrack(), `${zone} is not a track`);
-  const kart = [...os.karts.values()][0];
-  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
+  // The player comes FIRST: a kart is spawned for whoever walks onto the track and belongs to
+  // them, so there is nothing on the grid to take before somebody is there to own it.
   const driver = os.addPlayer('char_0', 'Item', undefined, owner);
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart, `${zone}: no kart was spawned for the player`);
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true, 'could not board the kart on the grid');
+  // Alone: computer drivers now get a car MADE for them at the start, so a lone-driver
+  // fixture has to say it is alone — it is no longer a side effect of an empty grid.
+  os.setRaceSetup({ bots: 0 });
   assert.equal(os.startRace(), true, 'the race would not start');
   while (os.raceInfo().phase === 'countdown') os.update(DT);
   return { os, kart, driver };
@@ -222,10 +227,11 @@ test('oil dries, and the clock is the one the constant names', () => {
 
 test('nothing can be spent while the lights are still red', () => {
   const os = new OfficeState(layouts.get('monza') as never);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Grid', undefined, 'i-grid');
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart);
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true);
@@ -252,23 +258,26 @@ test('what a car IS is decided when somebody gets in, from their account', () =>
   const gripper = KART_SPECS.find((k) => k.id === 'gripper');
   assert.ok(gripper, 'the spec table has no gripper');
   os.setKartPref('spec-owner', gripper.id);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Spec', undefined, 'spec-owner');
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart);
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true);
   assert.equal(kart.spec, gripper.id, 'the kart did not take the account’s choice');
-  // And it does not stay with the SEAT: the next person gets their own.
-  assert.equal(os.boardKart(driver), true, 'could not get out');
+  // And somebody else's car is somebody else's: they get their own, with their own choice on it.
   const other = os.addPlayer('char_0', 'Plain', undefined, 'plain-owner');
   const oc = os.characters.get(other);
   assert.ok(oc);
-  oc.x = kart.x;
-  oc.y = kart.y;
+  const theirs = [...os.karts.values()].find((k) => k.ownerId === other);
+  assert.ok(theirs, 'the second player got no kart');
+  assert.notEqual(theirs.id, kart.id, 'two players were given the same car');
+  oc.x = theirs.x;
+  oc.y = theirs.y;
   assert.equal(os.boardKart(other), true);
-  assert.equal(kart.spec, 'balanced', 'the kart kept the previous driver’s choice');
+  assert.equal(theirs.spec, 'balanced', 'the second car took the first driver’s choice');
 });
 
 test('a computer driver spends what it picks up', () => {

@@ -83,16 +83,18 @@ function drive(zone: string, level: number): Run {
   const os = new OfficeState(layouts.get(zone) as never);
   const track = os.raceTrack();
   assert.ok(track, `${zone} is not a track`);
-  const kart = [...os.karts.values()][0];
-  // Alone: a full grid mixes traffic into a measurement about the racing line, which is the same
-  // reason raceway.int.test.ts empties the grid for its own run.
-  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
+  // The player first, and their own car after: a kart is spawned for whoever is on the track.
   const driver = os.addPlayer('char_0', 'Line', undefined, `line-${zone}-${level}`);
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart, `${zone}: no kart was spawned for the player`);
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true, 'could not board the kart on the grid');
+  // Alone: a full grid mixes traffic into a measurement about the racing line, and computer
+  // drivers now get a car MADE for them at the start rather than taking a parked one.
+  os.setRaceSetup({ bots: 0 });
   assert.equal(os.startRace(), true, 'the race would not start');
   const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
   const world = { tileMap: inner.tileMap, blockedTiles: inner.blockedTiles, walls: inner.walls, track } as never;
@@ -219,14 +221,15 @@ test('a car driven backwards is still warned', () => {
   const os = new OfficeState(layouts.get('raceway') as never);
   const track = os.raceTrack();
   assert.ok(track);
-  const kart = [...os.karts.values()][0];
-  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
   const driver = os.addPlayer('char_0', 'Backwards', undefined, 'backwards');
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart);
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true);
+  os.setRaceSetup({ bots: 0 });
   assert.equal(os.startRace(), true);
   while (os.raceInfo().phase === 'countdown') os.update(DT);
   const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
@@ -307,19 +310,85 @@ test('every circuit has boost pads, on its road and clear of its grid', () => {
  * Driven on the VERGE rather than on the road, gate by gate, which is the mistake this is about —
  * and the lap has to complete, because a gate that is missed is a lap that never ends.
  */
+/**
+ * A checkpoint is ONE cell thick, and it is still a wall.
+ *
+ * Reported from Tiled: "warum sind die Race-Gates doppelt gesetzt, immer zwei nebeneinander?" They
+ * were, and it was the first fix for a real problem — a line across the road rounds to a STAIRCASE
+ * of cells, a staircase touches only at its corners, and a kart travelling diagonally can slip
+ * between two of them. Sampling half a tile along the road as well as across it closed those
+ * corners by making the whole band two cells thick everywhere.
+ *
+ * Closing the corner where there IS one is the smaller answer, and these are the two properties
+ * that says it worked: every gate is a single 4-CONNECTED run (so nothing can pass through it),
+ * and no gate is more than one cell thick across its own line (so it is not drawn twice). Measured
+ * across the five circuits: 1.13 to 1.31 tiles, where a doubled band is 2.3.
+ */
+test('every gate is one cell thick and still unbroken', () => {
+  for (const zone of TRACKS) {
+    const os = new OfficeState(layouts.get(zone) as never);
+    const track = os.raceTrack();
+    assert.ok(track, `${zone} is not a track`);
+    track.gates.forEach((gate, i) => {
+      const cells = [...gate.tiles].map((k) => k.split(',').map(Number) as [number, number]);
+      assert.ok(cells.length > 3, `${zone} gate ${i} is only ${cells.length} cells wide`);
+      // One 4-connected run: a flood fill from any cell reaches all of them.
+      const have = new Set(gate.tiles);
+      const seen = new Set<string>([[...gate.tiles][0]]);
+      const queue = [[...gate.tiles][0]];
+      while (queue.length > 0) {
+        const [c, r] = (queue.pop() as string).split(',').map(Number);
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const k = `${c + dc},${r + dr}`;
+          if (have.has(k) && !seen.has(k)) {
+            seen.add(k);
+            queue.push(k);
+          }
+        }
+      }
+      assert.equal(seen.size, have.size, `${zone} gate ${i} is in pieces a kart could pass between`);
+      // …and one cell thick, measured across its OWN long axis rather than against the direction of
+      // the next gate: on a bend those differ by most of a right angle and the measurement would
+      // be of the corner, not of the gate.
+      const mx = cells.reduce((a, p) => a + p[0], 0) / cells.length;
+      const my = cells.reduce((a, p) => a + p[1], 0) / cells.length;
+      let sxx = 0;
+      let sxy = 0;
+      let syy = 0;
+      for (const [c, r] of cells) {
+        sxx += (c - mx) ** 2;
+        sxy += (c - mx) * (r - my);
+        syy += (r - my) ** 2;
+      }
+      const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+      const ax = Math.cos(th);
+      const ay = Math.sin(th);
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const [c, r] of cells) {
+        const across = (c - mx) * -ay + (r - my) * ax;
+        lo = Math.min(lo, across);
+        hi = Math.max(hi, across);
+      }
+      assert.ok(hi - lo < 1.6, `${zone} gate ${i} is ${(hi - lo).toFixed(2)} tiles thick — drawn twice?`);
+    });
+  }
+});
+
 test('a lap driven on the verge still passes every gate', () => {
   for (const zone of TRACKS) {
     const os = new OfficeState(layouts.get(zone) as never);
     const track = os.raceTrack();
     assert.ok(track);
-    const kart = [...os.karts.values()][0];
-    for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
     const driver = os.addPlayer('char_0', 'Wide', undefined, `wide-${zone}`);
     const ch = os.characters.get(driver);
     assert.ok(ch);
+    const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+    assert.ok(kart);
     ch.x = kart.x;
     ch.y = kart.y;
     assert.equal(os.boardKart(driver), true);
+    os.setRaceSetup({ bots: 0 });
     assert.equal(os.startRace(), true);
     while (os.raceInfo().phase === 'countdown') os.update(DT);
 

@@ -2419,6 +2419,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.shieldTenths = Math.min(255, Math.max(0, Math.round(kart.shieldMs / 100)));
       ks.spinning = kart.spinMs > 0;
       ks.spec = String(kart.spec ?? '');
+      ks.ownerId = kart.ownerId ?? 0;
     }
     // Oil is world state, not kart state: it outlives whoever dropped it, so it travels once for
     // the room rather than once per car.

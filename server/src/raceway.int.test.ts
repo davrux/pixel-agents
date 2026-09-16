@@ -89,12 +89,26 @@ test('the map survives the save path: a stored track is still a track', () => {
   assert.equal(track.laps, (layout as { laps?: number }).laps, 'the lap count did not survive a save');
 });
 
-test('the engine puts one kart on each grid slot, parked and facing the first corner', () => {
+/**
+ * One car per person on the track, parked on a grid slot — and nothing else.
+ *
+ * This used to assert a kart in EVERY slot, which is what the engine did: a lone driver walked up
+ * to a grid of eleven cars and set off with ten of them standing there. Reported as "Autos für
+ * Computer-Driver müssen vor dem Start nicht angezeigt werden. Für jeden Spieler auf der Karte ein
+ * Auto." So the claim is now about the lifecycle rather than about the grid being full.
+ */
+test('a car appears for each person on the track and for nobody else', () => {
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
-  assert.equal(os.karts.size, track.grid.length, 'the grid was not filled');
-  for (const kart of os.karts.values()) {
+  assert.equal(os.karts.size, 0, 'an empty track had cars parked on it');
+  const names = ['One', 'Two', 'Three'];
+  const ids = names.map((n) => os.addPlayer('char_0', n, undefined, n.toLowerCase()));
+  assert.equal(os.karts.size, ids.length, `${ids.length} people got ${os.karts.size} cars`);
+  for (const id of ids) {
+    const mine = [...os.karts.values()].filter((k) => k.ownerId === id);
+    assert.equal(mine.length, 1, `a player owns ${mine.length} cars`);
+    const kart = mine[0];
     assert.equal(kart.driverId, null, 'a kart started with a driver');
     assert.equal(kart.state, 'idle');
     assert.ok(
@@ -102,28 +116,32 @@ test('the engine puts one kart on each grid slot, parked and facing the first co
       'a kart is not on a grid slot',
     );
   }
+  // …and it goes with them. A car whose owner has left is a ghost in the middle of the road.
+  os.removePlayer(ids[0]);
+  assert.equal(os.karts.size, ids.length - 1, 'a car outlived its owner');
 });
 
 test('an autopilot drives three laps without falling off', () => {
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
-  const kart = [...os.karts.values()][0];
   // Alone on the track: what is under test is the MAP — whether this circuit can be driven — and
   // a grid full of opponents would mix their bumping into the answer. Racing them has its own
-  // test (race.int.test.ts).
-  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
+  // test (race.int.test.ts). One person on the track is now one car, so being alone is the
+  // default rather than something to arrange.
   // A real driver, boarded the real way. Setting `driverId` by hand does not work and the reason
   // is a safety rule rather than an accident: `updateKarts` frees a kart whose driver is not in
   // the zone, so a made-up id empties the seat on the very next tick.
   const driver = os.addPlayer('char_0', 'Autopilot', undefined, 'autopilot');
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true, 'could not board the kart on the grid');
   // Without a race there is no finish, because there is no lap limit — that is the whole of
   // "drive around as long as you like". So the autopilot starts one, and sits out the lights.
+  os.setRaceSetup({ bots: 0 });
   assert.equal(os.startRace(), true, 'a race would not start with a kart on the grid');
 
   const dt = 1 / RACE_TICK_HZ;
@@ -254,14 +272,15 @@ test('the bridge has no barrier: a shove there puts you in the air', () => {
   // `v² / (2·grip)` pixels — 170 px/s is barely a tile and would prove nothing.
   const SHOVE = 620;
   const shoved = (col: number, row: number, vx: number, vy: number): boolean => {
-    const kart = [...os.karts.values()][0];
     const driver = os.characters.size > 1 ? null : os.addPlayer('char_0', 'Victim', undefined, 'victim');
     if (driver !== null) {
       const ch = os.characters.get(driver)!;
-      ch.x = kart.x;
-      ch.y = kart.y;
+      const mine = [...os.karts.values()].find((k) => k.ownerId === driver)!;
+      ch.x = mine.x;
+      ch.y = mine.y;
       os.boardKart(driver);
     }
+    const kart = [...os.karts.values()][0];
     kart.x = col * TILE + TILE / 2;
     kart.y = row * TILE + TILE / 2;
     kart.heading = 0;
@@ -301,9 +320,10 @@ test('falling off the bridge costs seconds, not the lap', () => {
   const track = os.raceTrack();
   assert.ok(track);
   const span = bridgeCell(os);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Faller', undefined, 'faller');
   const ch = os.characters.get(driver)!;
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true);
@@ -348,8 +368,9 @@ test('falling off the bridge costs seconds, not the lap', () => {
 
 test('a kart cannot leave the map, barrier or no barrier', () => {
   const os = world();
-  const kart = [...os.karts.values()][0];
-  kart.driverId = 1;
+  const driver = os.addPlayer('char_0', 'Wall', undefined, 'wall');
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
+  kart.driverId = driver;
   kart.state = 'drive';
   // Straight at the outer barrier, flat out, for a while.
   kart.heading = Math.PI / 2; // south, towards the bottom edge

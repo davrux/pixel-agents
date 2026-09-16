@@ -80,14 +80,19 @@ function seated(zone: string): Sim {
   const os = new OfficeState(layouts.get(zone) as never);
   const track = os.raceTrack();
   assert.ok(track, `${zone} is not a track`);
-  const kart = firstKart(os);
-  for (const other of [...os.karts.keys()]) if (other !== kart.id) os.karts.delete(other);
+  // The player comes FIRST: a kart is spawned for whoever walks onto the track and belongs to
+  // them, so there is nothing on the grid to take before somebody is there to own it.
   const driver = os.addPlayer('char_0', 'Lost', undefined, `lost-${zone}`);
   const ch = os.characters.get(driver);
   assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart, `${zone}: no kart was spawned for the player`);
   ch.x = kart.x;
   ch.y = kart.y;
   assert.equal(os.boardKart(driver), true, 'could not board the kart on the grid');
+  // Alone: computer drivers now get a car MADE for them at the start, so a lone-driver
+  // fixture has to say it is alone — it is no longer a side effect of an empty grid.
+  os.setRaceSetup({ bots: 0 });
   assert.equal(os.startRace(), true, 'the race would not start');
   while (os.raceInfo().phase === 'countdown') os.update(DT);
   const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string> };
@@ -265,7 +270,8 @@ test('the field is never picked up off the grid while the lights are still red',
   const driver = os.addPlayer('char_0', 'Grid', undefined, 'grid-lost');
   const ch = os.characters.get(driver);
   assert.ok(ch);
-  const mine = firstKart(os);
+  const mine = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(mine);
   ch.x = mine.x;
   ch.y = mine.y;
   assert.equal(os.boardKart(driver), true);

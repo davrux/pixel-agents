@@ -938,34 +938,44 @@ const gateCellsAt = (run: number): Array<{ col: number; row: number }> => {
   const nx = -Math.sin(p.dir);
   const ny = Math.cos(p.dir);
   const cells = new Map<string, { col: number; row: number }>();
-  // Sampled a little way ALONG the road as well as across it, and that second axis is not
-  // belt-and-braces. A gate across a diagonal stretch rounds to a STAIRCASE of cells, and a
-  // staircase touches only at its corners — so a kart travelling diagonally can pass between two
-  // of them without ever standing on one. With four gates, all of them on straights, that never
-  // happened; at one gate every twenty tiles some of them land on the diagonals, and the raceway
-  // stopped completing a lap at all. Half a tile either side closes the corners and makes the band
-  // continuous whatever angle it crosses at.
-  for (let along = -0.5; along <= 0.5; along += 0.5) {
-    const cx = p.x + Math.cos(p.dir) * along;
-    const cy = p.y + Math.sin(p.dir) * along;
-    for (let u = -(HALF + SAND + 1); u <= HALF + SAND + 1; u += 0.25) {
-      const col = Math.round(cx + nx * u);
-      const row = Math.round(cy + ny * u);
-      // The whole DRIVABLE corridor, verge included — not just the racing surface.
-      //
-      // This is the difference between a checkpoint and a trap. A gate that stops at the edge of
-      // the tarmac is a gate you miss by running wide, and missing one is not a small thing: the
-      // leg you are on then points at a gate BEHIND you, so every metre of correct driving reads
-      // as going backwards and the warning stays up until you turn round and fetch it. Reported as
-      // "wenn man nicht genau die Strecke erwischt, steht da oft wrong way", and measured: not one
-      // of the 575 gate cells across the three circuits was on the verge, while 190 drivable verge
-      // cells sat directly beside a gate without being part of it.
-      //
-      // Cutting is still impossible — that is what the ORDER of the ring is for, and the infield is
-      // behind a barrier either way. What this allows is running wide, which is a mistake the road
-      // already punishes with sand.
-      if (onRoad(col, row) || onRunOff(col, row)) cells.set(`${col},${row}`, { col, row });
-    }
+  const add = (col: number, row: number): void => {
+    // The whole DRIVABLE corridor, verge included — not just the racing surface.
+    //
+    // This is the difference between a checkpoint and a trap. A gate that stops at the edge of the
+    // tarmac is a gate you miss by running wide, and missing one is not a small thing: the leg you
+    // are on then points at a gate BEHIND you, so every metre of correct driving reads as going
+    // backwards and the warning stays up until you turn round and fetch it. Reported as "wenn man
+    // nicht genau die Strecke erwischt, steht da oft wrong way", and measured: not one of the 575
+    // gate cells across the three circuits was on the verge, while 190 drivable verge cells sat
+    // directly beside a gate without being part of it.
+    //
+    // Cutting is still impossible — that is what the ORDER of the ring is for, and the infield is
+    // behind a barrier either way. What this allows is running wide, which is a mistake the road
+    // already punishes with sand.
+    if (onRoad(col, row) || onRunOff(col, row)) cells.set(`${col},${row}`, { col, row });
+  };
+  /**
+   * ONE cell thick, and 4-connected — the two properties a checkpoint needs and no more.
+   *
+   * A line across the road rounds to a STAIRCASE of cells, and a staircase touches only at its
+   * corners, so a kart travelling diagonally can slip between two of them without ever standing on
+   * one. The first fix for that sampled half a tile along the road as well as across it, which
+   * closed the corners by making the whole band TWO cells thick — visible in Tiled as every gate
+   * drawn twice, and reported as exactly that.
+   *
+   * Closing the corner where there IS one is the smaller answer: when a step moves diagonally, the
+   * cell that shares the old row and the new column is added as well. On a straight that never
+   * fires and a gate is one cell wide; on a diagonal it adds one cell per step, which is the least
+   * that can make the band continuous.
+   */
+  let prev: { col: number; row: number } | null = null;
+  const span = HALF + SAND + 1;
+  for (let u = -span; u <= span; u += 0.25) {
+    const col = Math.round(p.x + nx * u);
+    const row = Math.round(p.y + ny * u);
+    if (prev && prev.col !== col && prev.row !== row) add(col, prev.row);
+    add(col, row);
+    prev = { col, row };
   }
   return [...cells.values()];
 };

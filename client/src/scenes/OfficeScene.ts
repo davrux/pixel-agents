@@ -167,6 +167,8 @@ type RenderKart = {
   item: number;
   shieldTenths: number;
   spinning: boolean;
+  /** Whose car it is — the character it was spawned for, 0 for nobody's. */
+  ownerId: number;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -1133,6 +1135,7 @@ export class OfficeScene extends Phaser.Scene {
         item: 0,
         shieldTenths: 0,
         spinning: false,
+        ownerId: 0,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1226,6 +1229,7 @@ export class OfficeScene extends Phaser.Scene {
     rk.art = (ks.art as number) ?? 0;
     rk.wrongWay = !!ks.wrongWay;
     rk.progress = ((ks.progress as number) ?? 0) / 100;
+    rk.ownerId = (ks.ownerId as number) ?? 0;
     rk.item = (ks.item as number) ?? 0;
     rk.shieldTenths = (ks.shieldTenths as number) ?? 0;
     rk.spinning = !!ks.spinning;
@@ -2404,10 +2408,12 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * Which FREE kart is under this world point, or null.
+   * Which of MY free karts is under this world point, or null.
    *
    * Only a free one answers: a kart with a driver in it is that driver's, and clicking it should
-   * do what clicking a person does. The box is the art's own 40x32 turned by the kart's heading,
+   * do what clicking a person does. And only MINE, because there is one car per person now — a
+   * double-click on somebody else's is a click the server would refuse, so the question is not
+   * asked. The box is the art's own 40x32 turned by the kart's heading,
    * so the point is rotated INTO kart space rather than the box being grown to cover every angle —
    * a square big enough for a diagonal kart would claim the road beside it.
    */
@@ -2416,6 +2422,7 @@ export class OfficeScene extends Phaser.Scene {
     let bestD = Infinity;
     for (const kt of this.karts.values()) {
       if (kt.driverId) continue;
+      if (this.myPlayerId === null || kt.ownerId !== this.myPlayerId) continue;
       const x = kt.x ?? kt.tx;
       const y = kt.y ?? kt.ty;
       const a = -(kt.drawHeading ?? kt.heading);

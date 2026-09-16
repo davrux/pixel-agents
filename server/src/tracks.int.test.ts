@@ -73,18 +73,21 @@ test('a computer driver gets round every track, and the grid fits', () => {
     const os = new OfficeState(layout as never);
     const track = os.raceTrack();
     assert.ok(track);
-    assert.equal(os.karts.size, track.grid.length, `${id} did not fill its grid`);
-    // Every car starts ON the road, or a race begins with the field in the scenery.
+    // Every SLOT is on the road, or a race begins with part of the field in the scenery. Read off
+    // the grid rather than off the cars, because a track holds no cars until somebody is on it —
+    // there is one per person now, spawned for them.
     const inner = os as unknown as { tileMap: number[][] };
-    for (const kart of os.karts.values()) {
-      const cell = inner.tileMap[Math.floor(kart.y / 16)]?.[Math.floor(kart.x / 16)];
+    assert.ok(track.grid.length > 1, `${id} has ${track.grid.length} grid slots`);
+    for (const slot of track.grid) {
+      const cell = inner.tileMap[Math.floor(slot.y / 16)]?.[Math.floor(slot.x / 16)];
       assert.ok(cell !== undefined && cell !== -1, `${id} has a grid slot off the road`);
     }
 
     // One driver, alone, at the pace of the quickest of the field.
-    const kart = [...os.karts.values()][0];
     const driver = os.addPlayer('char_0', 'Tester', undefined, 'tester');
     const ch = os.characters.get(driver);
+    // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+    const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
     assert.ok(ch);
     ch.x = kart.x;
     ch.y = kart.y;

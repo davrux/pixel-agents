@@ -52,9 +52,10 @@ const DT = 1 / RACE_TICK_HZ;
 /** A zone with one person sitting in a kart — the state the panel is used from. */
 function seated(layout: OfficeLayout): { os: OfficeState; driver: number } {
   const os = new OfficeState(layout as never);
-  const kart = [...os.karts.values()][0];
   const driver = os.addPlayer('char_0', 'Setter', undefined, 'setter');
   const ch = os.characters.get(driver);
+  // Their own car: a kart is spawned for whoever is on the track and belongs to them.
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver)!;
   assert.ok(ch);
   ch.x = kart.x;
   ch.y = kart.y;
@@ -153,13 +154,17 @@ test('a fresh track brings its own defaults, and drops the last one’s', () => 
   assert.equal(setup.difficulty, 'medium');
 });
 
-test('the cars nobody took leave the grid when the race starts, and come back after', () => {
+test('only the field is on the grid: one car per driver, and none left over', () => {
   // "Wenn das Rennen startet, sollten alle überflüssigen Autos verschwunden sein." A grid with
   // nine parked empty cars on it is not a starting grid, and once the field sets off they are
   // obstacles in the middle of the road that nobody is ever going to move.
+  //
+  // It was answered twice. First by REMOVING the spare cars when a race starts, which is what the
+  // assertions below still check; then — reported as "Autos für Computer-Driver müssen vor dem
+  // Start nicht angezeigt werden" — by never parking them in the first place: a car exists for a
+  // person on the track, and a computer driver's is made when the race makes the driver.
   const { os } = seated(circuit);
-  const slots = os.raceTrack()!.grid.length;
-  assert.equal(os.karts.size, slots, 'the grid did not start full');
+  assert.equal(os.karts.size, 1, `one person on the track left ${os.karts.size} cars parked`);
   os.setRaceSetup({ bots: 2 });
   assert.equal(os.startRace(), true);
   assert.equal(os.karts.size, 3, `one human and two computer drivers left ${os.karts.size} cars out`);
@@ -167,15 +172,15 @@ test('the cars nobody took leave the grid when the race starts, and come back af
     assert.notEqual(kart.driverId, null, 'an empty car stayed on the grid');
   }
 
-  // …and the circuit gives them back, or the next person to walk up finds nothing to get into.
+  // …and afterwards the track holds the people who are on it and nothing else: the computer
+  // drivers go, and so do their cars.
   os.abandonRace();
   for (let i = 0; i < 5; i++) os.update(DT);
   assert.equal(os.raceInfo().phase, 'idle');
-  assert.equal(os.karts.size, slots, 'the grid was not refilled after the race');
-  // Exactly one car per slot, not two stacked on the ones that were driven.
-  const grid = os.raceTrack()!.grid;
-  for (const slot of grid) {
+  assert.equal(os.karts.size, 1, `the track kept ${os.karts.size} cars for one person`);
+  // Exactly one car per occupied slot, not two stacked on the one that was driven.
+  for (const slot of os.raceTrack()!.grid) {
     const here = [...os.karts.values()].filter((k) => Math.hypot(k.x - slot.x, k.y - slot.y) < 16);
-    assert.equal(here.length, 1, 'a grid slot ended up with a different number of cars than one');
+    assert.ok(here.length <= 1, 'a grid slot ended up with more than one car on it');
   }
 });
