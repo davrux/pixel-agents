@@ -23,6 +23,7 @@
  *    driver who wanders off into the pit keeps a zone in `racing` forever, and nobody else can
  *    start the next one.
  */
+import type { KartItem } from './items.js';
 import type { RaceDifficulty } from './racerNames.js';
 import { RACE_COUNTDOWN_MS, RACE_GRACE_MS, RACE_MAX_MS, RACE_RESULTS_MS } from '../constants.js';
 import type { RaceTrack } from './track.js';
@@ -80,6 +81,15 @@ export interface RaceSetup {
   bots: number;
   countdownSec: number;
   difficulty: RaceDifficulty;
+  /**
+   * Which gadgets this race can hand out. Empty means none at all, and then no boxes are placed
+   * either — a race with the boxes switched off has nothing on the road rather than boxes that
+   * give nothing.
+   *
+   * A SETTING rather than a fact about the map, asked for in those words: the map used to carry
+   * painted boxes, and which gadgets exist is a decision about the race, like the lap count.
+   */
+  gadgets: KartItem[];
 }
 
 export interface Race {

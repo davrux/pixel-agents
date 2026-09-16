@@ -31,6 +31,7 @@ import {
   RACE_TICK_HZ,
 } from '@pixel/shared/office/constants.js';
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
+import type { RaceSetup } from '@pixel/shared/office/race/raceState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { KartItem, KART_ITEMS, drawItem } from '@pixel/shared/office/race/items.js';
 import { bumpKarts, createKart, type Kart } from '@pixel/shared/office/race/kart.js';
@@ -71,7 +72,7 @@ interface Sim {
 }
 
 /** One human at the wheel of the lone kart on a track, the lights already out. */
-function seated(zone: string, owner = 'items'): Sim {
+function seated(zone: string, owner = 'items', setup: Partial<RaceSetup> = {}): Sim {
   const os = new OfficeState(layouts.get(zone) as never);
   assert.ok(os.raceTrack(), `${zone} is not a track`);
   // The player comes FIRST: a kart is spawned for whoever walks onto the track and belongs to
@@ -86,7 +87,7 @@ function seated(zone: string, owner = 'items'): Sim {
   assert.equal(os.boardKart(driver), true, 'could not board the kart on the grid');
   // Alone: computer drivers now get a car MADE for them at the start, so a lone-driver
   // fixture has to say it is alone — it is no longer a side effect of an empty grid.
-  os.setRaceSetup({ bots: 0 });
+  os.setRaceSetup({ bots: 0, ...setup });
   assert.equal(os.startRace(), true, 'the race would not start');
   while (os.raceInfo().phase === 'countdown') os.update(DT);
   return { os, kart, driver };
@@ -308,6 +309,76 @@ test('a computer driver spends what it picks up', () => {
   assert.equal(racerUsesItem(sim.kart, world), false, 'a driver used an item it did not have');
 });
 
+/**
+ * Which gadgets a box may hand out is a SETTING; where the boxes are is the map's.
+ *
+ * "Mach es wie bei Mariokart, fest aber zufälliger Inhalt" — so the boxes stay painted where the
+ * generator put them, which is what lets a lap be learned and a box be aimed for, and the pool they
+ * draw from is chosen in the race panel.
+ */
+test('a box only hands out what the race allows, and nothing when none is allowed', () => {
+  // Set BEFORE the lights: the settings are only editable while the track is idle, which is what
+  // keeps somebody from changing the rules on the last lap.
+  const sim = seated('monza', 'i-allow', { gadgets: [KartItem.Oil] });
+  const track = sim.os.raceTrack();
+  assert.ok(track);
+  const box = [...track.itemBox][0];
+  assert.ok(box);
+
+  // Only oil: fifty pickups and never anything else.
+  for (let n = 0; n < 50; n++) {
+    sim.kart.item = KartItem.None;
+    stepOnto(sim, box);
+    assert.equal(sim.kart.item, KartItem.Oil, `a box handed out ${sim.kart.item} with only oil allowed`);
+  }
+  // …and with none allowed a box gives nothing at all rather than quietly giving a boost.
+  const off = seated('monza', 'i-off', { gadgets: [] });
+  const offBox = [...off.os.raceTrack()!.itemBox][0];
+  for (let n = 0; n < 10; n++) {
+    off.kart.item = KartItem.None;
+    stepOnto(off, offBox);
+    assert.equal(off.kart.item, KartItem.None, 'a box handed something out with the gadgets off');
+  }
+  // An unknown kind is refused rather than stored: this arrives from a client.
+  const clean = new OfficeState(layouts.get('monza') as never);
+  clean.setRaceSetup({ gadgets: [99, KartItem.Shield] as never });
+  assert.deepEqual(clean.raceSetup().gadgets, [KartItem.Shield], 'an unknown gadget was stored');
+});
+
+/**
+ * The kart you choose is the kart you are driving, at once.
+ *
+ * "Die Einstellungen für das Cart, gelten die sofort oder erst bei Race-Start? Muss sofort sein,
+ * damit man es ausprobieren kann." It used to be resolved only on boarding, so a choice made from
+ * the seat did nothing until the next time you got in.
+ */
+test('choosing a kart changes the one you are sitting in, except mid-race', () => {
+  const os = new OfficeState(layouts.get('monza') as never);
+  const driver = os.addPlayer('char_0', 'Now', undefined, 'now-owner');
+  const ch = os.characters.get(driver);
+  assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart);
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  assert.equal(kart.spec, 'balanced');
+
+  os.setKartPref('now-owner', 'sprinter');
+  assert.equal(kart.spec, 'sprinter', 'the car they are sitting in did not change');
+
+  // …but not once the lights are on: a field where somebody can change cars on the last lap is
+  // not a race.
+  os.setRaceSetup({ bots: 0 });
+  assert.equal(os.startRace(), true);
+  os.setKartPref('now-owner', 'gripper');
+  assert.equal(kart.spec, 'sprinter', 'a car was swapped during a race');
+  // The choice is still remembered, and the next race gets it.
+  assert.equal(os.boardKart(driver), true, 'could not get out');
+  assert.equal(os.boardKart(driver), true, 'could not get back in');
+  assert.equal(kart.spec, 'gripper', 'the choice made during the race was forgotten');
+});
+
 test('the draw covers the whole table and nothing outside it', () => {
   const seen = new Set<KartItem>();
   for (let i = 0; i < 300; i++) seen.add(drawItem(i / 300));
@@ -317,4 +388,8 @@ test('the draw covers the whole table and nothing outside it', () => {
   assert.equal(drawItem(0), KART_ITEMS[0].kind);
   assert.equal(drawItem(0.999999), KART_ITEMS[KART_ITEMS.length - 1].kind);
   assert.equal(drawItem(1), KART_ITEMS[KART_ITEMS.length - 1].kind, 'a roll of exactly 1 fell off the table');
+  // …and over a subset, which is what a race setting makes of it.
+  const only = [KartItem.Shield];
+  for (let i = 0; i < 20; i++) assert.equal(drawItem(i / 20, only), KartItem.Shield);
+  assert.equal(drawItem(0.5, []), KartItem.None, 'an empty pool handed something out');
 });

@@ -53,14 +53,24 @@ export function kartItem(kind: number): KartItemSpec | null {
 }
 
 /**
- * Which item a box hands out, from a number in [0, 1).
+ * Which item a box hands out, from a number in [0, 1) and the kinds this race allows.
  *
- * Uniform over the table, deliberately: the classic of this genre weights the draw by position, so
- * the car at the back gets the strong things — and that is a decision about FAIRNESS which needs a
- * running order, an opinion about what "strong" means, and somebody to complain to. Uniform is the
- * honest starting point, and weighting it later is a change to this one function.
+ * Uniform over what is allowed, deliberately: the classic of this genre weights the draw by
+ * position, so the car at the back gets the strong things — and that is a decision about FAIRNESS
+ * which needs a running order, an opinion about what "strong" means, and somebody to complain to.
+ * Uniform is the honest starting point, and weighting it later is a change to this one function.
+ *
+ * `allowed` is the race's own setting (`RaceSetup.gadgets`), and this is where it bites: the boxes
+ * stay where the map painted them — fixed, like the genre's own, so a lap can be learned — and
+ * what comes OUT of one is drawn from the kinds this race allows. An empty list is a race with the
+ * gadgets switched off, and then a box gives nothing at all rather than quietly giving a boost.
  */
-export function drawItem(roll: number): KartItem {
-  const at = Math.min(KART_ITEMS.length - 1, Math.max(0, Math.floor(roll * KART_ITEMS.length)));
-  return KART_ITEMS[at].kind;
+export function drawItem(roll: number, allowed: readonly KartItem[] = KART_ITEMS.map((i) => i.kind)): KartItem {
+  const pool = KART_ITEMS.filter((i) => allowed.includes(i.kind));
+  if (pool.length === 0) return KartItem.None;
+  const at = Math.min(pool.length - 1, Math.max(0, Math.floor(roll * pool.length)));
+  return pool[at].kind;
 }
+
+/** Every kind, for a race that switches none of them off — the default a zone starts with. */
+export const ALL_KART_ITEMS: readonly KartItem[] = KART_ITEMS.map((i) => i.kind);

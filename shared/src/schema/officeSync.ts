@@ -254,6 +254,13 @@ export class RaceSync extends Schema {
   @type('uint8') setupDifficulty = 0;
   /** How many starting slots this track has — the ceiling the panel counts up to. */
   @type('uint8') gridSlots = 0;
+  /**
+   * Which gadgets the next race allows, as a BITMASK over `KartItem` — bit 0 is kind 1.
+   *
+   * A mask rather than a list because it is a handful of switches and travels with the other four
+   * settings; the panel draws it and `RaceSetup.gadgets` is the truth behind it.
+   */
+  @type('uint8') setupGadgets = 0;
 }
 
 /**

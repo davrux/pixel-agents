@@ -27,7 +27,7 @@ import {
   RACE_MIN_LAPS,
 } from '@pixel/shared/office/constants.js';
 import { pointsFor } from '@pixel/shared/office/race/championship.js';
-import { kartItem } from '@pixel/shared/office/race/items.js';
+import { KART_ITEMS, kartItem } from '@pixel/shared/office/race/items.js';
 import { KART_SPECS } from '@pixel/shared/office/race/kartSpec.js';
 import { raceClock } from '@pixel/shared/office/race/raceState.js';
 import { RACE_PHASES, type RacePhase } from '@pixel/shared/office/race/raceState.js';
@@ -78,6 +78,8 @@ export interface RaceHudModel {
   recordRaceBy: string;
   /** Which kart this viewer drives — a `KART_SPECS` id, chosen in the setup panel. */
   kartSpec: string;
+  /** Which gadgets a box may hand out this race — a bitmask over `KartItem`, bit 0 = kind 1. */
+  gadgets: number;
   /** This viewer, when they are in the race. */
   own: {
     lap: number;
@@ -123,6 +125,17 @@ const CSS = `
 .pa-race-item.armed .name{color:#f5f3f0;}
 .pa-race-item.shield{border-color:#4998c0;}
 
+/* The keys, in the race panel — where somebody is already looking before they set off. Folded away
+   by default: it is the one thing in the panel you read once. */
+.pa-race-setup details.keys{flex-basis:100%;margin:0;}
+.pa-race-setup details.keys summary{cursor:pointer;color:#adb0b2;font-size:0.8rem;list-style:none;}
+.pa-race-setup details.keys summary::-webkit-details-marker{display:none;}
+.pa-race-setup details.keys summary:hover{color:#f1efec;}
+.pa-race-setup details.keys dl{display:grid;grid-template-columns:auto 1fr;gap:0.15rem 0.6rem;
+  margin:0.4rem 0 0;font-size:0.8rem;}
+.pa-race-setup details.keys dt{color:#e7da00;font-size:0.75rem;white-space:nowrap;}
+.pa-race-setup details.keys dd{margin:0;color:#adb0b2;}
+
 .pa-race-hud{position:absolute;right:0.8rem;top:4.2rem;z-index:47;pointer-events:none;
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.5rem 0.6rem;min-width:15rem;
   box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;}
@@ -142,10 +155,15 @@ const CSS = `
 .pa-race-hud tr.me td.p,.pa-race-hud tr.me td.g{color:#e7da00;}
 .pa-race-hud tr.out td{color:#818586;}
 
-.pa-race-setup{position:fixed;left:calc(50% + 12rem);bottom:2.2rem;transform:translateX(-50%);z-index:56;
+/* Wrapping, and centred rather than hung off the middle: the row was a fixed line of five fields
+   and it is seven now, which on a 1400 px canvas ran the Start button off the right edge. Capped
+   at the viewport so it folds instead of overflowing, whatever gets added next. */
+.pa-race-setup{position:fixed;left:50%;bottom:2.2rem;transform:translateX(-50%);z-index:56;
+  max-width:calc(100vw - 2rem);
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.6rem 0.8rem;
   box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);
-  font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;display:flex;gap:1rem;align-items:flex-end;}
+  font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;display:flex;flex-wrap:wrap;gap:0.6rem 1rem;
+  align-items:flex-end;justify-content:center;}
 .pa-race-setup .f{display:flex;flex-direction:column;gap:0.25rem;}
 .pa-race-setup .f>span{color:#818586;font-size:0.8rem;}
 .pa-race-setup .row{display:flex;align-items:center;gap:0.3rem;}
@@ -297,7 +315,7 @@ export class RaceHud {
     const drivers = Math.min(m.gridSlots, m.humansInKarts + s.bots);
     // Rebuilt only when something it shows has changed: these are real buttons, and replacing the
     // one under the pointer between mousedown and mouseup swallows the click.
-    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}|${m.sound}|${m.kartSpec}`;
+    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}|${m.sound}|${m.kartSpec}|${m.gadgets}`;
     if (key === this.setupKey) return;
     this.setupKey = key;
     const stepper = (label: string, value: string, dec: string, inc: string, canDec: boolean, canInc: boolean): string =>
@@ -338,10 +356,55 @@ export class RaceHud {
         (k) => `<button data-act="kart:${k.id}" class="${k.id === m.kartSpec ? 'on' : ''}">${k.label}</button>`,
       ).join('') +
       `</div></div>`;
-    this.setup.innerHTML = `${laps}${bots}${diff}${count}${kart}${go}${this.soundButton(m)}`;
+    /**
+     * Which gadgets a box may hand out.
+     *
+     * The boxes themselves stay where the map painted them — fixed, like the genre's own, so a lap
+     * can be learned and a box can be aimed for. What is a SETTING is the pool they draw from: "man
+     * legt im Race-Menü fest, welche gadgets es geben kann". All of them off is a legal race, and
+     * then a box gives nothing.
+     */
+    const gadgets = `<div class="f"><span>gadgets</span><div class="row">` +
+      KART_ITEMS.map((i) => {
+        const on = (m.gadgets & (1 << (i.kind - 1))) !== 0;
+        return `<button data-act="gadget:${i.kind}" class="${on ? 'on' : ''}" ` +
+          `title="${i.label}">${i.glyph}</button>`;
+      }).join('') +
+      `</div></div>`;
+    this.setup.innerHTML =
+      `${laps}${bots}${diff}${count}${gadgets}${kart}${go}${this.soundButton(m)}${this.keysHelp()}`;
     for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
       b.onclick = () => this.act(b.dataset.act ?? '', m);
     }
+  }
+
+  /**
+   * The keys, in the panel you are already looking at.
+   *
+   * Asked for in those words — "mit welchen Tasten nutzt man die Gadgets, ein Hilfe-Menü wäre
+   * klasse, am besten in dem race fenster" — and the panel is the right place for it rather than a
+   * menu somewhere: it is what you have open before you set off. Folded away by default, because
+   * it is the one thing here you read once and then never again.
+   *
+   * The list is written here and the bindings live in `OfficeScene.setupInput`. That is a real
+   * duplication and the honest reason for it is that there is no table to read: the keys are eight
+   * `addEventListener` calls on `e.code`. If a third place ever needs them, they become one.
+   */
+  private keysHelp(): string {
+    const rows: ReadonlyArray<readonly [string, string]> = [
+      ['W / S', 'throttle and brake — S reverses once you have stopped'],
+      ['A / D', 'steer'],
+      ['SPACE', 'use what you are holding'],
+      ['E', 'get in or out of your kart'],
+      ['double-click', 'walk to your kart and get in'],
+      ['C', 'sit down (on foot)'],
+      ['M', 'mute the mic, while in a call'],
+    ];
+    return (
+      `<details class="keys"><summary>keys</summary><dl>` +
+      rows.map(([k, what]) => `<dt>${k}</dt><dd>${what}</dd>`).join('') +
+      `</dl></details>`
+    );
   }
 
   /**
@@ -374,6 +437,14 @@ export class RaceHud {
     if (action.startsWith('count:')) return void this.send('raceSetup', { countdownSec: Number(action.slice(6)) });
     // Not a race setting: this one is the viewer's own, kept with their helmet and warp style.
     if (action.startsWith('kart:')) return void this.send('setKartSpec', { spec: action.slice(5) });
+    if (action.startsWith('gadget:')) {
+      // A toggle expressed as the whole list, because that is what the setting IS — sending "turn
+      // this one off" would need the server to remember what the panel thinks is on.
+      const kind = Number(action.slice(7));
+      const now = KART_ITEMS.map((i) => i.kind).filter((k) => (m.gadgets & (1 << (k - 1))) !== 0);
+      const next = now.includes(kind) ? now.filter((k) => k !== kind) : [...now, kind];
+      return void this.send('raceSetup', { gadgets: next });
+    }
   }
 
   private hide(): void {

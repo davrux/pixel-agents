@@ -1213,6 +1213,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
         ...(msg?.bots !== undefined ? { bots: Number(msg.bots) } : {}),
         ...(msg?.countdownSec !== undefined ? { countdownSec: Number(msg.countdownSec) } : {}),
         ...(msg?.difficulty !== undefined ? { difficulty: msg.difficulty as never } : {}),
+        // Which gadgets a box may hand out. Coerced to numbers here and filtered against the table
+        // in the engine — a client says which, and the engine decides whether they exist.
+        ...(Array.isArray(msg?.gadgets)
+          ? { gadgets: (msg.gadgets as unknown[]).map((v) => Math.floor(Number(v) || 0)) as never }
+          : {}),
       });
     });
 
@@ -2422,13 +2427,15 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Oil is world state, not kart state: it outlives whoever dropped it, so it travels once for
     // the room rather than once per car.
     const cols = this.os.layout?.cols ?? 0;
-    const want = this.os.oilSlicks().map((cell) => {
-      const [c, r] = cell.split(',');
-      return (Number(r) || 0) * cols + (Number(c) || 0);
-    });
-    if (want.length !== this.state.slicks.length || want.some((v, i) => this.state.slicks[i] !== v)) {
-      this.state.slicks.splice(0, this.state.slicks.length, ...want);
-    }
+    const packed = (cells: string[]): number[] =>
+      cells.map((cell) => {
+        const [c, r] = cell.split(',');
+        return (Number(r) || 0) * cols + (Number(c) || 0);
+      });
+    const sameAs = (have: { length: number; [i: number]: number }, want: number[]): boolean =>
+      want.length === have.length && want.every((v, i) => have[i] === v);
+    const slicks = packed(this.os.oilSlicks());
+    if (!sameAs(this.state.slicks, slicks)) this.state.slicks.splice(0, this.state.slicks.length, ...slicks);
     for (const key of [...this.state.karts.keys()]) {
       if (!live.has(key)) this.state.karts.delete(key);
     }
@@ -2461,6 +2468,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     r.setupBots = Math.min(255, setup.bots);
     r.setupCountdown = Math.min(255, setup.countdownSec);
     r.setupDifficulty = Math.max(0, RACE_DIFFICULTIES.indexOf(setup.difficulty));
+    // A bitmask over KartItem: bit 0 is kind 1, so "none allowed" is 0 and the panel can draw the
+    // switches without a second message.
+    r.setupGadgets = setup.gadgets.reduce((mask, kind) => mask | (1 << (kind - 1)), 0) & 0xff;
     r.gridSlots = Math.min(255, this.os.raceTrack()?.grid.length ?? 0);
   }
 

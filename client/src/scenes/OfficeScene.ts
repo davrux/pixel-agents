@@ -1336,6 +1336,7 @@ export class OfficeScene extends Phaser.Scene {
       here: this.myPlayerId !== null,
       sound: this.soundOn,
       kartSpec: this.myKartSpec,
+      gadgets: (race.setupGadgets as number) ?? 0,
       entries: (race.entries as number) ?? 0,
       lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
       go: phase === 'countdown' && secs <= 0,

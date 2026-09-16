@@ -52,7 +52,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
-import { drawItem, KartItem } from '../race/items.js';
+import { ALL_KART_ITEMS, drawItem, KartItem } from '../race/items.js';
 import { DEFAULT_KART_SPEC, KART_SPECS } from '../race/kartSpec.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, updateLost, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
@@ -296,7 +296,13 @@ export class OfficeState {
    * off the same panel is worse than not having a panel. Defaulted from the map when the track is
    * built, so a zone that nobody configures behaves exactly as it did before this existed.
    */
-  private setup: RaceSetup = { laps: 3, bots: 0, countdownSec: RACE_DEFAULT_COUNTDOWN_SEC, difficulty: 'medium' };
+  private setup: RaceSetup = {
+    laps: 3,
+    bots: 0,
+    countdownSec: RACE_DEFAULT_COUNTDOWN_SEC,
+    difficulty: 'medium',
+    gadgets: [...ALL_KART_ITEMS],
+  };
   private nextKartId = 3_000_000;
 
   // ── Pets ──────────────────────────────────────────────────
@@ -1193,8 +1199,11 @@ export class OfficeState {
     const row = Math.floor(kart.y / TILE_SIZE);
     // A box gives you something only if your hands are empty, which is the rule that lets a box
     // have no state of its own — see race/items.ts.
+    // A box gives you something only if your hands are empty, which is the rule that lets a box
+    // have no state of its own — see race/items.ts. WHAT it gives is drawn from the kinds this race
+    // allows, which is the setting the panel offers: fixed boxes, random contents.
     if (kart.item === KartItem.None && isItemBox(this.track, col, row)) {
-      kart.item = drawItem(Math.random());
+      kart.item = drawItem(Math.random(), this.setup.gadgets);
     }
     const key = `${col},${row}`;
     if (this.slicks.has(key) && kart.shieldMs <= 0 && kart.spinMs <= 0) {
@@ -1279,6 +1288,16 @@ export class OfficeState {
     }
     if (patch.difficulty !== undefined) {
       this.setup.difficulty = isDifficulty(patch.difficulty) ? patch.difficulty : DEFAULT_DIFFICULTY;
+    }
+    if (patch.gadgets !== undefined) {
+      // Filtered against the TABLE, not trusted: this arrives from a client (§ Security), and a
+      // kind this build does not know would be a box that hands out nothing. Order and duplicates
+      // are dropped with it, so the stored list is always a clean subset in the table's own order.
+      const want = Array.isArray(patch.gadgets) ? patch.gadgets : [];
+      this.setup.gadgets = ALL_KART_ITEMS.filter((kind) => want.includes(kind));
+      // Switching one off takes it off the road at once rather than at the next race: the boxes
+      // are the setting made visible, so a panel that changed nothing you can see would be the
+      // same complaint the kart choice had.
     }
     return this.raceSetup();
   }
@@ -1759,9 +1778,27 @@ export class OfficeState {
    *  `boardKart`, and `setHelmetPref` for the shape this follows. */
   setKartPref(folderName: string, id: string): void {
     this.kartPrefs.set(folderName, id);
+    /**
+     * …and it applies AT ONCE, to the car they are sitting in.
+     *
+     * Resolving it only on boarding meant a choice you could not feel: you picked Sprinter, drove
+     * on in the balanced kart, and found out at the next race. "Die Einstellungen für das Cart,
+     * gelten die sofort oder erst bei Race-Start? Muss sofort sein, damit man es ausprobieren
+     * kann." So the seat is updated too — the spec is pure handling numbers (`kartSpec`), nothing
+     * about the car's state, so swapping it mid-corner changes what the tyres do on the next tick
+     * and nothing else.
+     *
+     * Not while a RACE is running, and that is the one exception: a field where somebody can
+     * change cars on the last lap is not a race. Practice is exactly where you want to try it.
+     */
+    if (this.race.phase !== 'idle') return;
+    for (const kart of this.karts.values()) {
+      const owner = kart.ownerId !== null ? this.characters.get(kart.ownerId) : undefined;
+      if (owner?.ownerId === folderName) kart.spec = id;
+    }
   }
 
-  /** Every oil slick on the road, as cell keys — what the room syncs. */
+
   oilSlicks(): string[] {
     return [...this.slicks.keys()];
   }
@@ -3137,6 +3174,9 @@ export class OfficeState {
       bots: Math.max(0, Math.min(RACE_DEFAULT_BOTS, (this.track?.grid.length ?? 1) - 1)),
       countdownSec: RACE_DEFAULT_COUNTDOWN_SEC,
       difficulty: DEFAULT_DIFFICULTY,
+      // All of them, until somebody says otherwise: a track with the gadgets switched off is a
+      // decision, and a new track should not quietly be one.
+      gadgets: [...ALL_KART_ITEMS],
     };
     // The finish line of a point-to-point race, as cells — read once with the map rather than
     // walked per car per tick.
