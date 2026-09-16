@@ -207,29 +207,17 @@ export const PET_Z_SORT_OFFSET = 0.5;
  *  halves back to back, so it costs twice this. Long enough that the sweep
  *  reads as an animation rather than as a frame that failed to draw. */
 export const MATRIX_EFFECT_DURATION_SEC = 0.7;
-/** How many rows the rain trails behind its head. Sized against the sprite it
- *  sweeps: at 6 rows on a 32-row character the green was a thin band with a
- *  hard edge in front of it, which read as a wipe. */
-export const MATRIX_TRAIL_LENGTH = 12;
-/** How many per-column rain seeds to generate. NOT the sprite's width — the
- *  effect measures that off the sprite itself (see renderMatrixEffect), because
- *  frame size is per-character and a fixed 16×24 cut every 16×32 character off
- *  at the knees for the whole animation. This is just an upper bound, matching
- *  the largest frame the character editor allows; surplus seeds cost nothing. */
-export const MATRIX_SEED_COUNT = 64;
-
 /** How far the tiled rain dims on an off beat of the flicker clock (see matrixRainDim). */
 export const MATRIX_RAIN_FLICKER_DIM = 0.72;
 export const MATRIX_FLICKER_FPS = 30;
 export const MATRIX_FLICKER_VISIBILITY_THRESHOLD = 205;
-export const MATRIX_COLUMN_STAGGER_RANGE = 0.3;
-export const MATRIX_HEAD_COLOR = '#ccffcc';
-export const matrixGreenBright = (a: number): string => `rgba(0, 255, 65, ${a})`;
-export const matrixGreenMid = (a: number): string => `rgba(0, 170, 40, ${a})`;
-export const matrixGreenDim = (a: number): string => `rgba(0, 85, 20, ${a})`;
-export const MATRIX_TRAIL_EMPTY_ALPHA = 0.5;
-export const MATRIX_TRAIL_MID_THRESHOLD = 0.33;
-export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;
+// Nine more lived here — the trail length, the seed count, the column stagger, the head colour,
+// three green helpers and two trail thresholds — and they went on 2026-09-16 with nothing to
+// replace them, because the thing that read them is gone. The Matrix sweep used to paint itself
+// pixel by pixel; it is a tiled sheet now (AGENTS.md, "An effect that covers a figure is a tiled
+// sheet, not a pixel loop"), and the numbers that shaped those pixels live in the script that DREW
+// the sheet (`scripts/draw-matrix-rain.sh`). An exported constant nobody imports is how dead code
+// hides: the next reader searches for the name, finds the export, and concludes it is in use.
 
 // ── Rendering ────────────────────────────────────────────────
 /** Baseline character frame height (px) the tuned overlay offsets below were

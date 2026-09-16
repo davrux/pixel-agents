@@ -24,14 +24,6 @@ export function warpProgress(ch: Character): number {
   return Math.max(0, Math.min(1, ch.matrixEffectTimer / seconds));
 }
 
-/**
- * The body's opacity: solid a little before the sweep finishes on the way in, and not fully gone
- * until it has passed on the way out, so the figure never snaps at either end.
- */
-export function matrixBodyAlpha(ch: Character): number {
-  const progress = warpProgress(ch);
-  return ch.matrixEffect === 'spawn' ? Math.min(1, progress * 1.35) : Math.max(0, 1 - progress * 1.15);
-}
 
 /**
  * The shimmer, as one number for a whole band of rain.

@@ -42,14 +42,19 @@ const PREVIEW = process.argv.includes('--preview');
 const W = MATRIX_RAIN_SHEET.frameW;
 const H = MATRIX_RAIN_SHEET.frameH;
 
-// The effect's own colours, so the sheet cannot drift from the constants the old path used.
+// The effect's own colours. They were copied here from the constants the pixel path read, with
+// comments pointing back at them; those constants had no reader left and are gone, so this is now
+// the only home for them and the comments say what the numbers are FOR rather than where they came
+// from.
 const HEAD: readonly number[] = [0xcc, 0xff, 0xcc, 0xff];
 const BRIGHT = [0x00, 0xff, 0x41] as const;
 const MID = [0x00, 0xcc, 0x33] as const;
 const DIM = [0x00, 0x88, 0x22] as const;
-/** How long a drop's tail is, in pixels — the same 12 the pixel path used. */
+/** How long a drop's tail is, in pixels. Sized against the sprite it sweeps: at six rows on a
+ *  32-row character the green was a thin band with a hard edge in front of it, which read as a
+ *  wipe rather than as rain. */
 const TRAIL = 12;
-/** Peak trail opacity, matching MATRIX_TRAIL_EMPTY_ALPHA. */
+/** Peak trail opacity: the tail is a veil over the figure, not a curtain in front of it. */
 const TRAIL_ALPHA = 0.5;
 
 /** Seeded LCG. Same numbers on every machine and every run, which is what --check needs. */

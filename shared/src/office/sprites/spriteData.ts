@@ -187,7 +187,6 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], bi
     };
   };
   loadedPets = { dog: dogs.map(toPet), cat: cats.map(toPet), bird: birds.map(toPet) };
-  petSpriteCache.clear();
   petConfigCache.clear(); // the stored configs are where these answers come from
 }
 
@@ -440,22 +439,8 @@ export function getCharacterSprites(skin: string): CharacterSprites {
 }
 
 // ── pet sprites (dogs/cats/birds, via the unified character pipeline) ──
-const petSpriteCache = new Map<string, CharacterSprites>();
 let loadedPets: Record<PetKindName, LoadedCharacterData[]> = { dog: [], cat: [], bird: [] };
 
-/** Resolve animated sprites for a pet kind/variant through the same track-based
- *  pipeline as agent characters. Fed from the loaded pet sheets (see
- *  setPetTemplates), tagged with PET_SPRITE_SPEC (walk/sit/idle). */
-export function getPetSprites(kind: PetKindName, variant: number): CharacterSprites {
-  const arr = loadedPets[kind];
-  if (!arr || arr.length === 0) return emptyCharacterSprites(16, 16);
-  const key = `${kind}:${variant}`;
-  const cached = petSpriteCache.get(key);
-  if (cached) return cached;
-  const sprites = buildCharacterSprites(arr[variant % arr.length]);
-  petSpriteCache.set(key, sprites);
-  return sprites;
-}
 
 /**
  * Playback length of a pet pose/track — for the server's frame advance, and computed

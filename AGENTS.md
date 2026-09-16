@@ -913,7 +913,7 @@ check asks: is the release present in the code that acquires?
   **4 376 for a 64×64 one**, measured at **7.10 ms per frame** with five 64×64 figures
   materialising at once (headless Chromium, software raster; two `drawImage` measured
   0.0083 ms for the same scene). It is now the ordinary atlas sprite at
-  `matrixBodyAlpha()` with `MATRIX_RAIN_SHEET` tiled over it, which is two draws whatever
+  `warpBodyAlpha()` with `MATRIX_RAIN_SHEET` tiled over it, which is two draws whatever
   the figure's size. Four rules keep that honest, and each is why a detail is where it is:
   the rain was never masked to the silhouette, which is what makes ONE generic sheet
   correct for every skin, pose, direction and frame size; the sheet **tiles rather than
@@ -922,8 +922,12 @@ check asks: is the release present in the code that acquires?
   by `matrixRainScrollY()`, and the empty gap (100 px) is longer than the tallest legal
   figure so a second band can never enter while the first is leaving
   (`matrixRain.int.test.ts` pins both, with the geometry read off the committed PNG); and
-  per-figure variety comes from a horizontal offset derived from the character id, which is
-  what replaced the 64 stagger seeds.
+  per-figure variety comes from a horizontal offset derived from the character id
+  (`warpBandScrollX`), which is what replaced the 64 stagger seeds.
+  Three functions in `shared` outlived that move and were removed on 2026-09-16 — the alpha curve,
+  the horizontal offset and nine constants the pixel loop had shaped its trail with. Each had been
+  reimplemented in `warpFx.ts` where presentation belongs, and an exported name nobody imports is
+  how dead code hides: the next reader searches for it, finds the export and concludes it is live.
   **The pixel path is gone** (2026-09-11), and with it the seed array on `Character` and a
   second copy of every curve. It existed as a fallback for a sheet that failed to load, and
   the choice it offered was "7.10 ms per frame" against "no effect"; a missing sheet now

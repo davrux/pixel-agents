@@ -230,11 +230,3 @@ export function matrixRainScrollY(progress: number, frameH: number): number {
   return MATRIX_RAIN_BAND_PX - progress * (frameH + MATRIX_RAIN_BAND_PX);
 }
 
-/**
- * A horizontal offset per character, so two figures materialising side by side do not show the
- * identical drops. Whole pixels only (the art is pixel art), and derived from the id rather than
- * randomised, so a figure's rain does not jump when the sprite is rebuilt.
- */
-export function matrixRainScrollX(id: number): number {
-  return Math.abs(id * 11) % MATRIX_RAIN_SHEET.frameW;
-}

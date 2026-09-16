@@ -227,23 +227,11 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
   return { tilesets, bySource: (file) => tilesets.find((t) => t.file === file) };
 }
 
-/** Global GID for a tile matching `predicate` within tileset `file`, or null
- *  if the tileset isn't loaded or no tile matches. */
-export function findGid(
-  registry: TiledRegistry,
-  file: string,
-  predicate: (props: Record<string, string | number | boolean>) => boolean,
-): number | null {
-  const ts = registry.bySource(file);
-  if (!ts) return null;
-  const localId = ts.tiles.findIndex((t) => predicate(t.props));
-  return localId < 0 ? null : ts.firstgid + localId;
-}
 
-/** Global GID for a known local tile id within tileset `file` — the
- *  positional counterpart to findGid, for tilesets (floor/wall) whose tile
- *  order is a fixed, code-generated grid rather than something to search by
- *  property. Null if the tileset isn't loaded or localId is out of range. */
+/** Global GID for a known local tile id within tileset `file`, for tilesets (floor/wall) whose
+ *  tile order is a fixed, code-generated grid. Null if the tileset isn't loaded or localId is out
+ *  of range. There was a `findGid` beside this that searched by PROPERTY instead; it had no caller
+ *  and went on 2026-09-16. */
 export function gidAt(registry: TiledRegistry, file: string, localId: number): number | null {
   const ts = registry.bySource(file);
   if (!ts || localId < 0 || localId >= ts.tileCount) return null;
