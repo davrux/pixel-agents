@@ -34,6 +34,7 @@ import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
+import { kartSpec } from './kartSpec.js';
 import { isRough, nextPoint } from './track.js';
 
 /**
@@ -64,6 +65,30 @@ const LOOK_TILES_MAX = 34;
 const PACE_FLOOR = 0.62;
 /** Below this much road to the left and right combined, a stretch counts as tight. */
 const TIGHT_TILES = 3.2;
+/** How far to each side the road is measured, in tiles. See `half` in `racerInput`. */
+const BESIDE_TILES = 8;
+/**
+ * How much of the tyres' cornering speed a computer driver dares to carry, 0…1.
+ *
+ * `v² = grip · r` is what the tyres allow on a perfect line; this driver does not drive one. It
+ * steers bang-bang at a limited rate and aims at a point half a second down the road, so it
+ * arrives at a bend already a little wide and corrects into it — and the speed that leaves is
+ * measurably below the tyres' own.
+ *
+ * The number is measured, on the circuit that made this necessary. The Ring's tightest bend is 6.2
+ * tiles of centreline radius (99 px), where the tyres allow 346 px/s — and a sweep of the skill
+ * levels put the driver's own cliff between 85 % and 89 % of top speed: clean at 272 px/s, and just
+ * above it the quick driver spent **21 % of the race off the road and finished SLOWER than the
+ * middle of the grid** (55.3 s against 43.4 s). 272/346 is 0.79, so that is where the edge is, and
+ * this sits below it rather than on it.
+ *
+ * What it costs on the circuits that never needed it is the other half of the measurement, and it
+ * is small: raceway 43.4 → 43.9 s, monza 59.1 → 59.4, figure 8 40.0 → 40.6, Western Valley 37.5 →
+ * 38.7 — a percent or so, against the Ring's 55.3 → 39.4. Raising it buys those back and takes the
+ * Ring with it (0.88 gives 50.0 s there, 1.00 gives 59.7); lowering it to 0.70 changes nothing
+ * measurable either way.
+ */
+const CORNER_PACE = 0.75;
 /** Candidate steering offsets, smallest correction first, both ways round. */
 const OFFSETS: readonly number[] = (() => {
   const out = [0];
@@ -214,8 +239,31 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   // measured, the quickest driver crossed one flat out, drifted a tile and fell — forty-five
   // times in three minutes, respawning at the gate on the bridge and doing it again. Somewhere
   // this tight is taken at a pace a slide can be caught at.
-  const beside = room(kart, world, course + Math.PI / 2, 3) + room(kart, world, course - Math.PI / 2, 3);
+  const beside = room(kart, world, course + Math.PI / 2, BESIDE_TILES) + room(kart, world, course - Math.PI / 2, BESIDE_TILES);
   const tight = beside < TIGHT_TILES;
+  /**
+   * The bend the road is about to make, as a radius in pixels — from the ray the car would follow
+   * if it did NOT turn.
+   *
+   * A road of half-width `h` that bends with radius `r` takes a tangent off it after
+   * `d = sqrt(2·r·h)`, because the line's lateral drift is `d²/(2r)`. So ONE straight probe
+   * inverts into the corner's own geometry, `r = d²/(2h)`, and it does so exactly when it matters:
+   * far from a bend the ray runs down the road and reports a radius no car could reach, and it
+   * shrinks continuously as the car closes on one.
+   *
+   * This is what three earlier attempts were reaching for and missed, and the reason they all
+   * measured as exact no-ops is worth keeping: they were BRAKING-DISTANCE rules, and this car
+   * brakes at 665 px/s² — from flat out to a standstill in 4.8 tiles. It can always stop in time,
+   * so "will I be able to slow down for that" is answered yes at every speed this world can reach.
+   * What it cannot do is hold a line it entered too fast. The rule that bites is therefore a
+   * SPEED CAP for the bend, not a distance before it; the braking then takes care of itself,
+   * which is why there is no second term here.
+   */
+  const straightAhead = room(kart, world, course, look, 0);
+  const half = Math.max(1, beside / 2);
+  const bendRadius = ((straightAhead * straightAhead) / (2 * half)) * TILE_SIZE;
+  const spec = kartSpec(kart.spec);
+  const corner = CORNER_PACE * Math.sqrt(spec.grip * bendRadius);
   // Lift early or late by skill, and keep a floor so a slow driver still gets moving at all. The
   // brake comes out only when the road is genuinely about to run out.
   const lift = (look * 0.62) * (1.25 - 0.45 * level);
@@ -226,7 +274,10 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   // field (measured: 65.6 s against 65.7 s for half the skill). Skill has to say something of its
   // own once the geometry stops saying it, and what a weaker driver does is carry less speed.
   const pace = KART_MAX_SPEED_PX_PER_SEC * (PACE_FLOOR + (1 - PACE_FLOOR) * level);
-  const limit = tight ? Math.min(pace, KART_MAX_SPEED_PX_PER_SEC * (0.42 + 0.16 * level)) : pace;
+  const limit = Math.min(
+    corner,
+    tight ? Math.min(pace, KART_MAX_SPEED_PX_PER_SEC * (0.42 + 0.16 * level)) : pace,
+  );
   // The crawl floor keeps a cautious driver moving at all — but only where there is somewhere to
   // move TO. Without that second clause it fires hardest exactly when the car is jammed against a
   // wall, because being stopped is its whole trigger: full throttle, no ground, and the harder it

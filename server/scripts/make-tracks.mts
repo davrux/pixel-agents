@@ -297,18 +297,17 @@ function fromDust(file: string, opts: { scale: number; pad: number; smooth: numb
    *    across the ribbon, which the radius and clearance checks both miss because a small wobble
    *    has a large radius and hits nothing.
    *
-   * Four of their sixteen pass all four. Two of those four — Ring and Western Valley — were built,
-   * driven and then NOT kept, and the reason is worth recording because it is about this world and
-   * not about their maps: both put a tight corner at the end of a long straight, and the computer
-   * driver cannot brake for one. It has no lookahead that can see a corner before it is in it (its
-   * pursuit arc reaches about eleven tiles, and an arc that short is never tighter than the kart's
-   * own turning circle), so it arrives flat out, runs wide and wedges on the outside barrier.
-   * Measured on Ring: the TOP skill took 86.5 s where the SLOWEST took 56.8, half the race at
-   * walking pace. Three physically correct rules were tried against it — refusing arcs the tyres
-   * cannot hold, capping the speed by the aim's curvature, and scanning the road beyond the aim —
-   * and all three measured as exact no-ops, because at racing speed none of those quantities is
-   * large enough to bite. Braking points are a real piece of work (see the note in constants.ts),
-   * and until they exist a circuit with that shape is a circuit this driver cannot race on.
+   * Four of their sixteen pass all four, and all four are here. Two of them — Ring and Western
+   * Valley — were built, driven and then NOT kept for a while, and what that cost is worth
+   * recording because the diagnosis was wrong in an instructive way. It was written down as "the
+   * driver cannot brake for a tight corner at the end of a long straight". Re-measured before
+   * importing them: **Western Valley raced cleanly with no change at all** (55.6 / 43.7 / 37.5 s
+   * across the skill range, never off the road) — it had simply been tarred with the Ring's
+   * problem. And the Ring's problem was not braking: this car stops from flat out in 4.8 tiles, so
+   * every braking-distance rule tried against it measured as an exact no-op, which is precisely
+   * what "it can always stop in time" looks like from inside such a rule. What it could not do was
+   * HOLD a bend it had entered too fast. The fix is a speed cap taken from the road's own
+   * curvature (`CORNER_PACE` in racerDriver.ts), and with it the Ring goes from 55.3 s to 39.4.
    */
   const closed = Math.hypot(line[0].x - line[line.length - 1].x, line[0].y - line[line.length - 1].y) < opts.scale * 3;
   const coverage = best.length / road.length;
@@ -486,6 +485,47 @@ const TRACKS: readonly TrackSpec[] = [
     ...fromDust('figure8.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
     width: 7,
     laps: 5,
+    startAt: 0,
+    bridge: null,
+  },
+  {
+    /**
+     * RING — two long straights and two sustained 180° bends, and the circuit that paid for the
+     * driver's corner rule.
+     *
+     * It was built, driven and dropped once before: its bends are 6.2 tiles of centreline radius,
+     * which the tyres allow at 346 px/s, so nothing in the physics stopped the quick driver
+     * arriving flat out — it simply could not HOLD the line it entered with, ran wide, and spent
+     * 21 % of the race in the grass, finishing slower than the middle of the grid. With the bend
+     * cap (`CORNER_PACE` in racerDriver.ts) it runs 39.4 s against the field's 44.0 and 54.1.
+     *
+     * Four laps, because at 92 tiles long a lap here is about ten seconds.
+     */
+    id: 'ring',
+    label: 'Ring',
+    kind: 'ring',
+    ...fromDust('ring.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
+    width: 7,
+    laps: 4,
+    startAt: 0,
+    bridge: null,
+  },
+  {
+    /**
+     * WESTERN VALLEY — the most wound of the four at 2.04 turns per lap, and the one that was
+     * dropped for a reason that had already expired.
+     *
+     * Measured before importing it: it races cleanly with no change at all (55.6 / 43.7 / 37.5 s
+     * across the skill range, never off the road), so what stopped it was the Ring's problem being
+     * attributed to both. Its corners are 6.3 tiles, a tenth of a tile wider than the Ring's, and
+     * they come one at a time rather than as a sustained bend — which is the whole difference.
+     */
+    id: 'valley',
+    label: 'Western Valley',
+    kind: 'ring',
+    ...fromDust('westernValley.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
+    width: 7,
+    laps: 3,
     startAt: 0,
     bridge: null,
   },

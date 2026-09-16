@@ -37,14 +37,14 @@ import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
 import { isRough, wrapAngle, type RaceGate } from '@pixel/shared/office/race/track.js';
-import type { OfficeLayout } from '@pixel/shared/office/types';
+import { TILE_SIZE, type OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
 import { importTmjToLayout } from './tiled/mapBridge.js';
 import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-const TRACKS = ['raceway', 'monza', 'figure8'] as const;
+const TRACKS = ['raceway', 'monza', 'figure8', 'ring', 'valley'] as const;
 const layouts = new Map<string, OfficeLayout>();
 
 before(async () => {
@@ -71,6 +71,11 @@ interface Run {
   falls: number;
   /** Seconds the wrong-way warning was up. On a clean lap this is zero. */
   wrongWaySec: number;
+  /**
+   * Seconds spent OFF the racing surface. Zero on a lap driven properly, and the measurement that
+   * the corner cap exists for: before it, the quickest driver spent 21 % of the Ring in the grass.
+   */
+  offRoadSec: number;
 }
 
 /** One computer driver of a given skill, alone on a track, driven to the flag. */
@@ -96,6 +101,7 @@ function drive(zone: string, level: number): Run {
   let sum = 0;
   let n = 0;
   let wrong = 0;
+  let off = 0;
   let last = kart.state;
   const max = Math.round(240 / DT);
   while (!kart.finished && ticks < max) {
@@ -107,6 +113,7 @@ function drive(zone: string, level: number): Run {
     os.update(DT);
     if (kart.state === 'fall' && last !== 'fall') falls++;
     if (kart.wrongWay) wrong++;
+    if (isRough(track, Math.floor(kart.x / TILE_SIZE), Math.floor(kart.y / TILE_SIZE))) off++;
     last = kart.state;
     ticks++;
   }
@@ -116,6 +123,7 @@ function drive(zone: string, level: number): Run {
     meanSpeed: sum / Math.max(1, n),
     falls,
     wrongWaySec: wrong * DT,
+    offRoadSec: off * DT,
   };
 }
 
@@ -128,6 +136,31 @@ test('a quick driver carries most of the car through every committed track', () 
     // 90 %, against the 49 % this replaced and the 99 % it measures — the margin is for a map
     // with a genuinely tight corner in it, not for a regression back to a straight-line probe.
     assert.ok(share > 0.9, `${zone}: averaged only ${(share * 100).toFixed(0)} % of top speed`);
+  }
+});
+
+/**
+ * A quick driver stays ON the road, and that is what the corner cap is for.
+ *
+ * The Ring is the circuit that made it necessary and the one this test is really about: two long
+ * straights and two sustained 180° bends of 6.2 tiles' centreline radius. The tyres allow 346 px/s
+ * there, so nothing in the physics stopped the quick driver arriving flat out — it simply could
+ * not hold the line it entered with. Measured before the cap: **21 % of the race off the road**,
+ * and 55.3 s against the middling driver's 43.4, so the fastest car on the grid finished behind
+ * the middle of it.
+ *
+ * Asserted as time OFF the racing surface rather than as a lap time, because a lap time regresses
+ * for a dozen reasons and this one has a cause you can point at.
+ */
+test('a quick driver never has to use the grass', () => {
+  for (const zone of TRACKS) {
+    const run = drive(zone, 1);
+    assert.equal(run.finished, true, `${zone}: never finished`);
+    assert.equal(
+      run.offRoadSec.toFixed(1),
+      '0.0',
+      `${zone}: the quick driver spent ${run.offRoadSec.toFixed(1)} s of ${run.seconds.toFixed(1)} off the road`,
+    );
   }
 });
 

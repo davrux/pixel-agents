@@ -32,20 +32,26 @@ question is ever reopened.
 
 ## The tracks
 
-`monza.trk` and `figure8.trk` are two of Dust Racing's sixteen **levels** from
-`data/levels/`. What this world takes from them is the SHAPE of the lap and
-nothing else: the road's width, its kerbs, the sand, the barrier, the gates, the
-grid, the landscape and the paddock are all derived by `make-tracks.mts`, so an
-imported circuit is the same kind of thing as a hand-drawn one.
+`monza.trk`, `figure8.trk`, `ring.trk` and `westernValley.trk` are four of Dust
+Racing's sixteen **levels** from `data/levels/`. What this world takes from them
+is the SHAPE of the lap and nothing else: the road's width, its kerbs, the sand,
+the barrier, the gates, the grid, the landscape and the paddock are all derived
+by `make-tracks.mts`, so an imported circuit is the same kind of thing as a
+hand-drawn one.
 
-The other fourteen are not here, and the survey that decided it is worth keeping:
-twelve fail the importer's own checks (the walk misses most of the road, or the
-line zigzags, or a corner is tighter than a kart can take, or it does not fit),
-and two more — Ring and Western Valley — pass every check, were built and driven,
-and were then dropped because the COMPUTER DRIVER cannot race them: both put a
-tight corner at the end of a long straight, and it has no lookahead that can see
-a corner before it is in one. See the refusal block in `make-tracks.mts` for the
-measurements.
+The other twelve are not here: they fail the importer's own checks — the walk
+misses most of the road, or the line zigzags, or a corner is tighter than a kart
+can take, or it does not fit. See the refusal block in `make-tracks.mts` for what
+each check is for.
+
+Ring and Western Valley arrived late (2026-09-16) and were here once before. They
+pass every check, were built and driven, and were then dropped for a reason that
+turned out to be half wrong: it was written down as "the computer driver cannot
+brake for a tight corner at the end of a long straight". Western Valley in fact
+raced cleanly with no change at all, and the Ring's problem was not braking —
+this car stops from flat out in under five tiles — but holding a bend it entered
+too fast. A speed cap taken from the road's own curvature fixed it, and both are
+in.
 
 ## Licence — read this before touching them
 
