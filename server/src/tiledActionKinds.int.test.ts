@@ -105,6 +105,28 @@ test('a race gate and a grid slot can be authored at all', () => {
  * immer noch keine Auswahlbox"). Checked over the COMMITTED maps rather than over the generator,
  * so it covers whatever writes them.
  */
+/**
+ * Every map-level property the importer reads is offered on the `Map` class.
+ *
+ * `laps` was read from a map's own properties and declared nowhere, so Tiled offered no field for
+ * it: the generated circuits carried it because the generator writes the .tmj itself, and a mapper
+ * opening one had to know the name and add a custom property by hand. Found while writing the
+ * README's race section — the same failure `actionKind` had, one level up.
+ *
+ * Read off the IMPORTER rather than from a list here, so a map property added to the code without
+ * a field to type it into fails this instead of being invisible.
+ */
+test('every map property the importer reads is offered on the Map class', () => {
+  const bridge = readFileSync(join(ROOT, 'server', 'src', 'tiled', 'mapBridge.ts'), 'utf8');
+  const read = new Set<string>();
+  for (const m of bridge.matchAll(/mapProps\.([a-zA-Z_][a-zA-Z0-9_]*)/g)) read.add(m[1]);
+  assert.ok(read.size > 0, 'no map properties found in mapBridge — has the accessor been renamed?');
+  const members = new Set((typeNamed('Map').members ?? []).map((m) => m.name));
+  for (const name of read) {
+    assert.ok(members.has(name), `mapBridge reads map property "${name}" and the Map class has no field for it`);
+  }
+});
+
 test('every enum-typed property in a committed map carries its propertytype', () => {
   const classes = new Map<string, Map<string, string>>();
   for (const t of project()) {

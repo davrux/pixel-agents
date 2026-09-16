@@ -124,6 +124,9 @@ is found. A deployment sets the variable and gets none of that.
 | **double click** | go there: walk to that tile |
 | **right click** | warp to that tile (instant, no walking — you arrive standing) |
 | **C** | sit down where you are |
+| **E** | in a race zone: get in or out of your kart |
+| **W A S D** *(driving)* | throttle, brake/reverse, steer — the same keys, reinterpreted because you are in a seat |
+| **space** *(driving)* | use the gadget you are holding |
 | **M** | mute/unmute your microphone in the call you are in |
 | **F8** | frame-time overlay |
 | **/** in chat | slash commands — `/help` lists them, `/reload` restarts the app |
@@ -215,6 +218,7 @@ Every map has these, identified by their **class**, not their name:
 | `WallFaceLayer` | north-wall face pieces — the flat surface a room is looked at | none |
 | `CollisionLayer` | the single "blocked" marker tile from `collision.tsj` | none |
 | `DecalLayer` | painted map art — see below. **Several are allowed**, drawn in the order the Layers panel lists them; its `occludes` property decides whether everything on it lies flat or stands | none |
+| `SurfaceLayer` | what the ground DOES on a race track — one layer per kind, named by its own `surface` property. **Several are allowed**; see "A race track" below | none |
 
 Walls are **edges on a half-offset lattice**: a wall piece's N/E/S/W bitmask says
 which of the four edges meeting at that point are wall, so the Wang/Terrain brush
@@ -333,6 +337,11 @@ means "every open side", not "none"**) and `approachThrough` (this item may be
 searched *past* when another item looks for its approach tiles, e.g. an appliance
 behind a kitchen counter).
 
+Three more belong to the `ActionArea` class alone, because they are the payload of
+a race marker rather than anything a piece of furniture has: `actionGate` (int),
+`actionSlot` (int) and `actionDir` (int, a compass bearing, **−1 = "work it out
+from the gates"**).
+
 There is deliberately **no category and no taxonomy**. Behaviour used to be
 inferred from one — chairs were sittable because their category said `chairs` —
 which meant a correctly drawn, correctly categorised chair could still be
@@ -447,6 +456,10 @@ a restart, not a push.
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
 | `talkingObject` | shouts the hour by itself (`9 UHR, 9 UHR !!!`), and a quote every 20–60 min — a bubble over the piece, and a chat line | — |
+| `raceGate` | a checkpoint across the road, `actionGate` being its place in the lap — gate 0 is the finish line | `actionGate` |
+| `raceStart` | a slot on the starting grid, in `actionSlot` order (0 = pole). Pole also carries `actionDir`, the bearing the field sets off in | `actionSlot`, `actionDir` |
+| `raceFinish` | the line that ends a point-to-point race. A track that has one is a sprint rather than laps | — |
+| `raceRecords` | a board showing this track's records — a property of the PLACEMENT, so one whiteboard becomes the timing screen and the others stay whiteboards | — |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).
@@ -466,6 +479,60 @@ see where you are standing) and a window over it (far more room on a laptop).
 Don't design a map around either one — the same page is a reference panel on a
 wide monitor and a full window on a small screen, and only the person looking at
 it knows which.
+
+## A race track is gates, a grid and a lap count
+
+A map IS a race track when it carries **at least two `raceGate` markers and one
+`raceStart` slot**. There is deliberately no flag saying so: a boolean can
+contradict the objects, and then a "track" with no finish line is a state the
+code has to have an opinion about. The absence is the answer, the same way a map
+with no `pet_feed` appliance simply never sends a pet to drink.
+
+| You place | And the race gets |
+|---|---|
+| `raceGate` markers, numbered in `actionGate` | the ring a lap is made of. A kart may only pass the NEXT gate, which is what makes cutting the infield and turning round on the line score nothing — and it answers respawning for free: a car that falls comes back at the last gate it passed, pointing at the next |
+| `raceStart` slots, ordered by `actionSlot` | the grid. Pole (`actionSlot` 0) also carries `actionDir` |
+| the map's own `laps` property (on the `Map` class, default 3) | how many laps the default race is — the panel can still change it per race |
+| a `raceFinish` marker | a **sprint** instead: the gates are run once and the line ends it |
+| a piece with `raceRecords` | the timing board |
+
+A gate is a LINE across the road, so it is several markers with the same
+`actionGate` number — one per cell, from one edge of the drivable corridor to the
+other. It has to be **4-connected and one cell thick**: a diagonal line of cells
+touches only at its corners, and a kart travelling diagonally slips between two
+of them. The generated circuits close those corners by adding the one cell that
+shares the old row and the new column at every diagonal step.
+
+`actionDir` is a **compass bearing** — 0 north, 90 east, 180 south, 270 west — and
+only pole states it; every other slot says `−1`, which means "work it out from the
+gates". One slot rather than twelve, because twelve copies of one fact is eleven
+chances for a map to contradict itself, and the first slot that states a bearing
+is the one that counts. A generated bearing rarely lands on a round number, and
+that is the road rather than the arithmetic: a circuit's centreline is a spline
+through hand-placed points, so a start straight that looks dead east measures a
+degree or two off it.
+
+### What the ground does, painted as a surface
+
+A `SurfaceLayer` says what a cell DOES to a car, and its own `surface` property
+says which kind. Paint the marker tile from `collision.tsj` on it — only whether
+a cell is marked matters, not which tile — and use **one layer per kind**, which
+is what lets a mapper stack them and read the topmost.
+
+| `surface` | On that cell |
+|---|---|
+| `rough` | off the racing surface: grass, sand, the run-off. Drivable and slow rather than fatal, and the computer drivers steer by it — their road probe stops at rough exactly as it stops at a drop, or they would cut every corner across the grass |
+| `boost` | road that throws you down it, and keeps the raised ceiling for a moment after you leave the pad |
+| `item` | an item box: drive over one with empty hands and you are holding a gadget. Which gadgets a box may hand out is a race SETTING, not the map's business — the panel has a switch per kind |
+
+One layer rather than one Action per cell, and that is a size decision: on the
+raceway the rough is 6265 cells, which as objects is 6265 objects and as a layer
+is a list of numbers.
+
+**What stays fatal is where there is no ground at all** — nothing painted on the
+`GroundLayer`. That is the drop beside a bridge and the pit in the middle of an
+infield; a car that leaves the map falls, loses a couple of seconds and is put
+back on the road it left.
 
 ## On/off state — the off tile names the on tile
 
@@ -495,8 +562,9 @@ nothing custom about it.
 |---|---|
 | `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
-| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `petScores`, `portal`, `toggle`, `spawnPoint`, `talkingObject` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `petScores`, `portal`, `toggle`, `spawnPoint`, `talkingObject`, `raceGate`, `raceStart`, `raceFinish`, `raceRecords` |
 | `ApplianceKind` | *(empty)*, `coffee`, `drink`, `pet_feed` |
+| `SurfaceKind` | `rough`, `boost`, `item` |
 
 ## Two things that will bite you
 
