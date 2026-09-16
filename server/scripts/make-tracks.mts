@@ -1001,13 +1001,19 @@ const layOutGrid = (startRun: number): void => {
     // happens to land. On a lap this long that is the difference between getting in a kart and
     // walking half of it to find one.
     //
-    // One per grid ROW, and the extra five are not decoration: the FIRST becomes the zone's
-    // arrival tile (zoneImport reads one), and the whole set becomes the POOL an automatic
-    // placement draws from when that tile is taken (`spawnablePool`). Without them the pool is
-    // every walkable cell, and since the infield was landscaped that includes the middle of the
-    // circuit — people were dropped inside the track with the cars a corner away, seen twice in a
-    // browser. Six markers, two jobs.
-    spawns.push({ col: Math.round(p.x), row: Math.round(p.y) });
+    // ONE of them, at the front of the grid. There were six — one per row — because a marker does
+    // two jobs: the first becomes the zone's arrival tile, and the SET of them is the pool an
+    // automatic placement draws from when that tile is taken. The second job was what kept a busy
+    // arrival out of the middle of the circuit, since landscaping the infield made every cell of it
+    // spawnable.
+    //
+    // It is not needed any more, and one marker is now strictly better than six: the search rings
+    // outward from the arrival tile first (`SPAWN_SPREAD_TILES`, 168 cells of it), so a crowd
+    // spreads into the grid lane instead of being scattered up to 25 tiles down it — and with one
+    // declared marker the last-resort pool IS that tile, so the infield can never be drawn at all.
+    // Asked for on 2026-09-16: "ein spawn punkt reicht dann, man kann zum auto laufen" — and the
+    // kart will arrive with its driver soon enough, which leaves a marker even less to do.
+    if (spawns.length === 0) spawns.push({ col: Math.round(p.x), row: Math.round(p.y) });
   }
 };
 if (CLOSED) {

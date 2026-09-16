@@ -167,7 +167,7 @@
     {
      "gid": 7401,
      "height": 64,
-     "id": 257,
+     "id": 252,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -188,7 +188,7 @@
     {
      "gid": 7400,
      "height": 32,
-     "id": 258,
+     "id": 253,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -215,7 +215,7 @@
     {
      "gid": 7061,
      "height": 16,
-     "id": 259,
+     "id": 254,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -236,7 +236,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 260,
+     "id": 255,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -249,7 +249,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 261,
+     "id": 256,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -262,7 +262,7 @@
     {
      "gid": 7382,
      "height": 48,
-     "id": 262,
+     "id": 257,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -275,7 +275,7 @@
     {
      "gid": 7389,
      "height": 48,
-     "id": 263,
+     "id": 258,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -288,7 +288,7 @@
     {
      "gid": 7051,
      "height": 48,
-     "id": 264,
+     "id": 259,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -301,7 +301,7 @@
     {
      "gid": 7047,
      "height": 48,
-     "id": 265,
+     "id": 260,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -314,7 +314,7 @@
     {
      "gid": 7046,
      "height": 48,
-     "id": 266,
+     "id": 261,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -6610,106 +6610,6 @@
        "propertytype": "ActionKind"
       }
      ]
-    },
-    {
-     "id": 252,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1544,
-     "y": 1272,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 253,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1464,
-     "y": 1272,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 254,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1384,
-     "y": 1272,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 255,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1304,
-     "y": 1272,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 256,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 1224,
-     "y": 1272,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
     }
    ],
    "opacity": 1,
@@ -6725,7 +6625,7 @@
    "objects": [
     {
      "height": 16,
-     "id": 267,
+     "id": 262,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -6757,7 +6657,7 @@
     {
      "gid": 7023,
      "height": 37,
-     "id": 268,
+     "id": 263,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -6776,7 +6676,7 @@
   }
  ],
  "nextlayerid": 13,
- "nextobjectid": 269,
+ "nextobjectid": 264,
  "orientation": "orthogonal",
  "properties": [
   {

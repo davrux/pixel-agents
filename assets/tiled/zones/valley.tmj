@@ -167,7 +167,7 @@
     {
      "gid": 7401,
      "height": 64,
-     "id": 177,
+     "id": 172,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -188,7 +188,7 @@
     {
      "gid": 7400,
      "height": 32,
-     "id": 178,
+     "id": 173,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -215,7 +215,7 @@
     {
      "gid": 7061,
      "height": 16,
-     "id": 179,
+     "id": 174,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -236,7 +236,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 180,
+     "id": 175,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -249,7 +249,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 181,
+     "id": 176,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -262,7 +262,7 @@
     {
      "gid": 7382,
      "height": 48,
-     "id": 182,
+     "id": 177,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -275,7 +275,7 @@
     {
      "gid": 7389,
      "height": 48,
-     "id": 183,
+     "id": 178,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -288,7 +288,7 @@
     {
      "gid": 7051,
      "height": 48,
-     "id": 184,
+     "id": 179,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -301,7 +301,7 @@
     {
      "gid": 7047,
      "height": 48,
-     "id": 185,
+     "id": 180,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -314,7 +314,7 @@
     {
      "gid": 7046,
      "height": 48,
-     "id": 186,
+     "id": 181,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4610,106 +4610,6 @@
        "propertytype": "ActionKind"
       }
      ]
-    },
-    {
-     "id": 172,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 280,
-     "y": 1000,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 173,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 328,
-     "y": 936,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 174,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 376,
-     "y": 872,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 175,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 408,
-     "y": 808,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 176,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 440,
-     "y": 728,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
     }
    ],
    "opacity": 1,
@@ -4725,7 +4625,7 @@
    "objects": [
     {
      "height": 16,
-     "id": 187,
+     "id": 182,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4757,7 +4657,7 @@
     {
      "gid": 7023,
      "height": 37,
-     "id": 188,
+     "id": 183,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4776,7 +4676,7 @@
   }
  ],
  "nextlayerid": 13,
- "nextobjectid": 189,
+ "nextobjectid": 184,
  "orientation": "orthogonal",
  "properties": [
   {

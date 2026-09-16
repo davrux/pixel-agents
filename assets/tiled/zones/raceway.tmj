@@ -167,7 +167,7 @@
     {
      "gid": 7401,
      "height": 64,
-     "id": 160,
+     "id": 155,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -188,7 +188,7 @@
     {
      "gid": 7400,
      "height": 32,
-     "id": 161,
+     "id": 156,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -215,7 +215,7 @@
     {
      "gid": 7061,
      "height": 16,
-     "id": 162,
+     "id": 157,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -236,7 +236,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 163,
+     "id": 158,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -249,7 +249,7 @@
     {
      "gid": 7392,
      "height": 32,
-     "id": 164,
+     "id": 159,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -262,7 +262,7 @@
     {
      "gid": 7382,
      "height": 48,
-     "id": 165,
+     "id": 160,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -275,7 +275,7 @@
     {
      "gid": 7389,
      "height": 48,
-     "id": 166,
+     "id": 161,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -288,7 +288,7 @@
     {
      "gid": 7051,
      "height": 48,
-     "id": 167,
+     "id": 162,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -301,7 +301,7 @@
     {
      "gid": 7047,
      "height": 48,
-     "id": 168,
+     "id": 163,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -314,7 +314,7 @@
     {
      "gid": 7046,
      "height": 48,
-     "id": 169,
+     "id": 164,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4185,106 +4185,6 @@
        "propertytype": "ActionKind"
       }
      ]
-    },
-    {
-     "id": 155,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 968,
-     "y": 1048,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 156,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 888,
-     "y": 1048,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 157,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 808,
-     "y": 1032,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 158,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 728,
-     "y": 1032,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
-    },
-    {
-     "id": 159,
-     "name": "",
-     "point": true,
-     "rotation": 0,
-     "type": "ActionArea",
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "x": 648,
-     "y": 1032,
-     "properties": [
-      {
-       "name": "actionKind",
-       "type": "string",
-       "value": "spawnPoint",
-       "propertytype": "ActionKind"
-      }
-     ]
     }
    ],
    "opacity": 1,
@@ -4300,7 +4200,7 @@
    "objects": [
     {
      "height": 16,
-     "id": 170,
+     "id": 165,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4319,7 +4219,7 @@
     },
     {
      "height": 16,
-     "id": 171,
+     "id": 166,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4351,7 +4251,7 @@
     {
      "gid": 7023,
      "height": 37,
-     "id": 172,
+     "id": 167,
      "name": "",
      "opacity": 1,
      "rotation": 0,
@@ -4370,7 +4270,7 @@
   }
  ],
  "nextlayerid": 13,
- "nextobjectid": 173,
+ "nextobjectid": 168,
  "orientation": "orthogonal",
  "properties": [
   {

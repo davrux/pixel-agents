@@ -3094,7 +3094,7 @@ export class OfficeState {
     this.surfaceUids = surface;
     const outside = this.walkableTiles.filter((t) => this.areaIdAt(t.col, t.row) === null);
     /**
-     * Where a map SAYS people arrive, if it says so at all.
+     * Where a map SAYS people arrive, if it says so at all — the LAST resort of a placement.
      *
      * A `spawnPoint` already set the zone's arrival tile; this makes the whole set of them the
      * pool that an automatic placement draws from, rather than every walkable tile on the map.
@@ -3104,6 +3104,12 @@ export class OfficeState {
      * middle of the circuit: the infield used to be VOID and therefore unspawnable, and
      * landscaping it made it ordinary grass, so a join whose preferred tile was taken started
      * dropping people inside the track with the cars a corner away. Seen in a browser, twice.
+     *
+     * It is reached far less often than it was. `findFreeSpawnTile` rings outward from the arrival
+     * tile first, so this now answers only when 169 cells around it are all taken — and a circuit
+     * marks ONE tile rather than six, which means the answer is that tile and the infield is not
+     * reachable from here at all. Measured on Monza with 200 arrivals on one tile: none further
+     * than six tiles away, 143 of them on distinct cells, and the rest stacked on the marker.
      */
     const declared = outside.filter((t) => {
       const action = (this.layout.tileActions ?? [])[t.row * this.layout.cols + t.col] as { kind?: string } | null;

@@ -402,10 +402,11 @@ test('you can walk from the grid to the timing board and to the water', () => {
     .map((a, i) => ({ a, i }))
     .filter((x) => (x.a as { kind?: string } | null)?.kind === 'spawnPoint')
     .map((x) => ({ col: x.i % layout.cols, row: Math.floor(x.i / layout.cols) }));
-  // Several arrival markers, and the extra ones are not decoration: the first becomes the zone's
-  // arrival tile and the whole set is the pool an automatic placement draws from when that tile is
-  // taken (`spawnablePool`) — which is what keeps a busy arrival out of the middle of the circuit.
-  assert.ok(spawnTiles.length > 1, `the map marks ${spawnTiles.length} arrival points`);
+  // ONE arrival marker. There were six, because the SET of them is also the pool an automatic
+  // placement falls back to — which is what used to keep a busy arrival out of the landscaped
+  // infield. The ring search does that better (see the spreading test above), and with one marker
+  // the pool IS the arrival tile, so the infield cannot be drawn at all.
+  assert.equal(spawnTiles.length, 1, `the map marks ${spawnTiles.length} arrival points`);
 
   for (const kind of ['raceRecords', 'appliance', 'portal']) {
     const item = layout.furniture.find((f) => (f.action as { kind?: string } | undefined)?.kind === kind);
