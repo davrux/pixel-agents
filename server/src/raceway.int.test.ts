@@ -410,6 +410,52 @@ test('you can walk from the grid to the timing board and to the water', () => {
 });
 
 /**
+ * The river has a bank, and the bank is a picture.
+ *
+ * Reported as hard staircase edges against the grass: the water is a decal in VOID cells and the
+ * land is the cells beside them, so the waterline was the cell grid itself — a run of 16 px steps
+ * down a diagonal. The fix draws a waterline INTO the land cells, one tile per mask of which
+ * neighbours are wet.
+ *
+ * Asserted through the IMPORTER rather than against the .tmj, and that is the whole reason this
+ * test exists: the first version painted the shore with tiles that carried no `DecalTile` class
+ * and no `id`, so the importer dropped every one of them in silence. The map had them, the
+ * generator's own render showed them, and the game had nothing.
+ */
+test('the gorge has a drawn shoreline, on the land and nowhere else', () => {
+  const l = layout as unknown as {
+    decals?: Array<{ id: string; col: number; row: number }>;
+    tiles: number[];
+    cols: number;
+    rows: number;
+  };
+  const decals = l.decals ?? [];
+  const shore = decals.filter((d) => d.id.startsWith('TRACK_SHORE_'));
+  assert.ok(shore.length > 20, `the map carries only ${shore.length} shore cells`);
+  // Where the gorge is: a VOID cell with the water decal in it.
+  const wet = new Set(
+    decals.filter((d) => d.id.startsWith('OW_')).map((d) => `${d.col},${d.row}`),
+  );
+  assert.ok(wet.size > 100, `the map carries only ${wet.size} water cells`);
+  const track = raceTrack(layout);
+  assert.ok(track);
+  for (const d of shore) {
+    const at = `${d.col},${d.row}`;
+    // On LAND. A shore tile in the water would be a second waterline inside the river.
+    assert.equal(wet.has(at), false, `a shore tile sits in the water at ${at}`);
+    assert.notEqual(l.tiles[d.row * l.cols + d.col], -1, `a shore tile sits on a void cell at ${at}`);
+    // Off the racing surface: the bridge is the other thing beside the gorge, and a waterline over
+    // its deck reads as a river running across the road rather than under it.
+    assert.equal(isRough(track, d.col, d.row), true, `a shore tile sits on the racing surface at ${at}`);
+    // And touching the water, or it is a waterline with no water in it.
+    const touches = [-1, 0, 1].some((dr) =>
+      [-1, 0, 1].some((dc) => (dc !== 0 || dr !== 0) && wet.has(`${d.col + dc},${d.row + dr}`)),
+    );
+    assert.ok(touches, `a shore tile at ${at} touches no water at all`);
+  }
+});
+
+/**
  * One of everything, and the two exceptions are named.
  *
  * "Bau von allen Teilen mal was auf raceway, so dass man weiß was es alles gibt." The empty layers

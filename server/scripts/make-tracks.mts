@@ -54,6 +54,11 @@ const TRACK_TILES = [
   'asphalt', 'asphaltB', 'kerbRed', 'kerbPale', 'chequerA', 'chequerB',
   'edgeTop', 'edgeBottom', 'edgeLeft', 'edgeRight',
   'boostN', 'boostE', 'boostS', 'boostW',
+  // The shore: one per mask of which neighbours are water, in the order `draw-track-tiles.mts`
+  // emits them. Fifteen for the four sides and four more for a diagonal-only touch.
+  'shoreN', 'shoreE', 'shoreNE', 'shoreS', 'shoreNS', 'shoreES', 'shoreNES',
+  'shoreW', 'shoreNW', 'shoreEW', 'shoreNEW', 'shoreSW', 'shoreNSW', 'shoreESW', 'shoreNESW',
+  'shoreCNE', 'shoreCSE', 'shoreCSW', 'shoreCNW',
 ] as const;
 type TrackTile = (typeof TRACK_TILES)[number];
 /**
@@ -1466,6 +1471,47 @@ if (CLOSED) {
     if (g.col > 0 && g.row > 0 && g.col < COLS && g.row < ROWS && isRunOff(g.col, g.row)) {
       flat[g.row * COLS + g.col] = decalGid('RACE_PLANT');
     }
+  }
+}
+
+/**
+ * THE SHORE: a waterline drawn into the land cells beside the gorge.
+ *
+ * The bank used to be the cell grid itself — the water is a decal in VOID cells and the land is
+ * the cells next to them, so the waterline was a run of 16 px steps down a diagonal. Reported as
+ * hard staircase edges against the grass.
+ *
+ * Three things make this a picture and nothing more, which is the point:
+ *
+ *  - **It is written to the FLAT decal layer, over ground that stays exactly what it was.** No
+ *    cell changes from ground to void or back, so where a kart may drive is untouched and the
+ *    bridge is as necessary as it ever was.
+ *  - **The tile is chosen by a MASK of the wet neighbours**, so the line runs on from cell to cell
+ *    instead of each cell deciding on its own. The four-sided masks are tried first and the
+ *    diagonal-only nubs are the fallback, because a cell touching water across a corner is the one
+ *    that leaves a nick where two runs meet.
+ *  - **It goes on LAST**, so where a tuft or a plant landed on the bank the water wins. A plant
+ *    standing in the river is worse than one fewer plant.
+ */
+for (let row = 0; row < ROWS; row++) {
+  for (let col = 0; col < COLS; col++) {
+    const i = row * COLS + col;
+    // Land only. The BRIDGE is the other thing next to the gorge, and a waterline lapping over its
+    // deck and its barrier reads as a river running across the road rather than under it — which
+    // is the one picture this whole feature exists to avoid.
+    if (!ground[i] || isRoad(col, row) || isBarrier(col, row)) continue;
+    const wet = (c: number, r: number): boolean => inBridgeAir(c, r);
+    const sides = (['N', 'E', 'S', 'W'] as const).filter((side, bit) =>
+      wet(col + (bit === 1 ? 1 : bit === 3 ? -1 : 0), row + (bit === 0 ? -1 : bit === 2 ? 1 : 0)) && side,
+    );
+    if (sides.length > 0) {
+      flat[i] = gidOf(`shore${sides.join('')}` as TrackTile);
+      continue;
+    }
+    const corner = (['NE', 'SE', 'SW', 'NW'] as const).find((c) =>
+      wet(col + (c[1] === 'E' ? 1 : -1), row + (c[0] === 'N' ? -1 : 1)),
+    );
+    if (corner) flat[i] = gidOf(`shoreC${corner}` as TrackTile);
   }
 }
 

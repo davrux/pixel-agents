@@ -56,8 +56,10 @@ function lcg(seed: number): () => number {
 }
 
 /** One tile as a 16×16 grid of colours. */
-type Tile = RGB[][];
-const fill = (rgb: RGB): Tile => Array.from({ length: TW }, () => Array.from({ length: TW }, () => rgb));
+/** A tile's pixels. `null` is TRANSPARENT, which only the shore tiles use — everything else here
+ *  is a ground tile and a ground tile with a hole in it would show the canvas through the map. */
+type Tile = (RGB | null)[][];
+const fill = (rgb: RGB | null): Tile => Array.from({ length: TW }, () => Array.from({ length: TW }, () => rgb));
 
 /** Asphalt with a little grain — flat grey at this size reads as a floor, not a road surface. */
 function asphalt(seed: number): Tile {
@@ -148,6 +150,87 @@ function edgeLine(seed: number, side: 'top' | 'bottom' | 'left' | 'right'): Tile
   return t;
 }
 
+/**
+ * THE SHORE: a waterline drawn into a land cell, so a river stops having a staircase for a bank.
+ *
+ * The gorge under a bridge is VOID cells with a water decal in them, and land is the cells beside
+ * it — so the waterline was exactly the cell grid, a run of 16 px steps down a diagonal. Reported
+ * as hard staircase edges against the grass.
+ *
+ * These are DECALS over the land, not ground: the water side is drawn and the land side is left
+ * transparent, so the grass (or sand, or whatever a map put there) shows through and one set of
+ * tiles works on any ground. Nothing about where a kart may drive changes — the cell is still the
+ * ground it was, which is the whole reason the fix is a picture and not a shape.
+ *
+ * One tile per MASK of which neighbours are water, so the waterline runs continuously from cell to
+ * cell. The shape comes from the standard box distance field over the half-planes the mask names:
+ * `length(max(q, 0)) + min(max(q), 0)`, which is worth writing down because the rounding is what
+ * it buys — at a corner where two sides are water the boundary is `hypot(q1, q2) = 0`, a quarter
+ * circle, so a bend in the bank is a bend and not a right angle. The wave on top of it is two
+ * sines of the pixel coordinate: deterministic, so `--check` still means something, and enough to
+ * stop sixteen identical cells reading as a ruled line.
+ */
+const WATER: RGB = [0x20, 0x7e, 0xba];
+const WATER_DEEP: RGB = [0x1a, 0x68, 0x9b];
+const FOAM: RGB = [0xd6, 0xee, 0xf7];
+/** How far into the land cell the water reaches, in pixels — a bank a third of a cell deep. */
+const SHORE_DEPTH = 6;
+/** The neighbours a shore tile can have water in, in the order their bits are read. */
+const SIDES = ['N', 'E', 'S', 'W'] as const;
+type Side = (typeof SIDES)[number];
+
+const wave = (t: number, phase: number): number =>
+  1.3 * Math.sin(t * 0.55 + phase) + 0.7 * Math.sin(t * 1.9 + phase * 2.1);
+
+/**
+ * A shore tile for a set of water sides, or for a single water DIAGONAL when `sides` is empty.
+ *
+ * `corner` names the diagonal in the second case — a cell whose only wet neighbour is across a
+ * corner gets a nub there, because without it the bank has a nick in it exactly where two runs of
+ * cells meet.
+ */
+function shore(sides: readonly Side[], corner: '' | 'NE' | 'SE' | 'SW' | 'NW' = ''): Tile {
+  const t = fill(null);
+  for (let y = 0; y < TW; y++) {
+    for (let x = 0; x < TW; x++) {
+      let sd: number;
+      if (sides.length === 0) {
+        const cx = corner === 'NE' || corner === 'SE' ? TW - 1 : 0;
+        const cy = corner === 'NE' || corner === 'NW' ? 0 : TW - 1;
+        sd = SHORE_DEPTH + wave(x + y, corner.length) - Math.hypot(x - cx, y - cy);
+      } else {
+        // `q` is how far OUTSIDE the land each named half-plane this pixel is.
+        const q = sides.map((side) => {
+          const edge = SHORE_DEPTH + wave(side === 'N' || side === 'S' ? x : y, SIDES.indexOf(side));
+          return side === 'N' ? edge - y
+            : side === 'S' ? y - (TW - 1 - edge)
+            : side === 'W' ? edge - x
+            : x - (TW - 1 - edge);
+        });
+        const outside = Math.hypot(...q.map((v) => Math.max(v, 0)));
+        sd = outside + Math.min(Math.max(...q), 0);
+      }
+      if (sd <= 0) continue;                       // land: left transparent
+      // The foam sits just inside the water, which is where a wave actually breaks — and it is
+      // what makes the line read as a shore rather than as a blue tile butted against a green one.
+      t[y][x] = sd < 1 ? FOAM : sd < 4 ? WATER : WATER_DEEP;
+    }
+  }
+  return t;
+}
+
+/** Every mask that can occur, in a fixed order — the index IS the tile id. */
+const SHORE_TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
+  ...Array.from({ length: 15 }, (_, k) => {
+    const sides = SIDES.filter((_s, bit) => (k + 1) & (1 << bit));
+    return { name: `shore-${sides.join('').toLowerCase()}`, tile: shore(sides) };
+  }),
+  ...(['NE', 'SE', 'SW', 'NW'] as const).map((c) => ({
+    name: `shore-c${c.toLowerCase()}`,
+    tile: shore([], c),
+  })),
+];
+
 /** Index order IS the tile id, so this list is append-only — see AGENTS.md on tilesets. */
 const TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   { name: 'asphalt', tile: asphalt(0x5eed01) },
@@ -164,6 +247,7 @@ const TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   { name: 'boost-e', tile: boostPad('E') },
   { name: 'boost-s', tile: boostPad('S') },
   { name: 'boost-w', tile: boostPad('W') },
+  ...SHORE_TILES,
 ];
 
 const COLUMNS = TILES.length;
@@ -172,8 +256,9 @@ const HEIGHT = MARGIN * 2 + TW;
 const png = new PNG({ width: WIDTH, height: HEIGHT });
 png.data.fill(0);
 
-const put = (x: number, y: number, rgb: RGB): void => {
+const put = (x: number, y: number, rgb: RGB | null): void => {
   if (x < 0 || y < 0 || x >= WIDTH || y >= HEIGHT) return;
+  if (rgb === null) return; // left at the zeroed alpha the sheet starts with
   const i = (y * WIDTH + x) * 4;
   png.data[i] = rgb[0];
   png.data[i + 1] = rgb[1];
@@ -202,6 +287,26 @@ TILES.forEach(({ tile }, k) => {
 });
 
 const bytes = PNG.sync.write(png, WRITE_OPTIONS);
+/**
+ * The shore tiles declare themselves as DECALS, and the rest of the sheet does not.
+ *
+ * A cell painted on a DecalLayer is imported only if its tile carries the `DecalTile` class and an
+ * `id` property — without them the importer drops it silently, which is exactly what happened the
+ * first time these were painted: the map had them, the generator's own render showed them, and the
+ * game had nothing. Everything else in this sheet is GROUND, where the layer decides and the tile
+ * says nothing, so the declaration is per tile rather than per sheet.
+ */
+const decalTiles = TILES.map(({ name }, id) => ({ name, id }))
+  .filter(({ name }) => name.startsWith('shore-'))
+  .map(({ name, id }) => ({
+    id,
+    type: 'DecalTile',
+    properties: [
+      { name: 'id', type: 'string', value: `TRACK_${name.toUpperCase().replace(/-/g, '_')}` },
+      { name: 'label', type: 'string', value: `Shore ${name.slice('shore-'.length)}` },
+    ],
+  }));
+
 const tsj =
   JSON.stringify(
     {
@@ -215,6 +320,7 @@ const tsj =
       tilecount: COLUMNS,
       tiledversion: '1.11.0',
       tileheight: TW,
+      tiles: decalTiles,
       tilewidth: TW,
       type: 'tileset',
       version: '1.10',

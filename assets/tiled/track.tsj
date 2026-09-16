@@ -1,14 +1,320 @@
 {
-  "columns": 14,
+  "columns": 33,
   "image": "png/src/track.png",
   "imageheight": 18,
-  "imagewidth": 252,
+  "imagewidth": 594,
   "margin": 1,
   "name": "track",
   "spacing": 2,
-  "tilecount": 14,
+  "tilecount": 33,
   "tiledversion": "1.11.0",
   "tileheight": 16,
+  "tiles": [
+    {
+      "id": 14,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_N"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore n"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_E"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore e"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore ne"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_S"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore s"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NS"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore ns"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_ES"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore es"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NES"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore nes"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_W"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore w"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore nw"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_EW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore ew"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NEW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore new"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_SW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore sw"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NSW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore nsw"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_ESW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore esw"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_NESW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore nesw"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_CNE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore cne"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_CSE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore cse"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_CSW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore csw"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_SHORE_CNW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore cnw"
+        }
+      ]
+    }
+  ],
   "tilewidth": 16,
   "type": "tileset",
   "version": "1.10"
