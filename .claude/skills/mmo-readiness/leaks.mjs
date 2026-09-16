@@ -155,6 +155,11 @@ const BOUNDED_FIELDS = new Map([
       'same key space and the same bound as warpStylePrefs above it, i.e. the users table',
   ],
   [
+    'shared/src/office/engine/officeState.ts:kartPrefs',
+    'one kart spec per account that chose one, seeded from the store when the room starts — the ' +
+      'same key space and the same bound as helmetPrefs above it, i.e. the users table',
+  ],
+  [
     'client/src/render/helmetArt.ts:derivedCache',
     'the colours read off one SHEET, keyed by skin id — bounded by the art a client has loaded, ' +
       'and the answer never changes for a given sheet',

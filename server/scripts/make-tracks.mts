@@ -59,6 +59,7 @@ const TRACK_TILES = [
   'shoreN', 'shoreE', 'shoreNE', 'shoreS', 'shoreNS', 'shoreES', 'shoreNES',
   'shoreW', 'shoreNW', 'shoreEW', 'shoreNEW', 'shoreSW', 'shoreNSW', 'shoreESW', 'shoreNESW',
   'shoreCNE', 'shoreCSE', 'shoreCSW', 'shoreCNW',
+  'itemBox',
 ] as const;
 type TrackTile = (typeof TRACK_TILES)[number];
 /**
@@ -765,6 +766,16 @@ const KERB_RADIUS_TILES = 22;
  */
 const BOOST_PADS = 3;
 const BOOST_LENGTH_TILES = 4;
+/**
+ * How many ROWS of item boxes a lap gets, and how far apart the boxes in a row sit.
+ *
+ * A row across the road rather than a single box, because what makes picking one up interesting is
+ * choosing a LANE for it — a lone box on the racing line is something the road does to you, and a
+ * row nobody can miss is the same thing with extra steps. Two rows a lap, so an item is a regular
+ * part of a lap without the field driving round permanently armed.
+ */
+const ITEM_ROWS = 2;
+const ITEM_BOX_SPACING_TILES = 2.5;
 /** How much road there is between checkpoints, in tiles. Twenty is about six seconds at racing
  *  speed — near enough that "how far to the next gate" still means something on a bend. */
 const GATE_EVERY_TILES = 20;
@@ -911,6 +922,7 @@ const gateCells: Array<Array<{ col: number; row: number }>> = [];
 const chequered = new Set<string>();
 /** Boost cells, and which way the road runs at each — the chevrons have to point somewhere. */
 const boostCells = new Map<string, { col: number; row: number; dir: number }>();
+const itemCells = new Set<string>();
 const grid: Array<{ col: number; row: number; slot: number; dir?: number }> = [];
 const spawns: Array<{ col: number; row: number }> = [];
 /**
@@ -1039,6 +1051,30 @@ if (CLOSED) {
       }
     }
   }
+
+  /**
+   * The item boxes: a row across the road, twice a lap.
+   *
+   * Placed by RUN at even spacing rather than at the straightest points, unlike the pads — a box
+   * is something you aim for, so a corner is a perfectly good place for one and spreading them
+   * evenly is what makes them part of the lap. Offset from the start so the first row is not under
+   * the grid, and nudged off the pads' own runs so a row is never painted on top of a chevron.
+   */
+  for (let r = 0; r < ITEM_ROWS; r++) {
+    let at = startRun + (LINE_LENGTH * (r + 0.5)) / ITEM_ROWS;
+    for (const pad of chosen) {
+      const d = Math.abs(((at - pad) % LINE_LENGTH + LINE_LENGTH) % LINE_LENGTH);
+      if (Math.min(d, LINE_LENGTH - d) < BOOST_LENGTH_TILES + 2) at += BOOST_LENGTH_TILES + 4;
+    }
+    const p = lineAt(at);
+    const nx = -Math.sin(p.dir);
+    const ny = Math.cos(p.dir);
+    for (let u = -HALF + 1; u <= HALF - 1; u += ITEM_BOX_SPACING_TILES) {
+      const col = Math.round(p.x + nx * u);
+      const row = Math.round(p.y + ny * u);
+      if (onRoad(col, row)) itemCells.add(`${col},${row}`);
+    }
+  }
 } else {
   // The gates stop short of the end: the finish line is a ring of cells of its own, past the last
   // gate. One cell carries one Action, so a finish painted on top of a gate simply DELETES that
@@ -1068,6 +1104,9 @@ const roughLayer = new Array(COLS * ROWS).fill(0);
  *  carries ONE kind in its own property — which is what lets a mapper stack them and have the
  *  topmost win. */
 const boostLayer = new Array(COLS * ROWS).fill(0);
+/** The third one. An item box is a fact about a CELL of the road, like the other two — see
+ *  `RaceTrack.itemBox` for why it needs no state of its own. */
+const itemLayer = new Array(COLS * ROWS).fill(0);
 /** The FLAT decal layer: things that lie on the ground and never sort against anybody — the water
  *  under the bridge, tyres, tufts on the verge. The standing layer is for things you see the side
  *  of. Declared up here because the ground pass writes the water into it. */
@@ -1085,6 +1124,12 @@ for (let row = 0; row < ROWS; row++) {
       // reads and what the engine counts are the same line.
       const pad = boostCells.get(`${col},${row}`);
       if (pad) boostLayer[i] = COLLISION_GID;
+      if (itemCells.has(`${col},${row}`)) {
+        itemLayer[i] = COLLISION_GID;
+        // The picture is a DECAL on the road, so the asphalt underneath is still asphalt and the
+        // surface layer and the art cannot drift apart: both are written here, from one set.
+        flat[i] = gidOf('itemBox');
+      }
       const onStartLine = chequered.has(`${col},${row}`);
       ground[i] = pad
         ? gidOf((['boostE', 'boostS', 'boostW', 'boostN'] as const)[
@@ -1604,6 +1649,11 @@ const map = {
       ...tileLayer(12, 'Boost', 'SurfaceLayer', boostLayer),
       visible: false,
       properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'boost' }],
+    },
+    {
+      ...tileLayer(13, 'Items', 'SurfaceLayer', itemLayer),
+      visible: false,
+      properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'item' }],
     },
     objectLayer(9, 'Furniture', furniture),
     objectLayer(3, 'Actions', objects),

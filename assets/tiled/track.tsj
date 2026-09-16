@@ -1,12 +1,12 @@
 {
-  "columns": 33,
+  "columns": 34,
   "image": "png/src/track.png",
   "imageheight": 18,
-  "imagewidth": 594,
+  "imagewidth": 612,
   "margin": 1,
   "name": "track",
   "spacing": 2,
-  "tilecount": 33,
+  "tilecount": 34,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tiles": [
@@ -311,6 +311,22 @@
           "name": "label",
           "type": "string",
           "value": "Shore cnw"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "TRACK_ITEM_BOX"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Shore ox"
         }
       ]
     }

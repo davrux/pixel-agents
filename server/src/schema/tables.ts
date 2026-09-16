@@ -223,6 +223,9 @@ export const PREF_KINDS = {
   /** Which helmet the user wears when driving — a `HELMETS` id, or empty for "from my own head".
    *  Same shape as the warp style and for the same reason: everyone else sees it. */
   helmet: 'helmet',
+  /** Which kart the user drives — a `KART_SPECS` id. Same shape again: a Sprinter behaves
+   *  differently down a straight, so it is not a private presentation choice. */
+  kartSpec: 'kart_spec',
 } as const;
 
 /** Lookup by table name, bounded by the constant list above. */

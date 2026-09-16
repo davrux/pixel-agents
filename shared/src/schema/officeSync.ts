@@ -176,6 +176,23 @@ export class KartSync extends PawnSync {
   /** Going the wrong way round. Synced rather than derived, so every viewer warns the same driver
    *  at the same moment — and because a client has no velocity to derive it from. */
   @type('boolean') wrongWay = false;
+  /**
+   * What this driver is holding — a `KartItem`, 0 for nothing.
+   *
+   * Synced for EVERY kart and not only for your own, because an item is something the rest of the
+   * field can see coming: a car carrying a shield is one there is no point shoving, and that is
+   * information a race is played on. One byte per kart.
+   */
+  @type('uint8') item = 0;
+  /** Counts down while a shield is up, in tenths of a second — so the HUD can show it running out
+   *  rather than blinking off. */
+  @type('uint8') shieldTenths = 0;
+  /** Spinning on somebody's oil: the renderer turns the art with the heading either way, so this
+   *  is here for the sound and for the HUD, not for the picture. */
+  @type('boolean') spinning = false;
+  /** Which `KartSpec` this car is, as an id. What a car IS is decided when somebody gets in, so
+   *  two viewers must not be able to disagree about it. */
+  @type('string') spec = '';
 }
 
 /**
@@ -270,4 +287,14 @@ export class RoomState extends Schema {
    * record from it. This one is empty on a still map, so a still map costs nothing.
    */
   @type(['string']) furnitureOn = new ArraySchema<string>();
+  /**
+   * Oil on the road, as packed `row * cols + col` cells.
+   *
+   * The one thing an item leaves in the WORLD, so it is the one thing about items that cannot be
+   * derived from a kart. Packed into a number rather than a small schema per slick because a slick
+   * is a cell and nothing else — no size, no owner, no clock a viewer needs: it is there or it is
+   * not, and it is gone when the server says so. Empty in every zone that is not a race track, so
+   * it costs nothing anywhere else.
+   */
+  @type(['uint32']) slicks = new ArraySchema<number>();
 }

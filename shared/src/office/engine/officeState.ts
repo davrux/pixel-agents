@@ -22,6 +22,11 @@ import {
   SPAWN_PROBE_TRIES,
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
+  ITEM_BOOST_SEC,
+  ITEM_OIL_SEC,
+  ITEM_SHIELD_SEC,
+  ITEM_SPIN_SEC,
+  KART_RADIUS_PX,
   RACE_COUNTDOWN_CHOICES,
   RACE_DEFAULT_BOTS,
   RACE_DEFAULT_COUNTDOWN_SEC,
@@ -46,9 +51,11 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
+import { drawItem, KartItem } from '../race/items.js';
+import { DEFAULT_KART_SPEC, KART_SPECS } from '../race/kartSpec.js';
 import { bumpKarts, createKart, facingFromHeading, updateKart, updateLost, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
-import { racerInput } from '../race/racerDriver.js';
+import { racerInput, racerUsesItem } from '../race/racerDriver.js';
 import { DEFAULT_DIFFICULTY, DIFFICULTY, isDifficulty, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
 import {
   completeLap,
@@ -67,6 +74,7 @@ import {
 } from '../race/raceState.js';
 import {
   headingFrom,
+  isItemBox,
   lapFraction,
   raceProgress,
   raceTrack,
@@ -247,6 +255,9 @@ export class OfficeState {
   /** Which helmet each account drives in. Keyed by the owner name, exactly like `warpStylePrefs`
    *  and `skinPrefs` — see `setHelmetPref`. */
   private helmetPrefs = new Map<string, string>();
+  /** Which kart each account drives, by `KartSpec` id — the same shape as `helmetPrefs` and for
+   *  the same reason: it is a fact about a person that only matters while they are in a car. */
+  private kartPrefs = new Map<string, string>();
   /**
    * The karts on this zone's track, and the track itself — both empty/null in every zone whose
    * map is not one. Derived with the layout (see `layoutDerived`), like every other answer about
@@ -257,6 +268,15 @@ export class OfficeState {
   /** The running race, or the idle one. A track is drivable whenever it exists; a RACE is a
    *  bounded episode somebody starts inside it (see race/raceState.ts). */
   private race: Race = createRace();
+  /**
+   * Oil on the road: cell key → how long it has left, in ms.
+   *
+   * On the WORLD rather than on the kart that dropped it, because that is what it is the moment it
+   * is out of the car — whoever dropped it can spin on their own oil on the next lap, which is
+   * both funnier and one fewer rule. Kept as a map keyed by cell so a second slick on the same
+   * cell refreshes rather than stacks, and so the whole thing is bounded by the map.
+   */
+  private slicks = new Map<string, number>();
   /** Ids of the computer drivers in the running race. Emptied with the race, which is the only
    *  thing that keeps it bounded — see clearRacers. */
   private racers = new Set<number>();
@@ -1111,6 +1131,11 @@ export class OfficeState {
       // instant and the figure is not standing in the bodywork.
       already.driverId = null;
       ch.helmet = '';
+      // Whatever they were holding stays in the car they left, which is to say it is gone: an item
+      // is part of the race and not part of a person (see race/items.ts).
+      already.item = KartItem.None;
+      already.shieldMs = 0;
+      already.spinMs = 0;
       already.state = 'idle';
       already.input = { throttle: 0, steer: 0 };
       ch.x = already.x + TILE_SIZE;
@@ -1140,11 +1165,40 @@ export class OfficeState {
     // with its phase: it is only meaningful while driving, and resolving it here means one place
     // decides rather than every viewer guessing.
     ch.helmet = (ch.ownerId ? this.helmetPrefs.get(ch.ownerId) : undefined) ?? '';
+    // …and the kart they chose, resolved the same way and at the same moment. What a car IS is
+    // decided when somebody gets into it: the grid is a row of identical karts until then, and a
+    // spec that followed the seat instead of the driver would hand the next person your choice.
+    best.spec = (ch.ownerId ? this.kartPrefs.get(ch.ownerId) : undefined) ?? DEFAULT_KART_SPEC.id;
     best.state = 'drive';
     // Stop whatever the body was doing: a walk path would otherwise keep being consumed under it.
     ch.path = [];
     ch.heldDir = null;
     return true;
+  }
+
+  /**
+   * What the road does to a car this tick: hand it an item, or spin it on somebody's oil.
+   *
+   * Both are contact with a CELL and both are decided here rather than in `updateKart`, which
+   * stays a pure function of one kart and the map — the draw is random and the oil belongs to the
+   * world.
+   */
+  private pickUpAndSpin(kart: Kart): void {
+    if (!this.track || kart.driverId === null || kart.state !== 'drive' || kart.finished) return;
+    const col = Math.floor(kart.x / TILE_SIZE);
+    const row = Math.floor(kart.y / TILE_SIZE);
+    // A box gives you something only if your hands are empty, which is the rule that lets a box
+    // have no state of its own — see race/items.ts.
+    if (kart.item === KartItem.None && isItemBox(this.track, col, row)) {
+      kart.item = drawItem(Math.random());
+    }
+    const key = `${col},${row}`;
+    if (this.slicks.has(key) && kart.shieldMs <= 0 && kart.spinMs <= 0) {
+      kart.spinMs = ITEM_SPIN_SEC * 1000;
+      // Consumed, like every other thing of this kind in every other game of this kind: one slick
+      // is one victim, so a corner cannot become impassable for the rest of the race.
+      this.slicks.delete(key);
+    }
   }
 
   /** What a driver is asking their kart for. Clamped here, because it arrives from a client. */
@@ -1250,6 +1304,10 @@ export class OfficeState {
       if (id === null) break;
       bots--;
       kart.driverId = id;
+      // A computer driver takes a kart from the table in turn, so the field is a field of cars and
+      // not one car ten times. Round-robin rather than random, for the same reason the scenery
+      // scatter is a hash: a grid that is different every time is a grid nobody can learn.
+      kart.spec = KART_SPECS[bots % KART_SPECS.length].id;
       kart.state = 'drive';
       driven.push(kart);
     }
@@ -1350,6 +1408,12 @@ export class OfficeState {
     if (!this.track || this.karts.size === 0) return;
     const world = { tileMap: this.tileMap, blockedTiles: this.blockedTiles, walls: this.walls, track: this.track };
 
+    // Oil dries. Ticked with the karts because that is when it matters, and deleted rather than
+    // left at zero so `slicks` is bounded by what is actually on the road.
+    for (const [cell, left] of this.slicks) {
+      if (left <= dt * 1000) this.slicks.delete(cell);
+      else this.slicks.set(cell, left - dt * 1000);
+    }
     const { ended } = tickRace(this.race, dt * 1000);
     if (ended) for (const kart of this.karts.values()) kart.input = { throttle: 0, steer: 0 };
     // The results board is up for a while and then the track is free again — which is also when
@@ -1380,8 +1444,13 @@ export class OfficeState {
       if (kart.driverId !== null && this.racers.has(kart.driverId)) {
         const ch = this.characters.get(kart.driverId);
         kart.input = racerInput(kart, world, { level: ch?.racerSkill ?? 0.6 });
+        // …and whether it spends what it is holding, which is a decision of its own and asked as
+        // one. Through the same door a human's key press goes through, so there is one rule about
+        // when an item may be used and it is not written twice.
+        if (racerUsesItem(kart, world) && kart.driverId !== null) this.useKartItem(kart.driverId);
       }
       const { lapped } = updateKart(kart, dt, world);
+      this.pickUpAndSpin(kart);
       // A lap always counts on the ring — it is how a car knows where it is, and a free-roam lap
       // tally is pleasant. What a lap MEANS is the race's business, and with none running it
       // means nothing at all, which is the whole of "drive as long as you like".
@@ -1646,6 +1715,52 @@ export class OfficeState {
    *  when they get into a kart, so a change takes effect the next time they drive. */
   setHelmetPref(folderName: string, id: string): void {
     this.helmetPrefs.set(folderName, id);
+  }
+
+  /** Which kart an account drives, by `KartSpec` id. Applied when they next get in — see
+   *  `boardKart`, and `setHelmetPref` for the shape this follows. */
+  setKartPref(folderName: string, id: string): void {
+    this.kartPrefs.set(folderName, id);
+  }
+
+  /** Every oil slick on the road, as cell keys — what the room syncs. */
+  oilSlicks(): string[] {
+    return [...this.slicks.keys()];
+  }
+
+  /**
+   * Spend what a driver is holding.
+   *
+   * Everything is resolved from the kart the CHARACTER is in, never from anything a client sent:
+   * the only thing a viewer may say is "now" (see AGENTS.md § Security). Answering whether it
+   * happened lets the room stay silent rather than guess.
+   */
+  useKartItem(characterId: number): boolean {
+    const kart = this.kartOf(characterId);
+    if (!kart || kart.state !== 'drive' || kart.finished) return false;
+    if (this.race.phase === 'countdown') return false; // the lights are still red
+    switch (kart.item) {
+      case KartItem.Boost:
+        kart.boostMs = ITEM_BOOST_SEC * 1000;
+        break;
+      case KartItem.Shield:
+        kart.shieldMs = ITEM_SHIELD_SEC * 1000;
+        break;
+      case KartItem.Oil: {
+        // BEHIND the car, which is the whole of what an oil slick is for — and far enough back
+        // that a driver cannot drop one onto their own bonnet at a standstill.
+        const back = KART_RADIUS_PX * 2;
+        const col = Math.floor((kart.x - Math.cos(kart.heading) * back) / TILE_SIZE);
+        const row = Math.floor((kart.y - Math.sin(kart.heading) * back) / TILE_SIZE);
+        if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
+        this.slicks.set(`${col},${row}`, ITEM_OIL_SEC * 1000);
+        break;
+      }
+      default:
+        return false;
+    }
+    kart.item = KartItem.None;
+    return true;
   }
 
   setWarpStylePref(folderName: string, style: WarpStyleId): void {

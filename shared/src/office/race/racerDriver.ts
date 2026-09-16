@@ -34,6 +34,7 @@ import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
+import { KartItem } from './items.js';
 import { kartSpec } from './kartSpec.js';
 import { isRough, nextPoint } from './track.js';
 
@@ -63,6 +64,9 @@ const LOOK_TILES_MAX = 34;
  * at 0.92, so the quickest of a MEDIUM field runs at 96 % and a clean human lap wins.
  */
 const PACE_FLOOR = 0.62;
+/** How much clear road ahead a computer driver wants before it spends a BOOST, in tiles. Far
+ *  enough that the speed has somewhere to go, and short enough to happen twice a lap. */
+const BOOST_ROOM_TILES = 16;
 /** Below this much road to the left and right combined, a stretch counts as tight. */
 const TIGHT_TILES = 3.2;
 /** How far to each side the road is measured, in tiles. See `half` in `racerInput`. */
@@ -286,4 +290,34 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   const throttle = (ahead >= lift && speed < limit) || floor ? 1 : ahead < look * 0.22 || speed > limit * 1.25 ? -1 : 0;
 
   return { throttle, steer: diff > 0.05 ? 1 : diff < -0.05 ? -1 : 0 };
+}
+
+/**
+ * Does this computer driver spend what it is holding, this tick?
+ *
+ * Asked separately from the steering because it is a separate decision and has a separate answer:
+ * `racerInput` says where the car goes, this says whether something happens. Without it the field
+ * fills its hands at the first box and drives round armed for the rest of the race — measured in a
+ * browser before this existed: four pickups in a minute across seven cars, and not one of them
+ * used.
+ *
+ * One rule per item, and each is the obvious one rather than a clever one:
+ *
+ *  - **A shield is spent at once.** Holding it is holding nothing: it protects from what is about
+ *    to happen and nobody knows when that is, so the only wrong moment is later.
+ *  - **Oil is dropped at once**, for the same reason from the other end — it lands BEHIND, so what
+ *    it is worth depends on somebody being back there, which is exactly what a driver with no
+ *    knowledge of the field cannot know. Dropping it early at least puts it on the road.
+ *  - **A boost waits for somewhere to spend it.** The one item whose value really does depend on
+ *    where the car is: used in a corner it is taken straight back off by the tyres, so it waits
+ *    until the road ahead is open — the same `room` probe the throttle already uses, so the driver
+ *    is not given a second opinion about the road.
+ */
+export function racerUsesItem(kart: Kart, world: KartWorld): boolean {
+  if (kart.item === KartItem.None || kart.finished || kart.state !== 'drive') return false;
+  if (kart.item !== KartItem.Boost) return true;
+  if (kart.boostMs > 0) return false; // already going: two boosts at once is one boost wasted
+  const speed = Math.hypot(kart.vx, kart.vy);
+  const course = speed > 5 ? Math.atan2(kart.vy, kart.vx) : kart.heading;
+  return room(kart, world, course, BOOST_ROOM_TILES) >= BOOST_ROOM_TILES;
 }

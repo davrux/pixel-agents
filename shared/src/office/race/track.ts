@@ -74,6 +74,15 @@ export interface RaceTrack {
    */
   boost: ReadonlySet<string>;
   /**
+   * `"col,row"` of every ITEM BOX — road that hands a driver something to use.
+   *
+   * A surface rather than a placed object, for the same reason `boost` is one: it is a fact about
+   * a CELL of the road, the map paints it where the racing line goes, and nothing about it has to
+   * be synced. A box never empties (a kart holds one item, so a box with nothing to give simply
+   * does nothing — see race/items.ts), which is what keeps it out of the wire entirely.
+   */
+  itemBox: ReadonlySet<string>;
+  /**
    * Where a stage ENDS, as a pixel point — the centre of its finish line, or null on a circuit.
    *
    * The gates are a ring and `nextGate` wraps, which is exactly right for a lap and exactly wrong
@@ -106,6 +115,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const grid: Array<{ slot: number; x: number; y: number; dir: number }> = [];
   const rough = new Set<string>();
   const boost = new Set<string>();
+  const itemBox = new Set<string>();
   let finish: { x: number; y: number } | null = null;
   const actions = layout.tileActions ?? [];
   for (let i = 0; i < actions.length; i++) {
@@ -144,6 +154,10 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     const col = cell % layout.cols;
     boost.add(key(col, (cell - col) / layout.cols));
   }
+  for (const cell of layout.surfaces?.item ?? []) {
+    const col = cell % layout.cols;
+    itemBox.add(key(col, (cell - col) / layout.cols));
+  }
   if (byGate.size < 2 || grid.length === 0) return null;
 
   const gates: RaceGate[] = [...byGate.entries()]
@@ -166,6 +180,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     finish,
     rough,
     boost,
+    itemBox,
   };
 }
 
@@ -177,6 +192,11 @@ export function isRough(track: RaceTrack, col: number, row: number): boolean {
 /** Is this tile a boost pad? */
 export function isBoost(track: RaceTrack, col: number, row: number): boolean {
   return track.boost.has(key(col, row));
+}
+
+/** Is this tile an item box? */
+export function isItemBox(track: RaceTrack, col: number, row: number): boolean {
+  return track.itemBox.has(key(col, row));
 }
 
 /** Which gate covers this tile, or null. */

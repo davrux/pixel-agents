@@ -27,6 +27,8 @@ import {
   RACE_MIN_LAPS,
 } from '@pixel/shared/office/constants.js';
 import { pointsFor } from '@pixel/shared/office/race/championship.js';
+import { kartItem } from '@pixel/shared/office/race/items.js';
+import { KART_SPECS } from '@pixel/shared/office/race/kartSpec.js';
 import { raceClock } from '@pixel/shared/office/race/raceState.js';
 import { RACE_PHASES, type RacePhase } from '@pixel/shared/office/race/raceState.js';
 
@@ -74,6 +76,8 @@ export interface RaceHudModel {
   recordLapBy: string;
   recordRaceMs: number;
   recordRaceBy: string;
+  /** Which kart this viewer drives — a `KART_SPECS` id, chosen in the setup panel. */
+  kartSpec: string;
   /** This viewer, when they are in the race. */
   own: {
     lap: number;
@@ -83,6 +87,10 @@ export interface RaceHudModel {
     lastLapMs: number;
     bestLapMs: number;
     wrongWay: boolean;
+    /** What they are holding — a `KartItem`, 0 for nothing. */
+    item: number;
+    /** Seconds of shield left, 0 when none is up. */
+    shieldSec: number;
     } | null;
   drivers: RaceHudDriver[];
 }
@@ -102,6 +110,18 @@ const CSS = `
   text-shadow:0 0 4px #000,0 0 4px #000,0 0 8px #000;}
 .pa-race-banner.warn{color:#e7da00;}
 .pa-race-banner.bad{color:#e2585a;}
+
+/* The item slot: what you are holding and, while a shield is up, how long for. Left of centre and
+   low, where a driver's eyes are not — the position and the lap live on the right. */
+.pa-race-item{position:absolute;left:0.8rem;top:4.2rem;z-index:47;pointer-events:none;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.4rem 0.7rem;
+  box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font:0.95rem 'FS Pixel Sans',monospace;
+  color:#f1efec;display:flex;align-items:center;gap:0.5rem;min-width:7.5rem;}
+.pa-race-item .glyph{font-size:1.7rem;line-height:1;}
+.pa-race-item .name{color:#adb0b2;}
+.pa-race-item .key{color:#818586;font-size:0.8rem;}
+.pa-race-item.armed .name{color:#f5f3f0;}
+.pa-race-item.shield{border-color:#4998c0;}
 
 .pa-race-hud{position:absolute;right:0.8rem;top:4.2rem;z-index:47;pointer-events:none;
   background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.5rem 0.6rem;min-width:15rem;
@@ -170,6 +190,7 @@ export class RaceHud {
   private banner: HTMLDivElement | null = null;
   private hud: HTMLDivElement | null = null;
   private board: HTMLDivElement | null = null;
+  private itemSlot: HTMLDivElement | null = null;
   /** What the banner last said, so it is only rewritten when it changes. */
   private bannerText = '';
 
@@ -193,8 +214,8 @@ export class RaceHud {
 
   /** Everything the overlay owns, gone. */
   destroy(): void {
-    for (const el of [this.lights, this.banner, this.hud, this.board]) el?.remove();
-    this.lights = this.banner = this.hud = this.board = null;
+    for (const el of [this.lights, this.banner, this.hud, this.board, this.itemSlot]) el?.remove();
+    this.lights = this.banner = this.hud = this.board = this.itemSlot = null;
   }
 
   update(m: RaceHudModel | null): void {
@@ -205,8 +226,36 @@ export class RaceHud {
     this.renderLights(m);
     this.renderBanner(m);
     this.renderHud(m);
+    this.renderItem(m);
     this.renderBoard(m);
     this.renderSetup(m);
+  }
+
+  /**
+   * The item slot: what this driver is holding, and the key that spends it.
+   *
+   * Shown only to somebody in a seat, and only while there is something to say — an empty slot
+   * with nothing in it is a box on the screen that never changes. The shield is the exception it
+   * stays up for: its own clock is the thing you are watching, so the slot keeps showing it after
+   * the item itself is gone.
+   */
+  private renderItem(m: RaceHudModel): void {
+    const own = m.own;
+    const holding = own ? kartItem(own.item) : null;
+    const shield = (own?.shieldSec ?? 0) > 0;
+    if (!own || (!holding && !shield)) {
+      if (this.itemSlot) this.itemSlot.style.display = 'none';
+      return;
+    }
+    this.itemSlot = this.el(this.itemSlot, 'pa-race-item');
+    this.itemSlot.style.display = '';
+    this.itemSlot.className = `pa-race-item${holding ? ' armed' : ''}${shield ? ' shield' : ''}`;
+    // The shield wins the slot while it is running: what it is worth is how long is left.
+    const glyph = shield ? '🛡' : (holding?.glyph ?? '');
+    const name = shield ? `${Math.ceil(own.shieldSec)}s` : (holding?.label ?? '');
+    this.itemSlot.innerHTML =
+      `<span class="glyph">${glyph}</span><span class="name">${name}</span>` +
+      (holding ? '<span class="key">SPACE</span>' : '');
   }
 
   /**
@@ -248,7 +297,7 @@ export class RaceHud {
     const drivers = Math.min(m.gridSlots, m.humansInKarts + s.bots);
     // Rebuilt only when something it shows has changed: these are real buttons, and replacing the
     // one under the pointer between mousedown and mouseup swallows the click.
-    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}|${m.sound}`;
+    const key = `${s.laps}|${s.bots}|${s.countdownSec}|${s.difficulty}|${m.gridSlots}|${m.humansInKarts}|${m.sprint}|${m.sound}|${m.kartSpec}`;
     if (key === this.setupKey) return;
     this.setupKey = key;
     const stepper = (label: string, value: string, dec: string, inc: string, canDec: boolean, canInc: boolean): string =>
@@ -282,7 +331,14 @@ export class RaceHud {
       `<button class="go" data-act="start"${ready ? '' : ' disabled'}>Start</button>` +
       (ready ? '' : `<span class="hint">get in a kart (E)</span>`) +
       `</div>`;
-    this.setup.innerHTML = `${laps}${bots}${diff}${count}${go}${this.soundButton(m)}`;
+    // Which kart YOU drive. Beside the shared settings but not one of them: everyone else's
+    // choice is their own, so this row is the one in the panel that answers only for the viewer.
+    const kart = `<div class="f"><span>your kart</span><div class="row">` +
+      KART_SPECS.map(
+        (k) => `<button data-act="kart:${k.id}" class="${k.id === m.kartSpec ? 'on' : ''}">${k.label}</button>`,
+      ).join('') +
+      `</div></div>`;
+    this.setup.innerHTML = `${laps}${bots}${diff}${count}${kart}${go}${this.soundButton(m)}`;
     for (const b of this.setup.querySelectorAll<HTMLButtonElement>('button[data-act]')) {
       b.onclick = () => this.act(b.dataset.act ?? '', m);
     }
@@ -316,10 +372,14 @@ export class RaceHud {
     if (action === 'bots+') return void this.send('raceSetup', { bots: s.bots + 1 });
     if (action.startsWith('diff:')) return void this.send('raceSetup', { difficulty: action.slice(5) });
     if (action.startsWith('count:')) return void this.send('raceSetup', { countdownSec: Number(action.slice(6)) });
+    // Not a race setting: this one is the viewer's own, kept with their helmet and warp style.
+    if (action.startsWith('kart:')) return void this.send('setKartSpec', { spec: action.slice(5) });
   }
 
   private hide(): void {
-    for (const el of [this.lights, this.banner, this.hud, this.board, this.setup]) if (el) el.style.display = 'none';
+    for (const el of [this.lights, this.banner, this.hud, this.board, this.setup, this.itemSlot]) {
+      if (el) el.style.display = 'none';
+    }
     this.setupKey = '';
   }
 

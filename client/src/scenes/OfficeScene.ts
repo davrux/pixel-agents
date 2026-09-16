@@ -30,6 +30,7 @@ import {
 import { loadEffectSheets } from '../art/effects.js';
 import { loadVehicleSheets } from '../art/vehicles.js';
 import { RaceHud, raceTime, racePhaseOf, type RaceHudModel } from '../ui/raceHud.js';
+import { DEFAULT_KART_SPEC, KART_SPECS } from '@pixel/shared/office/race/kartSpec.js';
 import { helmetPickerHtml } from '../ui/helmetPicker.js';
 import { vehicleArt } from '@pixel/shared/office/race/kartArt.js';
 import { DEFAULT_HELMET, isHelmetId } from '@pixel/shared/office/race/helmets.js';
@@ -161,6 +162,11 @@ type RenderKart = {
   art: number;
   wrongWay: boolean;
   progress: number;
+  /** What this driver is holding — a `KartItem`. Every kart's, not only your own: a car with a
+   *  shield up is one there is no point shoving. */
+  item: number;
+  shieldTenths: number;
+  spinning: boolean;
 };
 
 /** What a speech bubble hangs over: an avatar (a chat line) or a piece of
@@ -279,6 +285,9 @@ export class OfficeScene extends Phaser.Scene {
    *  offset would be a poor trade), so the look-ahead measures it here. */
   private driveSpeed = 0;
   private drivePrev: { x: number; y: number } | null = null;
+  /** Oil on the road, as packed cells — straight off the wire, because it is world state and a
+   *  viewer has nothing to derive it from. */
+  private slicks: number[] = [];
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
   /** This zone's placements with the on-state applied — the map's own objects, not a decoded
@@ -472,6 +481,9 @@ export class OfficeScene extends Phaser.Scene {
   /** The helmet this viewer picked, mirrored locally only to paint the picker — what everybody
    *  sees is whatever the server publishes on the pawn when they get into a kart. */
   private helmet: string = DEFAULT_HELMET;
+  /** The kart this viewer picked, mirrored locally only to paint the race panel's row — what
+   *  actually decides the car is the spec the server puts on the kart when they get in. */
+  private myKartSpec: string = DEFAULT_KART_SPEC.id;
 
   /** Paint the helmet grid's selection, for the same reason `markWarpStyle` exists. */
   private markHelmet(): void {
@@ -808,6 +820,7 @@ export class OfficeScene extends Phaser.Scene {
       getCharacters: () => [...scene.characters.values()] as unknown as Character[],
       getPets: () => [...scene.pets.values()] as unknown as Pet[],
       getKarts: () => [...scene.karts.values()],
+      getSlicks: () => scene.slicks,
     };
   }
 
@@ -1064,6 +1077,7 @@ export class OfficeScene extends Phaser.Scene {
       pets: MapSchema<Record<string, unknown>>;
       karts: MapSchema<Record<string, unknown>>;
       furnitureOn: ArraySchema<string>;
+      slicks: ArraySchema<number>;
     };
 
     $(state).characters.onAdd((cs: Record<string, unknown>, key: string) => {
@@ -1116,6 +1130,9 @@ export class OfficeScene extends Phaser.Scene {
         art: 0,
         wrongWay: false,
         progress: 0,
+        item: 0,
+        shieldTenths: 0,
+        spinning: false,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1132,6 +1149,15 @@ export class OfficeScene extends Phaser.Scene {
     $(state).furnitureOn.onAdd(markFurniture);
     $(state).furnitureOn.onChange(markFurniture);
     $(state).furnitureOn.onRemove(markFurniture);
+
+    // Oil on the road. Copied wholesale rather than patched cell by cell: the list is a handful of
+    // numbers and the renderer diffs it against what it has drawn anyway.
+    const readSlicks = () => {
+      this.slicks = [...(state.slicks as ArraySchema<number>)].map((v) => Number(v) || 0);
+    };
+    $(state).slicks.onAdd(readSlicks);
+    $(state).slicks.onChange(readSlicks);
+    $(state).slicks.onRemove(readSlicks);
   }
 
   private applyChar(rc: RenderChar, cs: Record<string, unknown>): void {
@@ -1200,6 +1226,9 @@ export class OfficeScene extends Phaser.Scene {
     rk.art = (ks.art as number) ?? 0;
     rk.wrongWay = !!ks.wrongWay;
     rk.progress = ((ks.progress as number) ?? 0) / 100;
+    rk.item = (ks.item as number) ?? 0;
+    rk.shieldTenths = (ks.shieldTenths as number) ?? 0;
+    rk.spinning = !!ks.spinning;
   }
 
   /**
@@ -1305,6 +1334,7 @@ export class OfficeScene extends Phaser.Scene {
       ).length,
       here: this.myPlayerId !== null,
       sound: this.soundOn,
+      kartSpec: this.myKartSpec,
       entries: (race.entries as number) ?? 0,
       lit: phase === 'countdown' ? (secs <= 0 ? 3 : Math.max(0, 3 - secs + 1)) : 0,
       go: phase === 'countdown' && secs <= 0,
@@ -1321,6 +1351,8 @@ export class OfficeScene extends Phaser.Scene {
             lastLapMs: mine.lastLapMs,
             bestLapMs: mine.bestLapMs,
             wrongWay: mine.wrongWay,
+            item: mine.item,
+            shieldSec: mine.shieldTenths / 10,
           }
         : null,
       drivers: [...this.karts.values()]
@@ -2338,6 +2370,19 @@ export class OfficeScene extends Phaser.Scene {
       sentThrottle = null;
       sentSteer = null;
     });
+    /**
+     * Spend what you are holding (SPACE), and only while driving.
+     *
+     * A request with no payload: which car, which item and whether any of it is allowed are the
+     * server's to resolve (§ Security). Guarded on being in a seat here purely so the key stays
+     * free for whatever a walker might want it for later — the server refuses it either way.
+     */
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'Space' || e.repeat || blocked(e)) return;
+      if (!this.myKart()) return;
+      e.preventDefault();
+      this.room?.send('useKartItem', {});
+    });
     // Sit toggle (C): rest in place; moving stands the avatar back up (server-side).
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'KeyC' || e.repeat || blocked(e)) return;
@@ -2575,6 +2620,14 @@ export class OfficeScene extends Phaser.Scene {
         // The speaker is the viewer's OWN setting, not something the world decides, so it never
         // goes on the wire as a race message.
         if (type === '__sound') return void this.toggleSound();
+        // The kart choice is this viewer's own and comes back on no patch — the panel's other rows
+        // redraw from synced state, and this one has none to redraw from. Mirrored locally the way
+        // the helmet picker mirrors its own, so the row shows what was pressed; the server still
+        // decides what it MEANS, and refuses an id it does not know.
+        if (type === 'setKartSpec') {
+          const want = (payload as { spec?: unknown } | undefined)?.spec;
+          if (typeof want === 'string' && KART_SPECS.some((k) => k.id === want)) this.myKartSpec = want;
+        }
         this.room?.send(type, payload);
       });
     }
@@ -4497,6 +4550,7 @@ export class OfficeScene extends Phaser.Scene {
     // for everything the panel has to show.
     if (isWarpStyleId(m.warpStyle)) this.warpStyle = m.warpStyle;
     if (isHelmetId(m.helmet)) this.helmet = m.helmet as string;
+    if (typeof m.kartSpec === 'string' && m.kartSpec) this.myKartSpec = m.kartSpec;
     this.cameraFollowEnabled = m.cameraFollow !== false;
     this.iframeOverlay = m.iframeOverlay === true;
     setSoundEnabled(this.soundOn);

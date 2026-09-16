@@ -583,6 +583,32 @@ export const KART_LOST_SEC = 5;
  * cover both halves of being lost.
  */
 export const KART_LOST_MOVE_TILES = 3;
+
+/**
+ * How long a kart's BOOST item lasts, in seconds.
+ *
+ * Longer than a pad's carry (`BOOST_CARRY_SEC`), because a pad is somewhere you drive over and an
+ * item is something you spend: a boost you chose the moment for has to be worth having kept.
+ */
+export const ITEM_BOOST_SEC = 2.6;
+/** How long a SHIELD holds off a shove and a spin, in seconds. */
+export const ITEM_SHIELD_SEC = 6;
+/** How long a dropped oil slick stays on the road, in seconds. */
+export const ITEM_OIL_SEC = 20;
+/**
+ * How long a car spins after touching oil, in seconds.
+ *
+ * Short on purpose. It is measured against what it costs at racing speed rather than against how
+ * funny it looks: at 320 px/s a second and a half is most of twenty tiles of road driven by
+ * somebody who is not steering, which is a corner's worth of position — enough to matter and not
+ * enough to end anybody's race.
+ */
+export const ITEM_SPIN_SEC = 1.5;
+/** How fast a spinning kart turns, in radians per second. Three-and-a-bit full turns a second, so
+ *  it reads as a spin rather than as a car changing its mind. */
+export const ITEM_SPIN_RAD_PER_SEC = 21;
+/** How much of its grip a spinning kart keeps: almost none, so it slides where it was going. */
+export const ITEM_SPIN_GRIP = 0.15;
 /** Below this, with the engine asking for something, a kart is not moving in any useful sense. */
 export const KART_STUCK_SPEED_PX_PER_SEC = 14;
 /**

@@ -568,6 +568,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const [name, id] of Object.entries(appStore.getHelmets())) {
       this.os.setHelmetPref(name, id);
     }
+    // …and which kart they drive, which everyone else sees the moment it out-drags them.
+    for (const [name, id] of Object.entries(appStore.getKartSpecs())) {
+      this.os.setKartPref(name, id);
+    }
 
     // Seed any agents that already exist (mock/feed started before this room),
     // but only those whose owner is currently viewing this zone.
@@ -721,7 +725,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const warpStyle = (userId ? appStore.getWarpStyle(userId) : null) ?? DEFAULT_WARP_STYLE;
     // …and the helmet, for the same reason: not a viewer setting, but the panel has to show it.
     const helmet = userId ? appStore.helmet(userId) : '';
-    client.send('m', { type: 'settingsLoaded', ...vs, warpStyle, helmet });
+    // …and the kart, for the same reason: the race panel has to show which one is yours.
+    const kartSpec = userId ? appStore.kartSpec(userId) : '';
+    client.send('m', { type: 'settingsLoaded', ...vs, warpStyle, helmet, kartSpec });
   }
 
   onLeave(client: Client): void {
@@ -1677,6 +1683,27 @@ export class SimRoom extends Room<{ state: RoomState }> {
      * Same shape as the warp style above, and same reason it is not a viewer setting: it is not
      * private, so the id is checked against the table here rather than trusted.
      */
+    /**
+     * Spend what you are holding. No payload at all, deliberately: the only thing a client gets to
+     * say is "now" — which car, which item and whether any of it is allowed are resolved from the
+     * session and the world (§ Security). A refusal is silent, because the HUD already shows an
+     * empty slot and there is nothing to tell somebody who pressed a key twice.
+     */
+    this.onMessage('useKartItem', (client) => {
+      const id = this.players.get(client.sessionId);
+      if (id !== undefined) this.os.useKartItem(id);
+    });
+    /**
+     * Which kart this viewer drives. Everyone else sees it — a Sprinter is a different car down
+     * the straight — so the id is checked against the table here rather than trusted, exactly like
+     * the helmet below.
+     */
+    this.onMessage('setKartSpec', (client, msg: { spec?: unknown }) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      if (!appStore.setKartSpec(userId, msg?.spec)) return; // unknown id: refused silently
+      this.os.setKartPref(userId, String(msg!.spec));
+    });
     this.onMessage('setHelmet', (client, msg: { helmet?: unknown }) => {
       const { userId } = authOf(client);
       if (!userId) return;
@@ -2386,6 +2413,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.lastLapMs = Math.max(0, Math.round(entry?.lastLapMs ?? kart.lastLapMs));
       ks.bestLapMs = Math.max(0, Math.round(entry?.bestLapMs ?? kart.bestLapMs));
       ks.totalMs = Math.max(0, Math.round(entry?.finishedMs ?? 0));
+      // Coerced and clamped where they enter a typed field, like everything else fed from the
+      // simulation (AGENTS.md § Security — a NaN passes a uint8 quietly and a string throws).
+      ks.item = Math.min(255, Math.max(0, kart.item | 0));
+      ks.shieldTenths = Math.min(255, Math.max(0, Math.round(kart.shieldMs / 100)));
+      ks.spinning = kart.spinMs > 0;
+      ks.spec = String(kart.spec ?? '');
+    }
+    // Oil is world state, not kart state: it outlives whoever dropped it, so it travels once for
+    // the room rather than once per car.
+    const cols = this.os.layout?.cols ?? 0;
+    const want = this.os.oilSlicks().map((cell) => {
+      const [c, r] = cell.split(',');
+      return (Number(r) || 0) * cols + (Number(c) || 0);
+    });
+    if (want.length !== this.state.slicks.length || want.some((v, i) => this.state.slicks[i] !== v)) {
+      this.state.slicks.splice(0, this.state.slicks.length, ...want);
     }
     for (const key of [...this.state.karts.keys()]) {
       if (!live.has(key)) this.state.karts.delete(key);

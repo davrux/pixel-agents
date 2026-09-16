@@ -14,6 +14,7 @@ import { Direction, type PlayerSpot } from '@pixel/shared/office/types.js';
 import { db } from './db.js';
 import { isWarpStyleId, type WarpStyleId } from '@pixel/shared/office/effects.js';
 import { DEFAULT_HELMET, isHelmetId } from '@pixel/shared/office/race/helmets.js';
+import { DEFAULT_KART_SPEC, KART_SPECS } from '@pixel/shared/office/race/kartSpec.js';
 
 import { PREF_KINDS, userChildDdl } from './schema/tables.js';
 import { migrateUserBlobs } from './schema/migrateUserBlobs.js';
@@ -323,6 +324,32 @@ class AppStore {
   helmet(userId: string): string {
     const stored = this.pref(userId, PREF_KINDS.helmet);
     return isHelmetId(stored) ? (stored as string) : DEFAULT_HELMET;
+  }
+
+  /** Somebody's chosen kart, or the balanced one when they have never picked. */
+  kartSpec(userId: string): string {
+    const stored = this.pref(userId, PREF_KINDS.kartSpec);
+    return typeof stored === 'string' && KART_SPECS.some((k) => k.id === stored)
+      ? stored
+      : DEFAULT_KART_SPEC.id;
+  }
+
+  /** Store a kart choice. Refused, not clamped, for an id this build does not know: an unknown
+   *  spec is a client saying something rather than a user choosing something. */
+  setKartSpec(userId: string, id: unknown): boolean {
+    if (typeof id !== 'string' || !KART_SPECS.some((k) => k.id === id)) return false;
+    this.putPref(userId, PREF_KINDS.kartSpec, id);
+    return true;
+  }
+
+  /** Every stored kart choice, for seeding a room — same shape as `getHelmets`. */
+  getKartSpecs(): Record<string, string> {
+    const rows = this.db
+      .prepare('SELECT user_id, value FROM user_prefs WHERE kind = ?')
+      .all(PREF_KINDS.kartSpec) as Array<{ user_id: string; value: string }>;
+    const out: Record<string, string> = {};
+    for (const r of rows) if (KART_SPECS.some((k) => k.id === r.value)) out[r.user_id] = r.value;
+    return out;
   }
 
   /** Remove a user's pinned skin (e.g. when that character was deleted). */

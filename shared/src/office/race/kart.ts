@@ -48,6 +48,8 @@ import {
   KART_STEER_AT_REST,
   KART_STUCK_SEC,
   KART_STUCK_SPEED_PX_PER_SEC,
+  ITEM_SPIN_GRIP,
+  ITEM_SPIN_RAD_PER_SEC,
   KART_LOST_MOVE_TILES,
   KART_LOST_SEC,
   KART_WRONG_WAY_SEC,
@@ -58,6 +60,7 @@ import {
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
+import { KartItem } from './items.js';
 import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
 import { gateAt, headingFrom, isBoost, isRough, nextGate, nextPoint, wrapAngle, type RaceTrack } from './track.js';
 
@@ -155,6 +158,18 @@ export interface Kart {
    * sustains it (moving backwards is moving, which would clear the jam and drive straight back in).
    */
   recoverMs: number;
+  /**
+   * What this driver is holding, and the two clocks an item can leave behind.
+   *
+   * On the KART rather than on the character, like everything else about driving: you pick an item
+   * up with the car and you lose it when you get out, which is what makes an item part of the race
+   * rather than part of a person. See race/items.ts for the table and for why a kart holds one.
+   */
+  item: KartItem;
+  /** While > 0, shoves and oil do nothing to this car. */
+  shieldMs: number;
+  /** While > 0, this car is spinning: it turns on its own and has almost no grip. */
+  spinMs: number;
 }
 
 export interface KartWorld {
@@ -185,6 +200,9 @@ export function createKart(id: number, at: { x: number; y: number }, heading: nu
     spec: DEFAULT_KART_SPEC.id,
     art: 0,
     sliding: false,
+    item: KartItem.None,
+    shieldMs: 0,
+    spinMs: 0,
     wrongWay: false,
     wrongMs: 0,
     lostMs: 0,
@@ -263,6 +281,23 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // Every number the handling reads comes from the spec, so a second kind of kart is a row in a
   // table rather than a branch in here (see kartSpec.ts).
   const spec = kartSpec(kart.spec);
+  // ── what an item left behind ──────────────────────────────────────────────
+  // Both clocks run for anybody in a seat, and only there: a parked kart cannot be spinning, and a
+  // shield somebody carried out of the car is a shield nobody can see the point of.
+  if (kart.driverId === null) {
+    kart.shieldMs = 0;
+    kart.spinMs = 0;
+  } else {
+    kart.shieldMs = Math.max(0, kart.shieldMs - dt * 1000);
+    kart.spinMs = Math.max(0, kart.spinMs - dt * 1000);
+  }
+  // A SPIN turns the car and nothing else. The steering below still runs — a driver fighting it is
+  // what makes a spin something you recover from rather than something you watch — but the tyres
+  // are down to `ITEM_SPIN_GRIP` further down, so what the car does is slide on where it was
+  // going. Turning the heading rather than zeroing the velocity is the whole trick: the physics is
+  // unchanged, the car simply is not pointing where it is travelling any more.
+  if (kart.spinMs > 0) kart.heading = wrapAngle(kart.heading + ITEM_SPIN_RAD_PER_SEC * dt);
+
   const fx = Math.cos(kart.heading);
   const fy = Math.sin(kart.heading);
 
@@ -318,7 +353,8 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
 
   // The tyres kill at most this much sideways speed this tick — a LIMIT, not a fraction. Beyond
   // it the kart slides, and that is the drift.
-  const lateral = spec.grip * surface * Math.sqrt(Math.max(0, 1 - power * power));
+  const lateral =
+    spec.grip * surface * (kart.spinMs > 0 ? ITEM_SPIN_GRIP : 1) * Math.sqrt(Math.max(0, 1 - power * power));
   const bite = lateral * dt;
   side -= Math.sign(side) * Math.min(Math.abs(side), bite);
 
@@ -534,8 +570,15 @@ export function bumpKarts(a: Kart, b: Kart): boolean {
   // b is pushed along the normal and a loses what it gave away, so ramming is a trade rather
   // than a free win. The shove lands on the VECTOR, which is why it can send somebody sideways
   // off a bridge instead of just nudging them a pixel.
-  b.vx += nx * shove;
-  b.vy += ny * shove;
+  //
+  // A SHIELD refuses the shove — and only the shove. The two cars are still separated above, or a
+  // shielded kart would be something the rest of the field drives through; what it buys is that
+  // nobody can push you off the bridge while it lasts. The other car still pays what it gave away,
+  // so ramming a shield is the worst trade on the track, which is the point of carrying one.
+  if (b.shieldMs <= 0) {
+    b.vx += nx * shove;
+    b.vy += ny * shove;
+  }
   a.vx -= nx * Math.max(0, closing) * KART_BUMP_TRANSFER;
   a.vy -= ny * Math.max(0, closing) * KART_BUMP_TRANSFER;
   return true;

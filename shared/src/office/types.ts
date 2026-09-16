@@ -1021,9 +1021,9 @@ export interface WallEdges {
  * the way you are about to be thrown. Ice and mud are each a value here, a branch of three lines
  * in `updateKart`, and a tile somebody has to draw that reads as ice or as mud at 16 px.
  */
-export type SurfaceKind = 'rough' | 'boost';
+export type SurfaceKind = 'rough' | 'boost' | 'item';
 
-export const SURFACE_KINDS: readonly SurfaceKind[] = ['rough', 'boost'];
+export const SURFACE_KINDS: readonly SurfaceKind[] = ['rough', 'boost', 'item'];
 
 export function isSurfaceKind(value: unknown): value is SurfaceKind {
   return typeof value === 'string' && (SURFACE_KINDS as readonly string[]).includes(value);

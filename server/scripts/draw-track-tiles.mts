@@ -219,6 +219,41 @@ function shore(sides: readonly Side[], corner: '' | 'NE' | 'SE' | 'SW' | 'NW' = 
   return t;
 }
 
+/**
+ * An ITEM BOX: the thing you drive over to get something to use.
+ *
+ * A decal on the road rather than a ground tile, so the asphalt under it is still asphalt and a
+ * box can be painted on any surface a map likes. Drawn as a crate seen from ABOVE — a lid with a
+ * question mark on it — because everything else on this track is drawn from above and a box in
+ * three-quarter view would be the one object lying on its side.
+ *
+ * The ring of dark pixels round the outside is not decoration: the road under it is a dark grey
+ * with real grain, and without an outline the pale lid bleeds into it at speed.
+ */
+const BOX_LID: RGB = [0xe7, 0xda, 0x00];
+const BOX_LID_LIT: RGB = [0xff, 0xf6, 0x66];
+const BOX_EDGE: RGB = [0x5c, 0x4a, 0x08];
+const BOX_MARK: RGB = [0x14, 0x13, 0x12];
+function itemBox(): Tile {
+  const t = fill(null);
+  for (let y = 1; y < TW - 1; y++) {
+    for (let x = 1; x < TW - 1; x++) {
+      // Corners cut, so a square of sixteen pixels reads as a crate and not as a paint patch.
+      const corner = (x < 3 || x > TW - 4) && (y < 3 || y > TW - 4);
+      if (corner) continue;
+      const edge = x <= 2 || x >= TW - 3 || y <= 2 || y >= TW - 3;
+      t[y][x] = edge ? BOX_EDGE : y < 7 ? BOX_LID_LIT : BOX_LID;
+    }
+  }
+  // A question mark, hand-placed: at this size a font is a rumour.
+  for (const [x, y] of [
+    [6, 5], [7, 5], [8, 5], [5, 6], [9, 6], [9, 7], [8, 8], [7, 9], [7, 10], [7, 12],
+  ] as const) {
+    t[y][x] = BOX_MARK;
+  }
+  return t;
+}
+
 /** Every mask that can occur, in a fixed order — the index IS the tile id. */
 const SHORE_TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   ...Array.from({ length: 15 }, (_, k) => {
@@ -248,6 +283,7 @@ const TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   { name: 'boost-s', tile: boostPad('S') },
   { name: 'boost-w', tile: boostPad('W') },
   ...SHORE_TILES,
+  { name: 'item-box', tile: itemBox() },
 ];
 
 const COLUMNS = TILES.length;
@@ -297,7 +333,7 @@ const bytes = PNG.sync.write(png, WRITE_OPTIONS);
  * says nothing, so the declaration is per tile rather than per sheet.
  */
 const decalTiles = TILES.map(({ name }, id) => ({ name, id }))
-  .filter(({ name }) => name.startsWith('shore-'))
+  .filter(({ name }) => name.startsWith('shore-') || name === 'item-box')
   .map(({ name, id }) => ({
     id,
     type: 'DecalTile',

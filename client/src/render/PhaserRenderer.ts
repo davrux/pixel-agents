@@ -54,6 +54,9 @@ export interface RenderSource {
   getPets(): Pet[];
   /** Empty in a zone with no track, which is every zone but the raceway. */
   getKarts?(): RenderKart[];
+  /** Oil on the road, as packed `row * cols + col` cells. Empty everywhere but a race in which
+   *  somebody has dropped some. */
+  getSlicks?(): number[];
   furniture: FurnitureInstance[];
   getLayout(): OfficeLayout;
   tileMap: GroundMap;
@@ -208,6 +211,9 @@ export class PhaserRenderer {
   private readonly karts = new Map<number, Phaser.GameObjects.Image>();
   /** A fixed ring of skid marks, recycled oldest-first so a long race allocates nothing. */
   private readonly skids: Array<{ img: Phaser.GameObjects.Image; born: number } | undefined> = new Array(SKID_MARKS);
+  /** One blot per oil slick, keyed by the packed cell the server sent. Removed with the slick, so
+   *  the map is bounded by what is actually on the road. */
+  private readonly slicks = new Map<number, Phaser.GameObjects.Image>();
   private skidNext = 0;
   private lastSkidAt = 0;
   /** Who is driving, and which way their kart points — rebuilt every frame in syncKarts and read
@@ -507,6 +513,7 @@ export class PhaserRenderer {
     this.syncFurniture();
     this.syncFurnitureAnimation();
     this.syncKarts();
+    this.syncSlicks();
     this.syncCharacters();
     this.syncPets();
   }
@@ -612,6 +619,43 @@ export class PhaserRenderer {
       .setDepth(FLOOR_DEPTH + 0.5)
       .setAlpha(SKID_ALPHA)
       .setVisible(true);
+  }
+
+  /**
+   * Oil on the road: one dark blot per cell the server names.
+   *
+   * Drawn from the SYNCED list and never from what this viewer saw somebody do — a slick outlives
+   * the car that dropped it and has to be in the same place for everybody, which is the whole
+   * reason it travels at all (see RoomState.slicks).
+   *
+   * At floor depth plus a hair, like a skid mark: it is on the road, not an object on it, so
+   * nothing sorts against it and a kart drives over the top.
+   */
+  private syncSlicks(): void {
+    const want = this.state.getSlicks?.() ?? [];
+    const cols = Math.max(1, this.state.getLayout().cols);
+    const seen = new Set<number>(want);
+    for (const cell of want) {
+      let img = this.slicks.get(cell);
+      if (!img) {
+        img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
+        this.slicks.set(cell, img);
+      }
+      const col = cell % cols;
+      const row = (cell - col) / cols;
+      img
+        .setPosition(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2)
+        .setDisplaySize(TILE_SIZE, TILE_SIZE * 0.72)
+        .setTint(0x14100c)
+        .setDepth(FLOOR_DEPTH + 0.4)
+        .setAlpha(0.72)
+        .setVisible(true);
+    }
+    for (const [cell, img] of this.slicks) {
+      if (seen.has(cell)) continue;
+      img.destroy();
+      this.slicks.delete(cell);
+    }
   }
 
   /** Fade every mark towards nothing and hide the spent ones. */
