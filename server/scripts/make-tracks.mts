@@ -932,6 +932,24 @@ const gateCellsAt = (run: number): Array<{ col: number; row: number }> => {
  *  overlapped the moment the art grew, and a starting grid where the cars intersect is not a
  *  grid. */
 const layOutGrid = (startRun: number): void => {
+  /**
+   * Which way the field sets off, in whole degrees — stated ONCE, on pole.
+   *
+   * Only one slot carries it and the rest say nothing, which the importer reads as -1: "work it
+   * out from the gates". That asymmetry is the point rather than an oversight — the beacon exists
+   * because the direction of a lap used to live in the NUMBERING of the gates, which is invisible
+   * in Tiled, and twelve copies of one fact is eleven chances for a map to contradict itself.
+   *
+   * Measured over the WHOLE grid — from its back row to the line — and not as the spline's tangent
+   * at pole. Reported as "ich habe raceStart mit actionDir 358": the raceway's start straight is a
+   * spline through hand-placed points, so the tangent at one cell of it came out two degrees off
+   * east and the number looked like noise, because it was. A baseline nearly thirty tiles long is
+   * the direction the field actually leaves in, and on a straight it is the straight.
+   */
+  const front = lineAt(startRun - 3);
+  const back = lineAt(startRun - 3 - (RING_GRID_ROWS - 1) * 5);
+  const beacon =
+    ((Math.round((Math.atan2(front.y - back.y, front.x - back.x) * 180) / Math.PI) % 360) + 360) % 360;
   let slot = 0;
   for (let i = 0; i < RING_GRID_ROWS; i++) {
     const p = lineAt(startRun - 3 - i * 5);
@@ -942,7 +960,7 @@ const layOutGrid = (startRun: number): void => {
         col: Math.round(p.x + nx * u),
         row: Math.round(p.y + ny * u),
         slot,
-        ...(slot++ === 0 ? { dir: ((Math.round((p.dir * 180) / Math.PI) % 360) + 360) % 360 } : {}),
+        ...(slot++ === 0 ? { dir: beacon } : {}),
       });
     }
     // Arrive IN the grid, down the lane between its two rows — not wherever the free-tile search

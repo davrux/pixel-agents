@@ -544,10 +544,21 @@ export type Action =
   /**
    * A grid slot, and the beacon that says which way the race sets off.
    *
-   * `dir` is a compass heading in DEGREES (0 = east, 90 = south on screen), or -1 for "work it
-   * out from the gates". It exists because the direction of a lap used to be implicit in the
-   * NUMBERING of the gates — gate 0 to gate 1 — which is invisible to whoever is placing them in
-   * Tiled and impossible to check by looking at the map. A beacon states it.
+   * `dir` is a compass heading in DEGREES (0 = east, 90 = south on screen), or -1 for "work it out
+   * from the gates". It exists because the direction of a lap used to be implicit in the NUMBERING
+   * of the gates — gate 0 to gate 1 — which is invisible to whoever is placing them in Tiled and
+   * impossible to check by looking at the map. A beacon states it.
+   *
+   * ONE slot states it and the rest say -1, which is why a generated grid looks lopsided in Tiled:
+   * "ich habe raceStart mit actionDir 358 und alle anderen mit -1, was soll das?" Twelve copies of
+   * one fact is eleven chances for a map to contradict itself, and the first slot that states a
+   * direction is the one that counts (`raceTrack`) — so -1 is not a missing value, it is the whole
+   * answer for every slot but the beacon.
+   *
+   * A generated one rarely lands on a round number, and that is the road rather than the arithmetic:
+   * a circuit's centreline is a spline through hand-placed points, so a start straight that looks
+   * dead east measures a degree or two off it. The beacon is taken over the grid's whole length for
+   * that reason — the direction the field actually leaves in, not the tangent at pole.
    */
   | { kind: 'raceStart'; slot: number; dir: number }
   /**
