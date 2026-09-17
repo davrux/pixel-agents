@@ -36,7 +36,7 @@ import { KART_MAX_SPEED_PX_PER_SEC, RACE_TICK_HZ } from '@pixel/shared/office/co
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
-import { isRough, wrapAngle, type RaceGate } from '@pixel/shared/office/race/track.js';
+import { gateBehind, isRough, wrapAngle, type RaceGate } from '@pixel/shared/office/race/track.js';
 import { TILE_SIZE, type OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -213,6 +213,90 @@ test('the wrong-way warning never fires on a lap driven properly', () => {
       '0.0',
       `${zone}: the warning was up for ${run.wrongWaySec.toFixed(1)} s of a clean ${run.seconds.toFixed(1)} s run`,
     );
+  }
+});
+
+/**
+ * A car parked ANYWHERE round the lap drives off without being told it is going the wrong way.
+ *
+ * Reported as "Nach dem Spawnen: Wenn ich losfahre kommt oft Back on Track und Wrong way obwohl
+ * ich richtig rum fahre", the day a player's kart started spawning beside them instead of on the
+ * starting grid. `Kart.gate` is the leg the car is on, and a new kart was given 0 whatever it
+ * stood — true enough on the grid, nonsense on the back straight. Measured on Monza before the
+ * fix: a car parked at the middle of the leg from gate 5 to gate 6 and driven correctly westwards
+ * had the warning up after 1.2 s, and its displacement projected onto the FIRST leg never grew, so
+ * five seconds later it was "rescued" onto a track it had never left.
+ *
+ * Driven from every gate of every circuit, by the computer driver rather than by a script: a
+ * hand-steered line proves nothing about a corner, and the driver aims at `nextPoint(kart.gate)`,
+ * so a wrong leg sends it off in the wrong direction and the test fails twice over.
+ *
+ * Deliberately with NO race running, because that is the reported situation — `startRace` resets
+ * every entrant to gate 0 on the grid, so a race could never see this.
+ */
+test('a car parked anywhere round the lap sets off without a warning', () => {
+  for (const zone of TRACKS) {
+    const track = new OfficeState(layouts.get(zone) as never).raceTrack();
+    assert.ok(track);
+    for (const gate of track.gates) {
+      const os = new OfficeState(layouts.get(zone) as never);
+      // The MIDDLE of the leg that starts at this gate, so every leg of both circuits is walked.
+      // Deliberately not a gate cell: a car standing on a checkpoint has its aim point one tile
+      // away, and pure pursuit at nought distance is a question about the autopilot's cornering
+      // rather than about which leg the car thinks it is on. Monza's hairpin fails that way with
+      // the gate index perfectly correct, which is worth knowing and is not this test's claim.
+      const to = track.gates[(gate.index + 1) % track.gates.length];
+      const at = {
+        col: Math.floor((gate.x + to.x) / 2 / TILE_SIZE),
+        row: Math.floor((gate.y + to.y) / 2 / TILE_SIZE),
+      };
+      const driver = os.addPlayer('char_0', 'Parked', at, `parked-${zone}-${gate.index}`);
+      const ch = os.characters.get(driver);
+      assert.ok(ch);
+      const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+      assert.ok(kart, `${zone}: no kart was spawned at gate ${gate.index}`);
+      // The leg it is on, not the first one. Standing ON a gate counts as having passed it.
+      assert.equal(
+        kart.gate,
+        gateBehind(track, kart.x, kart.y),
+        `${zone}: the car at gate ${gate.index} was put on another leg than where it stands`,
+      );
+      ch.x = kart.x;
+      ch.y = kart.y;
+      assert.equal(os.boardKart(driver), true, `${zone}: could not board at gate ${gate.index}`);
+      const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
+      const world = { tileMap: inner.tileMap, blockedTiles: inner.blockedTiles, walls: inner.walls, track } as never;
+      let warned = 0;
+      let rescued = 0;
+      for (let i = 0; i < Math.round(4 / DT); i++) {
+        kart.input = racerInput(kart, world, { level: 1 });
+        os.update(DT);
+        if (kart.wrongWay) warned++;
+        if (kart.rescueMs > 0) rescued++;
+      }
+      assert.equal(warned, 0, `${zone}: gate ${gate.index} — warned for ${(warned * DT).toFixed(1)} s of a clean start`);
+      assert.equal(rescued, 0, `${zone}: gate ${gate.index} — the car was put "back on track" it never left`);
+    }
+  }
+});
+
+/** The two ends of that rule, stated directly: a gate cell is passed, a grid slot is not. */
+test('a gate cell reads its own leg, and no grid slot has passed the line', () => {
+  for (const zone of TRACKS) {
+    const track = new OfficeState(layouts.get(zone) as never).raceTrack();
+    assert.ok(track);
+    for (const gate of track.gates) {
+      assert.equal(gateBehind(track, gate.x, gate.y), gate.index, `${zone}: gate ${gate.index} is not its own leg`);
+    }
+    // A car on the grid is BEHIND the line, so its leg is never the first one — which is what
+    // makes its first crossing of the line a real crossing rather than one the model ignores.
+    // Which leg exactly is not fixed and must not be asserted: the grid is six rows five tiles
+    // apart, so it is 28 tiles long, and a circuit has a checkpoint every twenty — the back of
+    // the raceway's grid is a leg further round than the front.
+    for (const slot of track.grid) {
+      const leg = gateBehind(track, slot.x, slot.y);
+      assert.notEqual(leg, 0, `${zone}: a grid slot reads the first leg, so it has crossed the line`);
+    }
   }
 });
 

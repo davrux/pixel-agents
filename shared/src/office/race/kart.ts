@@ -64,7 +64,17 @@ import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
 import { KartItem } from './items.js';
 import { DEFAULT_KART_SPEC, kartSpec } from './kartSpec.js';
-import { gateAt, headingFrom, isBoost, isRough, nextGate, nextPoint, wrapAngle, type RaceTrack } from './track.js';
+import {
+  gateAt,
+  gateBehind,
+  headingFrom,
+  isBoost,
+  isRough,
+  nextGate,
+  nextPoint,
+  wrapAngle,
+  type RaceTrack,
+} from './track.js';
 
 /** What a driver is asking for, clamped to three values each — a keyboard, not an axis. */
 export interface KartInput {
@@ -506,20 +516,6 @@ function ringOut(col: number, row: number, reach: number, from = 0): Array<{ c: 
   return spots.sort((a, b) => a.d - b.d);
 }
 
-/** Which way the road runs nearest a point: the direction of travel across the closest gate. */
-function roadHeadingAt(track: RaceTrack, x: number, y: number): number {
-  let near = track.gates[0];
-  let best = Infinity;
-  for (const gate of track.gates) {
-    const d = Math.hypot(gate.x - x, gate.y - y);
-    if (d < best) {
-      best = d;
-      near = gate;
-    }
-  }
-  return headingFrom(track, near);
-}
-
 /**
  * Where to park a car for somebody who has just walked into the zone, or null.
  *
@@ -535,6 +531,18 @@ function roadHeadingAt(track: RaceTrack, x: number, y: number): number {
  *
  * Null when the map has nothing within reach, which is the honest answer for somebody standing in
  * a building: the caller falls back to the grid.
+ *
+ * It faces the way THE ROAD RUNS on the leg it is on — the chord of that leg (`gateBehind` plus
+ * `headingFrom`), which is the same question the caller asks to set `kart.gate`, so the two cannot
+ * disagree and park a car across the road.
+ *
+ * Deliberately NOT `respawn`'s rule of aiming at the next checkpoint, and the difference was
+ * measured rather than argued. Mid-straight the two agree to within 6° (Monza's back straight:
+ * 180° against 174°). At the END of a leg they do not: a car one tile short of Monza's hairpin
+ * faces 218° by the chord, which is exactly how that straight runs, and 72° by the target, which
+ * is across the road — because the target is then one tile away and a bearing to it says nothing
+ * about the road. A respawn is put back mid-leg by construction and wants the target; a car is
+ * parked wherever somebody happens to be standing, so it wants the road.
  */
 export function parkNear(
   world: KartWorld,
@@ -548,7 +556,8 @@ export function parkNear(
     const px = spot.c * TILE_SIZE + TILE_SIZE / 2;
     const py = spot.r * TILE_SIZE + TILE_SIZE / 2;
     if (taken.some((t) => Math.hypot(t.x - px, t.y - py) < clear)) continue;
-    return { x: px, y: py, heading: roadHeadingAt(world.track, px, py) };
+    const leg = world.track.gates[gateBehind(world.track, px, py)];
+    return { x: px, y: py, heading: headingFrom(world.track, leg) };
   }
   return null;
 }

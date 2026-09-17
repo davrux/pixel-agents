@@ -74,6 +74,7 @@ import {
   type RaceSetup,
 } from '../race/raceState.js';
 import {
+  gateBehind,
   headingFrom,
   isItemBox,
   lapFraction,
@@ -3255,6 +3256,12 @@ export class OfficeState {
       const id = this.nextKartId++;
       const heading = spot ? spot.heading : headingFrom(this.track, this.track.gates[0]);
       const kart = createKart(id, at, heading, ch.id);
+      // WHERE ON THE LAP it is, from where it stands. `createKart` cannot know — it is handed a
+      // point and nothing else — and a car that says gate 0 anywhere but behind the line is a car
+      // the wrong-way rule and the rescue judge against the first leg while it drives another
+      // one (see `gateBehind`). On the grid this was nearly true, which is why it only became
+      // wrong the day a car spawned beside its owner.
+      kart.gate = gateBehind(this.track, kart.x, kart.y);
       // One colour per OWNER now that a car is not tied to a slot: on a screen full of identical
       // cars nobody can follow their own, and a colour that follows you is one you can learn.
       kart.art = ch.id % VEHICLE_ART.length;

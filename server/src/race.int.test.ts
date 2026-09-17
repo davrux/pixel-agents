@@ -243,9 +243,15 @@ test('with no race running a kart laps for ever and finishes nothing', () => {
     }
   }
   // It has been round more times than the race would allow, and none of that ended anything.
-  // One fewer lap than circuits: the kart starts ON gate 0, and the next gate it is looking for
-  // is 1 — so the first crossing of the line opens a lap rather than closing one.
-  assert.equal(kart.lap, circuits - 1, `${circuits} circuits gave ${kart.lap} laps`);
+  //
+  // One lap per circuit, because the car is parked BEHIND the line and knows it (`gateBehind`):
+  // the first visit to gate 0 closes the run up from where it stood. It used to come out one
+  // short — a new kart claimed to have just passed gate 0 wherever it was, so the gate it was
+  // looking for was 1 and its first crossing of the line was ignored. The leg is asserted
+  // separately rather than folded into the count: if the map's arrival point ever moves, that
+  // says so instead of the number being mysteriously off by one.
+  assert.equal(kart.gate, track.gates.length - 1, 'the car was not parked behind the line');
+  assert.equal(kart.lap, circuits, `${circuits} circuits gave ${kart.lap} laps`);
   assert.ok(kart.lap > track.laps, `the lap limit still bit at lap ${kart.lap}`);
   assert.equal(kart.finished, false, 'a kart finished a race nobody started');
   assert.equal(os.raceInfo().phase, 'idle');

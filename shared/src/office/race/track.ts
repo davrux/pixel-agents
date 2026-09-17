@@ -245,6 +245,46 @@ export function headingFrom(track: RaceTrack, gate: RaceGate): number {
 }
 
 /**
+ * Which gate a car standing at this point has last passed — that is, which LEG it is on.
+ *
+ * `Kart.gate` is read everywhere as a fact about where the car is round the lap: the leg the
+ * wrong-way rule takes its direction from, the line the rescue measures displacement along, what a
+ * computer driver aims at, and the running order. So a car that is somewhere and says 0 is a car
+ * being judged against the first leg while it drives the sixth — reported as "wenn ich losfahre
+ * kommt oft Back on Track und Wrong way obwohl ich richtig rum fahre", and measured on Monza: a
+ * car parked on the back straight and driven correctly westwards warned after 1.2 s and was
+ * rescued at 5. It never came up while every car was created on the STARTING GRID, where 0 is
+ * nearly true; it appeared the day a car spawned beside its owner instead.
+ *
+ * The nearest gate, and then before-or-after it: the offset from that gate projected onto the
+ * direction of travel there. Positive means the gate is behind you and is the one you have passed;
+ * negative means you are still approaching it, so the leg you are on is the one before it. A car
+ * on the grid therefore reads the LAST gate, which is what it has passed — and the first crossing
+ * of the line is already handled (`kart.lap > 1` is what keeps the run up to the line from
+ * becoming somebody's lap record).
+ *
+ * It is an approximation, and its bound is the geometry: a checkpoint every twenty tiles on a road
+ * nine to eleven wide, so the nearest gate to a point ON THE ROAD is the one whose leg it is on.
+ * Both callers park a car on road. And it is only ever a starting point — the next gate the car
+ * crosses corrects it, because a crossing is only counted for the gate that follows this one.
+ */
+export function gateBehind(track: RaceTrack, x: number, y: number): number {
+  let at = 0;
+  let best = Infinity;
+  for (const gate of track.gates) {
+    const d = Math.hypot(gate.x - x, gate.y - y);
+    if (d < best) {
+      best = d;
+      at = gate.index;
+    }
+  }
+  const gate = track.gates[at];
+  const dir = headingFrom(track, gate);
+  const passed = (x - gate.x) * Math.cos(dir) + (y - gate.y) * Math.sin(dir);
+  return passed >= 0 ? at : (at - 1 + track.gates.length) % track.gates.length;
+}
+
+/**
  * What a kart that has just passed `gate` is heading for: the next gate, or — for the last gate of
  * a stage — the finish line. One answer, asked by the driver and by the standings alike.
  */
