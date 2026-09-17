@@ -99,8 +99,13 @@ export const WORLD_ROOM = 'world';
  *     and raising the speed (with the grip that goes with it) made it matter LESS still — at 320
  *     a kart holding full throttle slides 0.0 s on these circuits. A simulation detail that never
  *     fires is a bar going down, not a decision, and this is a kart game.
+ * 30 — `KartSync` carries a velocity (`vx`, `vy`). Two fields ADDED in the middle of the schema,
+ *     which shifts every field after them, so an older build would read a kart's place out of the
+ *     bytes that now hold its speed. They exist so the picture moves evenly between patches: a
+ *     client easing towards the last known position moves a car in pulses, measured at a 75 %
+ *     step-size ripple over a steady 47 fps, which is what "47 fps und irgendwie ruckelt es" was.
  */
-export const PROTOCOL_VERSION = 29;
+export const PROTOCOL_VERSION = 30;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

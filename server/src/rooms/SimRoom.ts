@@ -2425,6 +2425,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ks.finished = kart.finished;
       ks.sliding = kart.sliding;
       ks.wrongWay = kart.wrongWay;
+      // Rounded to whole pixels per second: over one patch that is a twentieth of a pixel of
+      // extrapolation error, against the 16 px the car actually travels in that time.
+      ks.vx = Math.max(-32768, Math.min(32767, Math.round(kart.vx)));
+      ks.vy = Math.max(-32768, Math.min(32767, Math.round(kart.vy)));
       ks.progress = Math.max(0, Math.min(65535, Math.round(this.os.kartProgress(kart.id) * 100)));
       ks.art = Math.min(255, Math.max(0, kart.art | 0));
       const entry = race.entries.get(kart.id);

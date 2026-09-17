@@ -45,6 +45,7 @@ import {
   speedZoom,
   worldToScreen,
 } from '../render/driveCamera.js';
+import { carriedPoint, KART_CATCH_UP_PER_SEC } from '../render/kartMotion.js';
 import {
   CharacterState,
   ControllerKind,
@@ -147,6 +148,10 @@ type RenderKart = {
   ty: number;
   x?: number;
   y?: number;
+  /** The synced velocity in px/s, and WHEN that snapshot landed — see `interpolateKarts`. */
+  vx: number;
+  vy: number;
+  snapAt?: number;
   heading: number;
   /** The interpolated one, turned the short way round so a kart crossing north does not spin. */
   drawHeading?: number;
@@ -287,7 +292,6 @@ export class OfficeScene extends Phaser.Scene {
    *  velocity (it is presentation, and one more synced field per kart per patch for a camera
    *  offset would be a poor trade), so the look-ahead measures it here. */
   private driveSpeed = 0;
-  private drivePrev: { x: number; y: number } | null = null;
   /** Oil on the road, as packed cells — straight off the wire, because it is world state and a
    *  viewer has nothing to derive it from. */
   private slicks: number[] = [];
@@ -1137,6 +1141,8 @@ export class OfficeScene extends Phaser.Scene {
         shieldTenths: 0,
         rescued: false,
         ownerId: 0,
+        vx: 0,
+        vy: 0,
       };
       this.applyKart(rk, ks);
       rk.x = rk.tx;
@@ -1217,6 +1223,14 @@ export class OfficeScene extends Phaser.Scene {
   private applyKart(rk: RenderKart, ks: Record<string, unknown>): void {
     rk.tx = ks.x as number;
     rk.ty = ks.y as number;
+    rk.vx = (ks.vx as number) ?? 0;
+    rk.vy = (ks.vy as number) ?? 0;
+    // WHEN this arrived, because that is what the carry measures from. Stamped on every patch that
+    // carries this kart rather than only on a moved one: a patch where the position happens to
+    // repeat is still a fresh statement about where the car is. `performance.now()` and the frame
+    // time Phaser hands `update()` are the same clock (a DOMHighResTimeStamp off the same origin),
+    // which is what makes subtracting one from the other an age rather than a coincidence.
+    rk.snapAt = performance.now();
     rk.heading = ((ks.heading as number) ?? 0) / 100;
     rk.driverId = (ks.driverId as number) ?? 0;
     rk.lap = (ks.lap as number) ?? 0;
@@ -2492,7 +2506,7 @@ export class OfficeScene extends Phaser.Scene {
     // centring on where the kart had been LAST frame while the renderer drew it where it is now.
     // At walking pace that is half a pixel and invisible; at twelve tiles a second it is three,
     // every frame, which the eye reads as the kart vibrating against a still screen.
-    this.interpolateKarts(1 - Math.exp(-18 * Math.min(delta / 1000, 0.1)));
+    this.interpolateKarts(1 - Math.exp(-KART_CATCH_UP_PER_SEC * Math.min(delta / 1000, 0.1)), _time);
     // Getting in or out changes what the camera bounds mean (see applyCameraBounds), and neither
     // the wheel nor a resize happens at that moment — so the change itself is the trigger.
     const drivingNow = this.drivePose() !== null;
@@ -4123,13 +4137,18 @@ export class OfficeScene extends Phaser.Scene {
     };
   }
 
-  /** Ease every kart towards its last synced pose. Position lerps; the heading goes the SHORT
-   *  way round, or a kart crossing due north unwinds a whole turn on screen while the world has
-   *  it pointing steadily ahead. */
-  private interpolateKarts(k: number): void {
+  /**
+   * Carry every kart along its own velocity, and ease the drawing towards where that puts it.
+   *
+   * `render/kartMotion.ts` holds the why, the numbers and the alternatives. The heading is NOT
+   * carried, only eased the short way round: a rotation does not move the camera, and it is the
+   * world standing still that the eye measures a wobble against.
+   */
+  private interpolateKarts(k: number, now: number): void {
     for (const kt of this.karts.values()) {
-      kt.x = (kt.x ?? kt.tx) + (kt.tx - (kt.x ?? kt.tx)) * k;
-      kt.y = (kt.y ?? kt.ty) + (kt.ty - (kt.y ?? kt.ty)) * k;
+      const want = carriedPoint(kt.tx, kt.ty, kt.vx, kt.vy, now - (kt.snapAt ?? now));
+      kt.x = (kt.x ?? kt.tx) + (want.x - (kt.x ?? kt.tx)) * k;
+      kt.y = (kt.y ?? kt.ty) + (want.y - (kt.y ?? kt.ty)) * k;
       const from = kt.drawHeading ?? kt.heading;
       let d = kt.heading - from;
       while (d > Math.PI) d -= Math.PI * 2;
@@ -4156,21 +4175,11 @@ export class OfficeScene extends Phaser.Scene {
     const cam = this.cameras?.main;
     if (!cam) return;
     const kart = this.myKart();
-    if (kart) {
-      const at = { x: kart.x ?? kart.tx, y: kart.y ?? kart.ty };
-      // Speed by differentiation. The interpolated position is what the eye sees, so the lead
-      // follows the drawn motion rather than the last patch — which is what stops the camera
-      // lurching twenty times a second.
-      if (this.drivePrev && dt > 0) {
-        const v = Math.hypot(at.x - this.drivePrev.x, at.y - this.drivePrev.y) / dt;
-        // Eased, because a single dropped frame otherwise reads as a stop.
-        this.driveSpeed += (v - this.driveSpeed) * Math.min(1, dt * 6);
-      }
-      this.drivePrev = at;
-    } else {
-      this.drivePrev = null;
-      this.driveSpeed = 0;
-    }
+    // The car's OWN speed, as the server states it (`KartSync.vx/vy`). It used to be
+    // differentiated from the drawn position and then eased, "because a single dropped frame
+    // otherwise reads as a stop" — which is a filter of a filter, and a way of guessing a number
+    // the world already knows. Since protocol 30 it does not have to be guessed.
+    this.driveSpeed = kart ? Math.hypot(kart.vx, kart.vy) : 0;
     // Eased rather than taken straight from the speed: the widening is what carries the sense of
     // pace, and a zoom that tracked every bump and kerb would read as the picture breathing.
     this.driveZoom = easeTowards(

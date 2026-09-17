@@ -174,8 +174,27 @@ export class KartSync extends PawnSync {
    */
   @type('uint16') progress = 0;
   /** Going the wrong way round. Synced rather than derived, so every viewer warns the same driver
-   *  at the same moment — and because a client has no velocity to derive it from. */
+   *  at the same moment — and because deciding it needs the track, which a client does not have. */
   @type('boolean') wrongWay = false;
+  /**
+   * Velocity in whole pixels per second — what the drawn position is carried along BETWEEN
+   * patches, and the one field here that exists purely so the picture moves evenly.
+   *
+   * A patch lands every 50 ms and a car at full speed covers 16 px in that time, so a client that
+   * eases towards the last known position moves the car in pulses: measured over a steady 47 fps,
+   * the drawn step varied between 4.1 px and 9.2 px where a constant 320 px/s wants 6.8 — a 75 %
+   * ripple at a perfectly even frame rate, which is exactly the "47 fps und irgendwie ruckelt es"
+   * this was reported as. With the velocity the client extrapolates instead and the step is dead
+   * constant. The alternative needs no wire at all — differentiate two successive positions — and
+   * it is the shape AGENTS.md' invariant 2 refuses by name: the server HAS this number, so a
+   * client reconstructing it from samples is recomputing a decision from partial data. It is also
+   * worse, being one patch stale on every corner.
+   *
+   * `int16` because a kart's top speed is about 400 px/s with a boost; two bytes each, and only
+   * for karts that are moving.
+   */
+  @type('int16') vx = 0;
+  @type('int16') vy = 0;
   /**
    * What this driver is holding — a `KartItem`, 0 for nothing.
    *
