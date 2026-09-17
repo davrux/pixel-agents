@@ -359,15 +359,6 @@ interface TrackSpec {
   /** The zone id and the file name. */
   id: string;
   label: string;
-  /**
-   * A closed circuit driven N times, or a stage driven once from one end to the other.
-   *
-   * The two share everything below this line — the same road, kerbs, run-off, barrier, landscape
-   * and grid — and differ only in the SHAPE that decides which cell is which. That is the whole
-   * reason a point-to-point race needed no new engine concept: gates are a ring walked in order,
-   * and a stage is that ring with a finish line at the far end instead of a lap counter.
-   */
-  kind: 'ring' | 'sprint';
   cols: number;
   rows: number;
   /**
@@ -387,7 +378,7 @@ interface TrackSpec {
   width: number;
   laps: number;
   /**
-   * The circuit's centreline, as control points for a closed spline. Rings only.
+   * The circuit's centreline, as control points for a closed spline.
    *
    * Hand-placed rather than generated, because the SHAPE of a lap is the design: where the long
    * straight is, which corner is the quick one, which is the one you have to brake for. What the
@@ -399,20 +390,16 @@ interface TrackSpec {
    * come closer than twice that, or the road runs into itself.
    */
   line?: readonly Pt[];
-  /** Where the start-finish line sits, as a fraction of the lap. Rings only. */
+  /** Where the start-finish line sits, as a fraction of the lap. */
   startAt?: number;
   /** A stretch of the lap with no barrier and a drop either side, as fractions of the lap. */
   bridge: { from: number; to: number } | null;
-  /** How many straight runs a stage is folded into. One more run is one more hairpin and about a
-   *  quarter more road; the runs get closer together, so the hairpins get tighter. Sprints only. */
-  bands?: number;
 }
 
 const TRACKS: readonly TrackSpec[] = [
   {
     id: 'raceway',
     label: 'Raceway',
-    kind: 'ring',
     cols: 116,
     rows: 74,
     width: 7,
@@ -473,7 +460,6 @@ const TRACKS: readonly TrackSpec[] = [
      */
     id: 'monza',
     label: 'Monza',
-    kind: 'ring',
     ...fromDust('monza.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
     width: 7,
     laps: 3,
@@ -509,14 +495,13 @@ function buildTrack(spec: TrackSpec): { bytes: string; painted: number; scenery:
 const COLS = spec.cols;
 const ROWS = spec.rows;
 /**
- * THE CENTRELINE — one for both shapes, which is what finally made a circuit and a stage the same
- * generator rather than two that agree by hand.
+ * THE CENTRELINE — the one thing every other answer in this file is measured from.
  *
- * A ring used to be stated as two rectangles, and the price was written on the map: four corners
+ * A lap used to be stated as two rectangles, and the price was written on the map: four corners
  * of exactly 90°, which is not a corner any road has ever had. It is a closed CURVE now — a
  * Catmull-Rom spline through the control points in the spec — and every cell is classified by how
- * far it is from that curve, which is precisely how the stage already worked. Road, kerb, sand,
- * barrier and grass are the same five bands measured from the same number.
+ * far it is from that curve. Road, kerb, sand, barrier and grass are the same five bands measured
+ * from the same number.
  *
  * What that buys beyond the look: corners of DIFFERENT radii, because the control points are not
  * evenly spaced, so a lap has a shape instead of four identical bends. `scripts/make-tracks.sh`
@@ -526,29 +511,25 @@ const ROWS = spec.rows;
  */
 const HALF = spec.width / 2;
 /** How wide the sand verge is either side of the road. A circuit is a road with a wall round it,
- *  so it can afford two; a stage is a road through a landscape and a wide verge turns the meadow
- *  between its runs into a beige field. */
-const SAND = spec.kind === 'ring' ? 2 : 1.5;
-const STAGE_BANDS = spec.bands ?? 4;
-const STAGE_PAD = 7;
-const STAGE_GAP = (ROWS - 1 - 2 * STAGE_PAD) / (STAGE_BANDS - 1);
-/** A hairpin is half the band spacing, because the two runs it joins are one spacing apart. That
- *  makes the radius a consequence of the layout rather than a number to tune: pack the runs closer
- *  and the corners get tighter on their own. */
-const STAGE_TURN = STAGE_GAP / 2;
-/**
- * How far the runs reach — DERIVED, because every part of it is already decided elsewhere: the
- * hairpin bulges one radius past the end of the run, the road carries its half-width plus the sand
- * and one of barrier, and a tile of grass outside that keeps the circuit from being welded to the
- * edge of the world.
- */
-const STAGE_EDGE = Math.ceil(STAGE_TURN + HALF + SAND + 3);
-const STAGE_LEFT = STAGE_EDGE;
-const STAGE_RIGHT = COLS - 1 - STAGE_EDGE;
+ *  so it can afford two. */
+const SAND = 2;
 
+/**
+ * The centreline, as a closed Catmull-Rom spline through the spec's control points.
+ *
+ * This generator built two SHAPES until 2026-09-17 — a circuit and a point-to-point stage, the
+ * second a set of straight runs joined by hairpins, with `CLOSED` branching the geometry, the
+ * barrier derivation, the gates and the grid. Nothing has asked for a stage since speedway and
+ * hillroad were deleted, so the branch went: about 112 lines of it, and nine forks through code
+ * every circuit also walks.
+ *
+ * The ENGINE still races a stage — a map with a `raceFinish` runs its gates once and the line ends
+ * it — so the shape is still a thing this world can have; it is drawn in Tiled now rather than
+ * derived from a spline (see the README's race section). Bringing the derivation back means this
+ * file's history, not a rewrite from nothing.
+ */
 const linePts: Array<{ x: number; y: number }> = [];
-const CLOSED = spec.kind === 'ring';
-if (CLOSED) {
+{
   // One segment per pair of control points, sampled densely enough that the distance field never
   // sees a gap: the field is built by walking the LINE and touching the cells near each sample.
   const cp = spec.line ?? [];
@@ -567,30 +548,6 @@ if (CLOSED) {
       linePts.push(seg(cp[(i - 1 + n) % n], cp[i], cp[(i + 1) % n], cp[(i + 2) % n], s / PER));
     }
   }
-} else {
-  const push = (x: number, y: number): void => {
-    const last = linePts[linePts.length - 1];
-    if (!last || Math.hypot(x - last.x, y - last.y) > 0.02) linePts.push({ x, y });
-  };
-  for (let b = 0; b < STAGE_BANDS; b++) {
-    const y = STAGE_PAD + b * STAGE_GAP;
-    const east = b % 2 === 0;
-    const from = east ? STAGE_LEFT : STAGE_RIGHT;
-    const to = east ? STAGE_RIGHT : STAGE_LEFT;
-    const steps = Math.round(Math.abs(to - from) * 8);
-    for (let i = 0; i <= steps; i++) push(from + ((to - from) * i) / steps, y);
-    if (b === STAGE_BANDS - 1) break;
-    // The hairpin, as a half circle centred one radius below the end just reached: it starts at
-    // the top of that circle (the run's end), bulges outwards past the map's working edge, and
-    // comes back at the start of the run below. East turns sweep one way, west turns the other.
-    const cx = to;
-    const cy = y + STAGE_TURN;
-    const arc = Math.max(24, Math.round(Math.PI * STAGE_TURN * 8));
-    for (let i = 1; i <= arc; i++) {
-      const a = -Math.PI / 2 + (east ? 1 : -1) * (Math.PI * i) / arc;
-      push(cx + Math.cos(a) * STAGE_TURN, cy + Math.sin(a) * STAGE_TURN);
-    }
-  }
 }
 /** Distance along the line to each sample, so a gate can be placed at "so many tiles in" rather
  *  than at a fraction of an index — the samples are denser through the tighter corners. */
@@ -598,20 +555,18 @@ const lineRun: number[] = [0];
 for (let i = 1; i < linePts.length; i++) {
   lineRun.push(lineRun[i - 1] + Math.hypot(linePts[i].x - linePts[i - 1].x, linePts[i].y - linePts[i - 1].y));
 }
-if (CLOSED) {
+{
+  // The closing leg, back from the last sample to the first: a lap is the whole way round.
   const a = linePts[linePts.length - 1];
   const b = linePts[0];
   lineRun.push(lineRun[lineRun.length - 1] + Math.hypot(b.x - a.x, b.y - a.y));
 }
-const LINE_LENGTH = CLOSED ? lineRun[lineRun.length - 1] : (lineRun[lineRun.length - 1] ?? 0);
-const STAGE_LENGTH = LINE_LENGTH;
+const LINE_LENGTH = lineRun[lineRun.length - 1];
 /** The point this far along the road, and which way it points there. A closed line WRAPS, so a
  *  gate at 95 % of the lap is a gate, not the end of the world. */
 const lineAt = (run: number): { x: number; y: number; dir: number } => {
   const n = linePts.length;
-  const want = CLOSED
-    ? ((run % LINE_LENGTH) + LINE_LENGTH) % LINE_LENGTH
-    : Math.max(0, Math.min(LINE_LENGTH, run));
+  const want = ((run % LINE_LENGTH) + LINE_LENGTH) % LINE_LENGTH;
   let lo = 0;
   let hi = n - 1;
   while (lo < hi) {
@@ -619,7 +574,7 @@ const lineAt = (run: number): { x: number; y: number; dir: number } => {
     if (lineRun[mid] < want) lo = mid + 1;
     else hi = mid;
   }
-  const at = (i: number): Pt => (CLOSED ? linePts[((i % n) + n) % n] : linePts[Math.max(0, Math.min(n - 1, i))]);
+  const at = (i: number): Pt => linePts[((i % n) + n) % n];
   const p = at(lo);
   const a = at(lo - 3);
   const b = at(lo + 3);
@@ -630,21 +585,8 @@ const lineAt = (run: number): { x: number; y: number; dir: number } => {
  *  every cell about every sample. */
 const lineDist = new Float64Array(COLS * ROWS).fill(Infinity);
 const lineNear = new Float64Array(COLS * ROWS).fill(-1);
-/**
- * Where a wall goes on a stage: between two stretches of road that are CLOSE on the map and far
- * apart along the road.
- *
- * That is the definition of a short cut, so it is the definition of where a barrier belongs — and
- * deriving it beats placing it. A barrier hugging the whole road turns a landscape into corridors;
- * no barrier at all lets the field drive straight across the meadow from one run to the next, and
- * that is not a theory: with the walls taken out the whole field came home in 27 seconds instead
- * of 47, cutting every hairpin. This walls exactly the gaps a cut would use — the strips between
- * the runs and the inside of each hairpin — and leaves the outside open to the landscape.
- */
-const STAGE_CUT_RUN = 15;
-const stageWall = new Uint8Array(COLS * ROWS);
 {
-  const reach = Math.ceil(CLOSED ? HALF + SAND + 5 : HALF + STAGE_GAP);
+  const reach = Math.ceil(HALF + SAND + 5);
   const touch = (fn: (cell: number, d: number, run: number) => void): void => {
     for (let i = 0; i < linePts.length; i++) {
       const p = linePts[i];
@@ -661,18 +603,6 @@ const stageWall = new Uint8Array(COLS * ROWS);
       lineNear[cell] = run;
     }
   });
-  if (!CLOSED) {
-    // A second pass, once every cell knows its own nearest stretch: anything off the road that a
-    // DISTANT stretch also reaches is a gap between two passes of the course.
-    touch((cell, d, run) => {
-      if (lineDist[cell] <= HALF + SAND) return;
-      // Measured against HALF THE BAND SPACING plus a little, not against the shoulder width: the
-      // midline between two runs is exactly half a spacing from each, and where that lands between
-      // two integer rows neither of them is within a tighter bound — so a tighter test walled one
-      // gap of three and left the others open, which is worse than walling none.
-      if (d <= STAGE_GAP / 2 + 0.6 && Math.abs(run - lineNear[cell]) > STAGE_CUT_RUN) stageWall[cell] = 1;
-    });
-  }
 }
 /**
  * How tight the road is at each sample, as a radius in tiles — and therefore where the KERBS go.
@@ -686,7 +616,7 @@ const stageWall = new Uint8Array(COLS * ROWS);
 const lineRadius = new Float64Array(linePts.length);
 for (let i = 0; i < linePts.length; i++) {
   const n = linePts.length;
-  const at = (k: number): Pt => (CLOSED ? linePts[((k % n) + n) % n] : linePts[Math.max(0, Math.min(n - 1, k))]);
+  const at = (k: number): Pt => linePts[((k % n) + n) % n];
   const a = at(i - 6);
   const b = at(i);
   const c = at(i + 6);
@@ -731,7 +661,7 @@ const radiusAtRun = (run: number): number => {
   if (run < 0) return Infinity;
   let lo = 0;
   let hi = linePts.length - 1;
-  const want = CLOSED ? ((run % LINE_LENGTH) + LINE_LENGTH) % LINE_LENGTH : run;
+  const want = ((run % LINE_LENGTH) + LINE_LENGTH) % LINE_LENGTH;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     if (lineRun[mid] < want) lo = mid + 1;
@@ -811,12 +741,6 @@ const onRunOff = (col: number, row: number): boolean => {
 };
 const onBarrier = (col: number, row: number): boolean => {
   if (inBridgeAir(col, row)) return false;
-  if (!CLOSED) {
-    return (
-      col === 0 || row === 0 || col === COLS - 1 || row === ROWS - 1 ||
-      (col > 0 && row > 0 && col < COLS && row < ROWS && stageWall[row * COLS + col] === 1)
-    );
-  }
   const d = distAt(col, row);
   return d > HALF + SAND && d <= HALF + SAND + 1;
 };
@@ -827,45 +751,21 @@ const onOutfield = (col: number, row: number): boolean => {
   // and nowhere on the screen.
   if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return false;
   if (onRoad(col, row) || onBarrier(col, row) || onRunOff(col, row) || inBridgeAir(col, row)) return false;
-  if (!CLOSED && stageWall[row * COLS + col] === 1) return false;
   return true;
 };
-const onStageRoad = onRoad;
-const onStageRunOff = onRunOff;
-const onStageBarrier = onBarrier;
-const onStageOutfield = onOutfield;
-const onRing = onRoad;
-
 /**
- * The five bands, whichever shape this map is. Everything below this line paints, plants and
- * emits from these four questions and nothing else — which is what makes a stage and a circuit
- * the same generator rather than two that drift apart.
+ * The four bands. Everything below this line paints, plants and emits from these questions and
+ * nothing else — which is why taking the second shape out (see the centreline's note) touched
+ * nothing below here at all.
  */
-const RING = spec.kind === 'ring';
-/** Six rows of two behind the line. Twelve is the field Dust Racing runs, and both shapes use it. */
-const RING_GRID_ROWS = 6;
-const isRoad = RING ? onRing : onStageRoad;
-const isBarrier = RING ? onBarrier : onStageBarrier;
-const isRunOff = RING ? onRunOff : onStageRunOff;
-const isOutfield = RING ? onOutfield : onStageOutfield;
+const isRoad = onRoad;
+const isBarrier = onBarrier;
+const isRunOff = onRunOff;
+const isOutfield = onOutfield;
+/** Six rows of two behind the line. Twelve is the field Dust Racing runs. */
+const GRID_ROWS = 6;
 
-/**
- * A stage's gates, grid, finish and chequered paint — all of it read off the centreline.
- *
- * A gate is the perpendicular across the road at one point of the curve, which is exactly what a
- * gate is on a circuit too; the difference is that a circuit's four are hand-placed at the ends of
- * its straights and a stage's are spaced along it, because a stage has no straights to name. The
- * LAST one is also the finish: `raceFinish` is what makes `raceTrack` call the map a sprint, and
- * putting it on the final gate means the line you must cross and the line that ends the race
- * cannot drift apart.
- */
-/** One checkpoint roughly every eighteen tiles of road, so a hairpin cannot be skipped by
- *  cutting from one run to the next across the grass. */
-const STAGE_GATES = Math.max(6, Math.round(STAGE_LENGTH / 18));
-/** The grid needs this much straight road behind the start line, and the finish line sits this
- *  far back from the very end so it is on road rather than at the point it runs out. */
-const STAGE_GRID_RUN = 30;
-const STAGE_FINISH_RUN = 2.5;
+/** Gates, grid, arrival marker and chequered paint — all of it read off the centreline. */
 const gateCells: Array<Array<{ col: number; row: number }>> = [];
 const chequered = new Set<string>();
 /** Boost cells, and which way the road runs at each — the chevrons have to point somewhere. */
@@ -876,10 +776,9 @@ const spawns: Array<{ col: number; row: number }> = [];
 /**
  * The cells a gate covers: the perpendicular across the road at one point of the curve.
  *
- * The same answer for a circuit and a stage, which it has to be — a gate is a LINE ACROSS THE
- * ROAD, and now that both shapes are a centreline there is one way to draw one. A circuit's four
- * used to be hand-placed spans of a rectangle's edges, which is why they could only ever be
- * horizontal or vertical.
+ * There is one way to draw one, because a gate is a LINE ACROSS THE ROAD and the road is a curve.
+ * The four used to be hand-placed spans of a rectangle's edges, which is why they could only ever
+ * be horizontal or vertical.
  */
 const gateCellsAt = (run: number): Array<{ col: number; row: number }> => {
   const p = lineAt(run);
@@ -947,14 +846,14 @@ const layOutGrid = (startRun: number): void => {
    * the direction the field actually leaves in, and on a straight it is the straight.
    */
   const front = lineAt(startRun - 3);
-  const back = lineAt(startRun - 3 - (RING_GRID_ROWS - 1) * 5);
+  const back = lineAt(startRun - 3 - (GRID_ROWS - 1) * 5);
   // A COMPASS bearing: 0 is north. The centreline's own angle is measured from east like every
   // heading in the model, so +90 turns it into the thing the property says it is (see Action's
   // `raceStart`) — the number a mapper would type if they were placing the beacon themselves.
   const beacon =
     ((Math.round((Math.atan2(front.y - back.y, front.x - back.x) * 180) / Math.PI) + 90) % 360 + 360) % 360;
   let slot = 0;
-  for (let i = 0; i < RING_GRID_ROWS; i++) {
+  for (let i = 0; i < GRID_ROWS; i++) {
     const p = lineAt(startRun - 3 - i * 5);
     const nx = -Math.sin(p.dir);
     const ny = Math.cos(p.dir);
@@ -985,108 +884,86 @@ const layOutGrid = (startRun: number): void => {
     if (spawns.length === 0) spawns.push({ col: Math.round(p.x), row: Math.round(p.y) });
   }
 };
-if (CLOSED) {
-  /**
-   * Gates evenly spaced round the lap, with gate 0 on the start line — one roughly every
-   * `GATE_EVERY_TILES`, never fewer than four.
-   *
-   * Evenly spaced by RUN rather than placed at the ends of straights: a curve has no ends to name.
-   * The COUNT used to be four full stop, which is a number from when a circuit was a rectangle and
-   * four was one per side. On Monza that leaves legs ninety tiles long, and a leg that long is a
-   * leg that bends — which the wrong-way warning read as a car losing ground, twice a lap, on a
-   * clean lap. The rule was fixed to ask about both ends of the leg, and this is the other half:
-   * a checkpoint every twenty tiles is about six seconds of driving, which is the granularity the
-   * standings, the respawn and the warning all quietly assumed they had.
-   */
-  const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
-  const gates = Math.max(4, Math.round(LINE_LENGTH / GATE_EVERY_TILES));
-  for (let g = 0; g < gates; g++) gateCells.push(gateCellsAt(startRun + (LINE_LENGTH * g) / gates));
-  // Painted on the ROAD only, even though the gate is wider: a chequered band across the sand
-  // would make the verge look like somewhere to drive.
-  for (const c of gateCells[0]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
-  layOutGrid(startRun);
+/**
+ * Gates evenly spaced round the lap, with gate 0 on the start line — one roughly every
+ * `GATE_EVERY_TILES`, never fewer than four.
+ *
+ * Evenly spaced by RUN rather than placed at the ends of straights: a curve has no ends to name.
+ * The COUNT used to be four full stop, which is a number from when a circuit was a rectangle and
+ * four was one per side. On Monza that leaves legs ninety tiles long, and a leg that long is a
+ * leg that bends — which the wrong-way warning read as a car losing ground, twice a lap, on a
+ * clean lap. The rule was fixed to ask about both ends of the leg, and this is the other half:
+ * a checkpoint every twenty tiles is about six seconds of driving, which is the granularity the
+ * standings, the respawn and the warning all quietly assumed they had.
+ */
+const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
+const gates = Math.max(4, Math.round(LINE_LENGTH / GATE_EVERY_TILES));
+for (let g = 0; g < gates; g++) gateCells.push(gateCellsAt(startRun + (LINE_LENGTH * g) / gates));
+// Painted on the ROAD only, even though the gate is wider: a chequered band across the sand
+// would make the verge look like somewhere to drive.
+for (const c of gateCells[0]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
+layOutGrid(startRun);
 
-  /**
-   * The straightest stretches of the lap, as far apart from each other as they can be — that is
-   * where the pads go. Straightest, because the ceiling a pad raises is taken back by drag within
-   * a second or so and a corner is where you cannot spend it; spread out, because three in a row
-   * is one long pad.
-   */
-  const spots: Array<{ run: number; radius: number }> = [];
-  for (let run = 0; run < LINE_LENGTH; run += 2) spots.push({ run, radius: radiusAtRun(run) });
-  spots.sort((a, b) => b.radius - a.radius);
-  const chosen: number[] = [];
-  for (const spot of spots) {
-    if (chosen.length >= BOOST_PADS) break;
-    // Clear of the START, and not on top of another pad. Clear of the start means clear of the
-    // GRID as well, which stretches nearly thirty tiles back from the line — a pad under the grid
-    // is a free launch for whoever drew that column, which is the opposite of a choice.
-    const gap = (a: number, b: number): number => {
-      const d = Math.abs(a - b) % LINE_LENGTH;
-      return Math.min(d, LINE_LENGTH - d);
-    };
-    if (gap(spot.run, startRun) < RING_GRID_ROWS * 5 + 12) continue;
-    if (chosen.some((c) => gap(spot.run, c) < LINE_LENGTH / (BOOST_PADS + 1))) continue;
-    chosen.push(spot.run);
-  }
-  for (const at of chosen) {
-    for (let k = 0; k < BOOST_LENGTH_TILES; k++) {
-      const p = lineAt(at + k);
-      const nx = -Math.sin(p.dir);
-      const ny = Math.cos(p.dir);
-      // Two cells either side of the centreline: a lane is left free on both sides, so driving
-      // over a pad is a decision rather than something the road does to you.
-      for (let u = -1; u <= 1; u += 0.5) {
-        const col = Math.round(p.x + nx * u);
-        const row = Math.round(p.y + ny * u);
-        if (onRoad(col, row)) boostCells.set(`${col},${row}`, { col, row, dir: p.dir });
-      }
-    }
-  }
-
-  /**
-   * The item boxes: a row across the road, twice a lap.
-   *
-   * Placed by RUN at even spacing rather than at the straightest points, unlike the pads — a box
-   * is something you aim for, so a corner is a perfectly good place for one and spreading them
-   * evenly is what makes them part of the lap. Offset from the start so the first row is not under
-   * the grid, and nudged off the pads' own runs so a row is never painted on top of a chevron.
-   */
-  for (let r = 0; r < ITEM_ROWS; r++) {
-    let at = startRun + (LINE_LENGTH * (r + 0.5)) / ITEM_ROWS;
-    for (const pad of chosen) {
-      const d = Math.abs(((at - pad) % LINE_LENGTH + LINE_LENGTH) % LINE_LENGTH);
-      if (Math.min(d, LINE_LENGTH - d) < BOOST_LENGTH_TILES + 2) at += BOOST_LENGTH_TILES + 4;
-    }
-    const p = lineAt(at);
+/**
+ * The straightest stretches of the lap, as far apart from each other as they can be — that is
+ * where the pads go. Straightest, because the ceiling a pad raises is taken back by drag within
+ * a second or so and a corner is where you cannot spend it; spread out, because three in a row
+ * is one long pad.
+ */
+const spots: Array<{ run: number; radius: number }> = [];
+for (let run = 0; run < LINE_LENGTH; run += 2) spots.push({ run, radius: radiusAtRun(run) });
+spots.sort((a, b) => b.radius - a.radius);
+const chosen: number[] = [];
+for (const spot of spots) {
+  if (chosen.length >= BOOST_PADS) break;
+  // Clear of the START, and not on top of another pad. Clear of the start means clear of the
+  // GRID as well, which stretches nearly thirty tiles back from the line — a pad under the grid
+  // is a free launch for whoever drew that column, which is the opposite of a choice.
+  const gap = (a: number, b: number): number => {
+    const d = Math.abs(a - b) % LINE_LENGTH;
+    return Math.min(d, LINE_LENGTH - d);
+  };
+  if (gap(spot.run, startRun) < GRID_ROWS * 5 + 12) continue;
+  if (chosen.some((c) => gap(spot.run, c) < LINE_LENGTH / (BOOST_PADS + 1))) continue;
+  chosen.push(spot.run);
+}
+for (const at of chosen) {
+  for (let k = 0; k < BOOST_LENGTH_TILES; k++) {
+    const p = lineAt(at + k);
     const nx = -Math.sin(p.dir);
     const ny = Math.cos(p.dir);
-    for (let u = -HALF + 1; u <= HALF - 1; u += ITEM_BOX_SPACING_TILES) {
+    // Two cells either side of the centreline: a lane is left free on both sides, so driving
+    // over a pad is a decision rather than something the road does to you.
+    for (let u = -1; u <= 1; u += 0.5) {
       const col = Math.round(p.x + nx * u);
       const row = Math.round(p.y + ny * u);
-      if (onRoad(col, row)) itemCells.add(`${col},${row}`);
+      if (onRoad(col, row)) boostCells.set(`${col},${row}`, { col, row, dir: p.dir });
     }
   }
-} else {
-  // The gates stop short of the end: the finish line is a ring of cells of its own, past the last
-  // gate. One cell carries one Action, so a finish painted on top of a gate simply DELETES that
-  // gate — which is how the first version of this map ended up with fifteen gates and a finish
-  // that could be reached without passing the fifteenth.
-  const lastGateRun = LINE_LENGTH - STAGE_FINISH_RUN - 6;
-  for (let g = 0; g <= STAGE_GATES; g++) {
-    gateCells.push(
-      gateCellsAt(
-        g === STAGE_GATES
-          ? LINE_LENGTH - STAGE_FINISH_RUN
-          : STAGE_GRID_RUN + ((lastGateRun - STAGE_GRID_RUN) * g) / (STAGE_GATES - 1),
-      ),
-    );
+}
+
+/**
+ * The item boxes: a row across the road, twice a lap.
+ *
+ * Placed by RUN at even spacing rather than at the straightest points, unlike the pads — a box
+ * is something you aim for, so a corner is a perfectly good place for one and spreading them
+ * evenly is what makes them part of the lap. Offset from the start so the first row is not under
+ * the grid, and nudged off the pads' own runs so a row is never painted on top of a chevron.
+ */
+for (let r = 0; r < ITEM_ROWS; r++) {
+  let at = startRun + (LINE_LENGTH * (r + 0.5)) / ITEM_ROWS;
+  for (const pad of chosen) {
+    const d = Math.abs(((at - pad) % LINE_LENGTH + LINE_LENGTH) % LINE_LENGTH);
+    if (Math.min(d, LINE_LENGTH - d) < BOOST_LENGTH_TILES + 2) at += BOOST_LENGTH_TILES + 4;
   }
-  // The line at either end is painted, on the road only: the start you set off from and the one
-  // that ends it.
-  for (const c of gateCells[0]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
-  for (const c of gateCells[STAGE_GATES]) if (onRoad(c.col, c.row)) chequered.add(`${c.col},${c.row}`);
-  layOutGrid(STAGE_GRID_RUN);
+  const p = lineAt(at);
+  const nx = -Math.sin(p.dir);
+  const ny = Math.cos(p.dir);
+  for (let u = -HALF + 1; u <= HALF - 1; u += ITEM_BOX_SPACING_TILES) {
+    const col = Math.round(p.x + nx * u);
+    const row = Math.round(p.y + ny * u);
+    if (onRoad(col, row)) itemCells.add(`${col},${row}`);
+  }
 }
 
 const ground = new Array(COLS * ROWS).fill(0);
@@ -1207,7 +1084,7 @@ for (let row = 0; row < ROWS; row++) {
  * The tyres lie on the FLAT decal layer — they are on the ground, not standing up — which is also
  * the layer that had nothing on it but a few tufts.
  */
-if (CLOSED) {
+{
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
       if (!isBarrier(col, row)) continue;
@@ -1285,22 +1162,16 @@ const start = (col: number, row: number, slot: number, dir?: number) =>
   ]);
 
 const objects: ReturnType<typeof marker>[] = [];
-const finish = (col: number, row: number) =>
-  marker(col, row, [{ name: 'actionKind', type: 'string', value: 'raceFinish' }]);
-
 /**
- * One emitter for both shapes, because both are now a line with things placed along it.
+ * Everything placed along the line: the gates, then the grid, the arrival marker and the timing
+ * board, all read off `layOutGrid` and the curve rather than written per track.
  *
- * A circuit's gates are the first four of the same list a stage's are; a stage adds a finish on
- * the last. Everything else — grid, spawns, the timing board — comes out of `layOutGrid` and the
- * curve, so neither shape has placement code of its own any more.
+ * A `raceFinish` marker is what makes `raceTrack` call a map a SPRINT rather than a lap, and no
+ * generated track emits one: the two circuits here are closed, and a point-to-point course is
+ * drawn in Tiled. The engine races one either way — see the note at the head of the geometry.
  */
 for (let g = 0; g < gateCells.length; g++) {
-  const last = !CLOSED && g === gateCells.length - 1;
-  // The far end of a stage is a LINE, not a point: every one of its cells ends the race, so
-  // crossing it anywhere on the road counts. A single tile would be a finish you could miss by a
-  // metre.
-  for (const c of gateCells[g]) objects.push(last ? finish(c.col, c.row) : gate(c.col, c.row, g));
+  for (const c of gateCells[g]) objects.push(gate(c.col, c.row, g));
 }
 for (const g of grid) objects.push(start(g.col, g.row, g.slot, g.dir));
 for (const sp of spawns) objects.push(spawn(sp.col, sp.row));
@@ -1308,7 +1179,7 @@ for (const sp of spawns) objects.push(spawn(sp.col, sp.row));
  * A point so many tiles to the side of the road at this point of the lap.
  *
  * Positive is AWAY from the middle of the map, which on a closed circuit is the outside of the
- * loop and on a stage is simply the side the map centre is not on. Everything trackside is placed
+ * loop. Everything trackside is placed
  * through this rather than at a column, because the road is a curve: a column says nothing about
  * where you are on it, and a piece placed by one ends up in the scenery the moment the shape
  * changes.
@@ -1409,8 +1280,7 @@ const onVerge = (run: number): { col: number; row: number } => {
   return beside(run, VERGE);
 };
 {
-  // The board goes on both shapes: a stage has no infield and no lap, but it has a best time.
-  const startRun = CLOSED ? (spec.startAt ?? 0.07) * LINE_LENGTH : 6;
+  const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
   // BEHIND the start line, along the grid, because that is where you walk: the spawn points are
   // in the grid lane and this is what you pass on the way to a kart.
   const board = beside(startRun - 12, HALF + 4.5);
@@ -1418,7 +1288,7 @@ const onVerge = (run: number): { col: number; row: number } => {
     { name: 'actionKind', type: 'string', value: 'raceRecords' },
   ]));
 }
-if (CLOSED) {
+{
   const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
   const tap = onVerge(startRun - 18);
   furniture.push(furn(FURN.DRINKING_FOUNTAIN, tap.col, tap.row, 16, 32, [
