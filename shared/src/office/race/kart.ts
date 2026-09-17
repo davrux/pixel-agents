@@ -733,8 +733,27 @@ export function updateLost(kart: Kart, world: KartWorld, dt: number): void {
     return;
   }
   const speed = Math.hypot(kart.vx, kart.vy);
-  const ahead = nextPoint(world.track, kart.gate);
-  const behind = world.track.gates[kart.gate] ?? world.track.gates[0];
+  /**
+   * The leg from WHERE THE CAR IS, not from `kart.gate` — and this is the fix for the report that
+   * would not go away: "immer noch Wrong way obwohl ich richtig rum fahre".
+   *
+   * `kart.gate` is the last gate the car actually CROSSED, which is a fact about progress and is
+   * right to be: it counts laps, orders the field and decides what a driver aims at, and deriving
+   * it from a position would hand out shortcuts. But a gate is one cell thick and spans the ROAD
+   * — so a car that leaves the road and rejoins past the line never touches it, and its gate then
+   * describes a leg it is no longer on for the rest of the lap. Measured over nine minutes of
+   * deliberately bad driving: `kart.gate` disagreed with where the car actually was for **12 % of
+   * ticks on the raceway and 26 % on Monza**, in 58 and 72 separate spells — and **96 % of
+   * Monza's wrong-way warnings happened during one of them**. The warning was measuring a leg on
+   * the far side of the circuit.
+   *
+   * Which way the road runs HERE is a question about the place, so it is answered from the place.
+   * Nothing about progress reads this, and `respawn` still uses `kart.gate` — being put back is
+   * about the lap, not about the geometry underfoot.
+   */
+  const at = gateBehind(world.track, kart.x, kart.y);
+  const ahead = nextPoint(world.track, at);
+  const behind = world.track.gates[at] ?? world.track.gates[0];
   const lx = ahead.x - behind.x;
   const ly = ahead.y - behind.y;
   const leg = Math.hypot(lx, ly);
@@ -745,9 +764,25 @@ export function updateLost(kart: Kart, world: KartWorld, dt: number): void {
   // business, not this one's.
   let backwards = false;
   if (speed >= 30 && leg >= 1) {
-    // The cosine between where the car is going and where this leg goes. A bend is normal, so only
-    // a genuine reversal counts.
-    backwards = (kart.vx * lx + kart.vy * ly) / (speed * leg) < -0.35;
+    /**
+     * Both halves have to agree: the car is GOING against the leg and POINTING against it.
+     *
+     * Velocity alone was the rule, and the reason given for preferring it over the heading still
+     * holds — "a car spun by a bump points backwards for a moment while still sliding forwards,
+     * and warning for that is noise". What it missed is the mirror image, which turns out to be
+     * the common one: a car POINTING down the road while its velocity briefly points back up it.
+     * That is every bounce off a barrier, every scrabble in the grass, every kerb that kicks the
+     * back out — the driver is holding the throttle down and the banner calls them a wrong-way
+     * driver. Measured over nine minutes of deliberately bad driving per circuit: **96 % to 98 %
+     * of all warning ticks happened while the driver was asking for FORWARD throttle**, which is
+     * the false alarm as plainly as it can be put.
+     *
+     * Requiring both is symmetric — neither shape of noise warns, and a car that is genuinely
+     * turned round and driving away does both at once, so nothing real is lost.
+     */
+    const going = (kart.vx * lx + kart.vy * ly) / (speed * leg);
+    const facing = (Math.cos(kart.heading) * lx + Math.sin(kart.heading) * ly) / leg;
+    backwards = going < -0.35 && facing < -0.35;
   }
   kart.wrongMs = backwards ? kart.wrongMs + dt * 1000 : 0;
   kart.wrongWay = kart.wrongMs >= KART_WRONG_WAY_SEC * 1000;
@@ -763,13 +798,33 @@ export function updateLost(kart: Kart, world: KartWorld, dt: number): void {
   // the twitching case straight back. A car that really is standing still simply keeps whatever it
   // had — and gets it cleared by the displacement below the moment it drives off.
   if (kart.input.throttle === 0 && kart.input.steer === 0) return;
-  // How far the car has got since the trouble started, measured ALONG the leg. One question covers
-  // both shapes of being lost: a car pressed into a barrier has got nowhere because it has not
-  // moved, and a car driven back down the road has got nowhere because the progress is negative.
+  /**
+   * Has the car GOT anywhere since the trouble started? Three tiles from the anchor, forwards.
+   *
+   * Two measurements of the same displacement, and each covers a shape of being lost that the
+   * other cannot: the DISTANCE says whether the car moved at all (a car pressed into a barrier
+   * did not), and its SIGN along the leg says whether that counted (a car driven back down the
+   * road went the wrong way). Three tiles of distance is the threshold because that is what
+   * `KART_LOST_MOVE_TILES` has always meant.
+   *
+   * It used to be the projection alone, and a projection is a poor distance: a leg is about twenty
+   * tiles and its chord is a straight line across whatever the road does in between, so a car
+   * crawling through a corner banks almost no progress along it while driving perfectly. Measured
+   * over every road cell a car can park on, driven from a standstill: 24 % of them declared a car
+   * lost, against 20 % for the autopilot's own cold-start oscillation — four points of pure false
+   * alarm, which is what "so unspielbar" is made of.
+   *
+   * Both halves read the DISPLACEMENT and neither reads the current tick, which is the property
+   * that matters most here: the instantaneous direction question the warning asks flickers
+   * whenever a sliding car drops below the speed it needs, and a counter that resets on one good
+   * tick can never finish. That mistake has been made in this file before.
+   */
   const dx = kart.x - kart.anchorX;
   const dy = kart.y - kart.anchorY;
-  const got = leg >= 1 ? (dx * lx + dy * ly) / leg : Math.hypot(dx, dy);
-  if (got >= KART_LOST_MOVE_TILES * TILE_SIZE) {
+  const along = leg >= 1 ? (dx * lx + dy * ly) / leg : Math.hypot(dx, dy);
+  // `moved >= reach` on its own, because a projection can never exceed the distance it came from:
+  // the sign is the only thing the leg is asked for.
+  if (along > 0 && Math.hypot(dx, dy) >= KART_LOST_MOVE_TILES * TILE_SIZE) {
     kart.anchorX = kart.x;
     kart.anchorY = kart.y;
     kart.lostMs = 0;

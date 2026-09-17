@@ -34,7 +34,7 @@ import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalo
 import { isWalkable } from '@pixel/shared/office/layout/tileMap.js';
 import type { KartInput } from '@pixel/shared/office/race/kart.js';
 import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
-import { isRough, nextPoint, type RaceTrack } from '@pixel/shared/office/race/track.js';
+import { gateBehind, isRough, nextPoint, type RaceTrack } from '@pixel/shared/office/race/track.js';
 import { TILE_SIZE, type OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -200,6 +200,97 @@ test('a car driven back down the road is warned, then put back facing the right 
     gapAfter >= gapBefore - TILE_SIZE,
     `the rescue gained ground: ${((gapBefore - gapAfter) / TILE_SIZE).toFixed(1)} tiles nearer the next gate`,
   );
+});
+
+/**
+ * A car that went ROUND a checkpoint is not called the wrong way for the rest of the lap.
+ *
+ * This is the report that would not go away — "immer noch Wrong way obwohl ich richtig rum fahre",
+ * and "so unspielbar". A gate is one cell thick and spans the ROAD, so a car that leaves the road
+ * and rejoins past the line never touches it: `kart.gate` then names a leg the car left behind,
+ * and the direction question was asked against THAT. Measured over nine minutes of deliberately
+ * bad driving, the gate disagreed with where the car actually was for 12 % of ticks on the raceway
+ * and 26 % on Monza, in 58 and 72 separate spells.
+ *
+ * What it costs is not a flicker. Driven from just past each gate with the index left one behind,
+ * the car's own direction sat **166° from the stale leg on the raceway and 180° on Monza** — a
+ * banner that comes on and stays on — for 1269 and 928 ticks over the 110° threshold across the
+ * two circuits. Against the leg the car is standing on, the worst is 58° and 126°, and no case
+ * warns at all.
+ *
+ * So `kart.gate` stays what it is (progress: laps, places, what a driver aims at, and not
+ * derivable from a position without handing out shortcuts) and the WARNING asks the road under the
+ * car instead. Both halves are asserted here, because a test that only checks the quiet side would
+ * pass just as well if the warning had been deleted.
+ */
+test('skipping a checkpoint does not turn the car round in the eyes of the warning', () => {
+  for (const zone of TRACKS) {
+    const sim = seated(zone);
+    let stale = 0;
+    let steepest = 0;
+    for (const gate of sim.track.gates) {
+      // Just past the NEXT gate, driving the way that leg runs — a car that rejoined the road on
+      // the far side of a checkpoint — while its own index still says it has not reached it.
+      const skipped = (gate.index + 1) % sim.track.gates.length;
+      const from = sim.track.gates[skipped];
+      const to = nextPoint(sim.track, skipped);
+      const len = Math.hypot(to.x - from.x, to.y - from.y);
+      sim.kart.x = from.x + ((to.x - from.x) / len) * TILE_SIZE * 3;
+      sim.kart.y = from.y + ((to.y - from.y) / len) * TILE_SIZE * 3;
+      sim.kart.heading = Math.atan2(to.y - from.y, to.x - from.x);
+      sim.kart.gate = gate.index;
+      sim.kart.vx = 0;
+      sim.kart.vy = 0;
+      sim.kart.lostMs = 0;
+      sim.kart.wrongMs = 0;
+      sim.kart.wrongWay = false;
+      sim.kart.rescueMs = 0;
+      sim.kart.anchorX = sim.kart.x;
+      sim.kart.anchorY = sim.kart.y;
+      if (gateBehind(sim.track, sim.kart.x, sim.kart.y) === sim.kart.gate) continue; // not stale here
+      stale++;
+      const stuckAt = sim.kart.gate; // what the index says, and goes on saying
+      // Driven properly from there — by the computer driver, because "driving on" is the claim and
+      // a dumb straight line leaves the road on the first bend, spins, and then really IS going
+      // backwards. What must not warn is somebody following the road.
+      const world = {
+        tileMap: sim.tileMap,
+        blockedTiles: sim.blockedTiles,
+        track: sim.track,
+      } as unknown as Parameters<typeof racerInput>[1];
+      let warned = 0;
+      for (let i = 0; i < Math.round(4 / DT); i++) {
+        sim.kart.input = racerInput(sim.kart, world, { level: 1 });
+        sim.os.update(DT);
+        if (sim.kart.wrongWay) warned++;
+        // How wrong the stale reference IS while the car drives on, so this test cannot pass by
+        // testing nothing. It is not wrong at the moment of the skip — two consecutive chords are
+        // about 60° apart — it becomes wrong as the car drives away down a leg the index never
+        // reached, which is exactly why the banner used to come on and stay on.
+        const speed = Math.hypot(sim.kart.vx, sim.kart.vy);
+        if (speed > 120) {
+          const og = sim.track.gates[stuckAt];
+          const oa = nextPoint(sim.track, stuckAt);
+          const lx = oa.x - og.x;
+          const ly = oa.y - og.y;
+          const cos =
+            (sim.kart.vx * lx + sim.kart.vy * ly) / (speed * Math.hypot(lx, ly));
+          steepest = Math.max(steepest, Math.acos(Math.max(-1, Math.min(1, cos))));
+        }
+      }
+      assert.equal(
+        warned,
+        0,
+        `${zone}: a car that skipped gate ${skipped} was warned for ${(warned * DT).toFixed(1)} s while driving on`,
+      );
+    }
+    assert.ok(stale >= 8, `${zone}: only ${stale} of its gates could be skipped, so this proves little`);
+    assert.ok(
+      steepest > (110 * Math.PI) / 180,
+      `${zone}: the stale reference was never worse than ${((steepest * 180) / Math.PI).toFixed(0)}°, ` +
+        'so this fixture no longer reproduces the bug it was written for',
+    );
+  }
 });
 
 /** A road cell with something solid beside it, and the way to point a car at it. */

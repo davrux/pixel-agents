@@ -71,6 +71,9 @@ interface Run {
   falls: number;
   /** Seconds the wrong-way warning was up. On a clean lap this is zero. */
   wrongWaySec: number;
+  /** How often the car was PUT somewhere — a fall, or the end of the being-lost countdown. Zero on
+   *  a clean lap, and the half of `updateLost` a warning count cannot see. */
+  rescues: number;
   /**
    * Seconds spent OFF the racing surface. Zero on a lap driven properly, and the measurement that
    * the corner cap exists for: before it, the quickest driver spent 21 % of the Ring in the grass.
@@ -104,6 +107,8 @@ function drive(zone: string, level: number): Run {
   let n = 0;
   let wrong = 0;
   let off = 0;
+  let rescues = 0;
+  let wasRescued = false;
   let last = kart.state;
   const max = Math.round(240 / DT);
   while (!kart.finished && ticks < max) {
@@ -115,6 +120,9 @@ function drive(zone: string, level: number): Run {
     os.update(DT);
     if (kart.state === 'fall' && last !== 'fall') falls++;
     if (kart.wrongWay) wrong++;
+    // The tick it STARTS on, not every tick of the two-second notice.
+    if (kart.rescueMs > 0 && !wasRescued) rescues++;
+    wasRescued = kart.rescueMs > 0;
     if (isRough(track, Math.floor(kart.x / TILE_SIZE), Math.floor(kart.y / TILE_SIZE))) off++;
     last = kart.state;
     ticks++;
@@ -125,6 +133,7 @@ function drive(zone: string, level: number): Run {
     meanSpeed: sum / Math.max(1, n),
     falls,
     wrongWaySec: wrong * DT,
+    rescues,
     offRoadSec: off * DT,
   };
 }
@@ -213,6 +222,10 @@ test('the wrong-way warning never fires on a lap driven properly', () => {
       '0.0',
       `${zone}: the warning was up for ${run.wrongWaySec.toFixed(1)} s of a clean ${run.seconds.toFixed(1)} s run`,
     );
+    // …and it was never PUT anywhere either, which is the other half of `updateLost` and the one
+    // that actually interrupts a lap. A rescue on a clean lap is the "so unspielbar" end of the
+    // same rule: see kartLost.int.test.ts for what a stale leg reference did to it.
+    assert.equal(run.rescues, 0, `${zone}: was put back on track ${run.rescues} time(s) on a clean lap`);
   }
 });
 
