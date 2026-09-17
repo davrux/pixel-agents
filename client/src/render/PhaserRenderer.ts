@@ -216,10 +216,21 @@ export class PhaserRenderer {
   private readonly slicks = new Map<number, Phaser.GameObjects.Image>();
   private skidNext = 0;
   private lastSkidAt = 0;
-  /** Who is driving, and which way their kart points — rebuilt every frame in syncKarts and read
-   *  by syncCharacters, which runs after it. A driver is NOT DRAWN at all: once you are in, you
-   *  are the car. It keeps the heading because the helmet in the seat turns with the kart. */
-  private readonly drivers = new Map<number, number>();
+  /**
+   * Who is driving, and WHERE THEIR KART IS — rebuilt every frame in syncKarts and read by
+   * syncCharacters, which runs after it. A driver is not drawn as a figure at all: once you are
+   * in, you are the car, and what is drawn in the seat is a helmet.
+   *
+   * It carries the kart's drawn position and not only its heading, and that is the fix for a
+   * helmet that vanished "bei bestimmten Bewegungen". The server puts the driver's body AT the
+   * kart (`ch.x = kart.x`), so the two arrive as one number — but the client filters them
+   * differently: a kart is carried along its velocity (`kartMotion.ts`) while a character is eased
+   * towards its last patch, and at twelve tiles a second that is more than a tile of divergence.
+   * Drawing the helmet at the character's own filtered position therefore put it behind the car,
+   * and worse, its DEPTH is derived from that y — so driving down the screen sank the helmet under
+   * the bodywork and it disappeared. One source for one fact: whatever the kart is drawn at.
+   */
+  private readonly drivers = new Map<number, { x: number; y: number; heading: number }>();
   /** The front half of each kart, drawn over its driver. Keyed and destroyed with `karts`. */
   private readonly kartFronts = new Map<number, Phaser.GameObjects.Image>();
   /** How big a helmet is drawn, in world pixels — a head in a kart's seat. */
@@ -532,9 +543,9 @@ export class PhaserRenderer {
     const seen = new Set<number>();
     for (const kart of karts) {
       seen.add(kart.id);
-      if (kart.driverId) this.drivers.set(kart.driverId, kart.drawHeading ?? kart.heading);
       const x = kart.x ?? kart.tx;
       const y = kart.y ?? kart.ty;
+      if (kart.driverId) this.drivers.set(kart.driverId, { x, y, heading: kart.drawHeading ?? kart.heading });
       let img = this.karts.get(kart.id);
       if (!img) {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 0.5);
@@ -750,12 +761,16 @@ export class PhaserRenderer {
       g.body.setDisplaySize(PhaserRenderer.HELMET, PhaserRenderer.HELMET);
       // Turned with the kart and NOT by a further quarter: the helmet's visor points east like
       // every other piece of race art, so the kart's own heading is the whole rotation.
-      g.body.setRotation(driving);
-      // The seat sits a little behind the kart's middle, so the body goes there rather than on
-      // the bonnet — back along the heading, which is where `kartShapes` puts the cushion.
+      g.body.setRotation(driving.heading);
+      // From the KART, never from the character's own position — see `drivers` for what drawing it
+      // at `ch.x/ch.y` cost. The seat sits a little behind the kart's middle, so the helmet goes
+      // there rather than on the bonnet: back along the heading, which is where `kartShapes` puts
+      // the cushion.
       const back = DRIVER_SEAT_OFFSET_PX;
-      g.body.setPosition(ch.x - Math.cos(driving) * back, ch.y - Math.sin(driving) * back);
-      g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET + 0.5);
+      g.body.setPosition(driving.x - Math.cos(driving.heading) * back, driving.y - Math.sin(driving.heading) * back);
+      // The kart's own y decides the depth too, so the helmet sits between the car's two halves
+      // (base, base + 0.5, base + 1) by construction rather than by two filters agreeing.
+      g.body.setDepth(driving.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET + 0.5);
       g.body.setVisible(true);
       return;
     }
