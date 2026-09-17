@@ -25,14 +25,15 @@ import test, { before } from 'node:test';
 
 import {
   KART_MAX_SPEED_PX_PER_SEC,
+  KART_PARK_REACH_TILES,
   KART_RADIUS_PX,
   KART_RESPAWN_REACH_TILES,
   RACE_TICK_HZ,
 } from '@pixel/shared/office/constants.js';
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
-import type { Kart } from '@pixel/shared/office/race/kart.js';
-import { isRough, raceTrack } from '@pixel/shared/office/race/track.js';
+import { parkNear, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
+import { isRough, raceTrack, type RaceTrack } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -53,6 +54,12 @@ before(async () => {
 const TILE = 16;
 
 const world = (): OfficeState => new OfficeState(layout as never);
+
+/** The engine's own map, as `parkNear` and `respawn` want it — the same object `updateKarts` builds. */
+const kartWorld = (os: OfficeState, track: RaceTrack): KartWorld => {
+  const inner = os as unknown as Pick<KartWorld, 'tileMap' | 'blockedTiles' | 'walls'>;
+  return { tileMap: inner.tileMap, blockedTiles: inner.blockedTiles, walls: inner.walls, track };
+};
 
 test('the committed map imports as a track: four gates, a grid, its lap count', () => {
   const track = raceTrack(layout);
@@ -90,14 +97,21 @@ test('the map survives the save path: a stored track is still a track', () => {
 });
 
 /**
- * One car per person on the track, parked on a grid slot — and nothing else.
+ * One car per person on the track, parked BESIDE its owner — and nothing else.
  *
- * This used to assert a kart in EVERY slot, which is what the engine did: a lone driver walked up
- * to a grid of eleven cars and set off with ten of them standing there. Reported as "Autos für
- * Computer-Driver müssen vor dem Start nicht angezeigt werden. Für jeden Spieler auf der Karte ein
- * Auto." So the claim is now about the lifecycle rather than about the grid being full.
+ * Two claims have moved through this test, each from a report. It used to assert a kart in EVERY
+ * slot, which is what the engine did: a lone driver walked up to a grid of eleven cars and set off
+ * with ten of them standing there ("Autos für Computer-Driver müssen vor dem Start nicht angezeigt
+ * werden. Für jeden Spieler auf der Karte ein Auto"). Then the one car per person still stood on
+ * the grid, so arriving meant identifying yours among the parked ones and walking over — and the
+ * car spawns with its owner now instead ("Außerdem wird später das Cart zusammen mit dem Spieler
+ * spawnen", "Mach das Cart-Spawnen beim Spieler-Join").
+ *
+ * What is asserted is therefore the PLACE as well as the lifecycle, and the place has three parts:
+ * within reach of its owner, on ground a car's body fits on, and far enough from the next car that
+ * the two are not shoving each other apart on the first tick.
  */
-test('a car appears for each person on the track and for nobody else', () => {
+test('a car appears beside each person on the track and for nobody else', () => {
   const os = world();
   const track = os.raceTrack();
   assert.ok(track);
@@ -109,16 +123,72 @@ test('a car appears for each person on the track and for nobody else', () => {
     const mine = [...os.karts.values()].filter((k) => k.ownerId === id);
     assert.equal(mine.length, 1, `a player owns ${mine.length} cars`);
     const kart = mine[0];
+    const ch = os.characters.get(id);
+    assert.ok(ch);
     assert.equal(kart.driverId, null, 'a kart started with a driver');
     assert.equal(kart.state, 'idle');
-    assert.ok(
-      track.grid.some((slot) => Math.hypot(slot.x - kart.x, slot.y - kart.y) < 1),
-      'a kart is not on a grid slot',
-    );
+    const away = Math.hypot(kart.x - ch.x, kart.y - ch.y) / TILE;
+    assert.ok(away > 0 && away <= KART_PARK_REACH_TILES, `a car parked ${away.toFixed(1)} tiles from its owner`);
+    // On road, not on the verge: the search refuses rough ground, so the car is somewhere it can
+    // be driven away from rather than somewhere it has to be dragged out of.
+    assert.equal(isRough(track, Math.floor(kart.x / TILE), Math.floor(kart.y / TILE)), false, 'a car parked on rough');
+    // …and you can get in from where you landed, without walking a step. This is the assertion
+    // that pins `KART_PARK_REACH_TILES` inside `KART_BOARD_REACH_TILES` — as a behaviour rather
+    // than as arithmetic between two constants, which is the thing that actually has to hold: a
+    // car that spawns with you and is then out of reach of E is a car that did not spawn with you.
+    assert.equal(os.boardKart(id), true, 'a player could not board the car parked beside them');
+    assert.equal(os.kartOf(id)?.id, kart.id, 'boarding put somebody in the wrong car');
+    assert.equal(os.boardKart(id), true, 'a player could not get back out');
   }
+  // Two cars on one cell is one car as far as a viewer is concerned, and a shoving match as far as
+  // `bumpKarts` is concerned — three arrivals at one point is exactly the case that finds it.
+  const cars = [...os.karts.values()];
+  for (let a = 0; a < cars.length; a++) {
+    for (let b = a + 1; b < cars.length; b++) {
+      const gap = Math.hypot(cars[a].x - cars[b].x, cars[a].y - cars[b].y);
+      assert.ok(gap >= KART_RADIUS_PX * 2, `two parked cars are ${gap.toFixed(1)} px apart`);
+    }
+  }
+  // A colour per owner, so you can follow your own car in a field of identical ones.
+  assert.equal(new Set(cars.map((k) => k.art)).size, cars.length, 'two people got the same colour');
   // …and it goes with them. A car whose owner has left is a ghost in the middle of the road.
   os.removePlayer(ids[0]);
   assert.equal(os.karts.size, ids.length - 1, 'a car outlived its owner');
+});
+
+/**
+ * Nowhere to park falls back to the grid, which is where every car used to stand.
+ *
+ * Most of a circuit's walkable area is rough — measured: 6224 of raceway's 7867 cells, and no cell
+ * a car's body fits on within `KART_PARK_REACH_TILES` of 63 % of them — so this is not a
+ * theoretical branch. It is reached by somebody who joined during a race (no car is handed out on
+ * a live grid) and then walked into the outfield before the flag.
+ */
+test('a person with no room beside them gets a grid slot', () => {
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  const id = os.addPlayer('char_0', 'Wanderer', undefined, 'wanderer');
+  const ch = os.characters.get(id);
+  assert.ok(ch);
+  // Out into the outfield, and the car it arrived with taken away — which is the state a player
+  // who joined mid-race is in when the race ends.
+  const far = [...(os as unknown as { walkableTiles: Array<{ col: number; row: number }> }).walkableTiles].find(
+    (t) => isRough(track, t.col, t.row) && !parkNear(kartWorld(os, track), t.col * TILE + 8, t.row * TILE + 8, []),
+  );
+  assert.ok(far, 'this circuit has no cell without parking, so the fallback cannot be reached');
+  ch.tileCol = far.col;
+  ch.tileRow = far.row;
+  ch.x = far.col * TILE + TILE / 2;
+  ch.y = far.row * TILE + TILE / 2;
+  os.karts.clear();
+  os.update(1 / RACE_TICK_HZ);
+  const mine = [...os.karts.values()].filter((k) => k.ownerId === id);
+  assert.equal(mine.length, 1, `a player in the outfield owns ${mine.length} cars`);
+  assert.ok(
+    track.grid.some((slot) => Math.hypot(slot.x - mine[0].x, slot.y - mine[0].y) < 1),
+    'the fallback did not put the car on a grid slot',
+  );
 });
 
 test('an autopilot drives three laps without falling off', () => {

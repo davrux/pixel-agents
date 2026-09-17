@@ -42,6 +42,7 @@ import {
   BOOST_SPEED_FACTOR,
   KART_FALL_SEC,
   KART_RESPAWN_REACH_TILES,
+  KART_PARK_REACH_TILES,
   KART_MAX_REVERSE_PX_PER_SEC,
   KART_RADIUS_PX,
   KART_RECOVER_SEC,
@@ -468,15 +469,95 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
 }
 
 /**
- * Solid road near a point, or null — where a fallen kart is put back.
+ * Ground a car's BODY can stand on: drivable, not rough, and drivable all the way round.
  *
- * Four conditions, and each one is a way a respawn goes wrong:
+ * Three conditions, and the ring of eight is the one that is easy to leave out:
  *
- *  - **Ground**, or the car is put back into the drop it just fell into.
+ *  - **Ground**, or the car is set down in the drop it just fell into.
  *  - **Not rough**, because being handed back the grass is being handed back the accident. This
  *    is what makes it "back on the track" rather than "back on the map".
- *  - **Every one of the eight neighbours is ground**, so a car whose body is 26 px across a 16 px
- *    cell cannot be set down on the lip of a bridge with half of itself over the edge.
+ *  - **Every one of the eight neighbours is ground**, because a car is `KART_RADIUS_PX * 2` across
+ *    a 16 px cell: on a cell at the lip of a bridge it hangs half of itself over the edge.
+ *
+ * Both callers ask exactly this — where to put a car back that fell, and where to park one for the
+ * person who has just arrived — so it is one question in one place.
+ */
+export function roomForKart(world: KartWorld, col: number, row: number): boolean {
+  if (!isWalkable(col, row, world.tileMap, world.blockedTiles)) return false;
+  if (isRough(world.track, col, row)) return false;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (!isWalkable(col + dc, row + dr, world.tileMap, world.blockedTiles)) return false;
+    }
+  }
+  return true;
+}
+
+/** The cells within `reach` of one, nearest first — the search order both spot finders want. */
+function ringOut(col: number, row: number, reach: number, from = 0): Array<{ c: number; r: number; d: number }> {
+  const spots: Array<{ c: number; r: number; d: number }> = [];
+  for (let dr = -reach; dr <= reach; dr++) {
+    for (let dc = -reach; dc <= reach; dc++) {
+      const d = Math.hypot(dc, dr);
+      if (d < from || d > reach) continue;
+      spots.push({ c: col + dc, r: row + dr, d });
+    }
+  }
+  return spots.sort((a, b) => a.d - b.d);
+}
+
+/** Which way the road runs nearest a point: the direction of travel across the closest gate. */
+function roadHeadingAt(track: RaceTrack, x: number, y: number): number {
+  let near = track.gates[0];
+  let best = Infinity;
+  for (const gate of track.gates) {
+    const d = Math.hypot(gate.x - x, gate.y - y);
+    if (d < best) {
+      best = d;
+      near = gate;
+    }
+  }
+  return headingFrom(track, near);
+}
+
+/**
+ * Where to park a car for somebody who has just walked into the zone, or null.
+ *
+ * A player's kart arrives WITH them rather than standing on the starting grid — "Außerdem wird
+ * später das Cart zusammen mit dem Spieler spawnen", and the grid was the wrong place for it
+ * twice over: a lone arrival faced a car they had to identify among the parked ones, and the
+ * thirteenth person to walk in got none at all because the twelve slots were full.
+ *
+ * Nearest suitable cell first, so the car is beside you and not across the road — but never your
+ * OWN cell, because a car drawn on top of its owner is a car nobody can see to click. Cells within
+ * a body's width of another car are skipped, so two people arriving together get two cars rather
+ * than one shoving the other out of the way on the next tick.
+ *
+ * Null when the map has nothing within reach, which is the honest answer for somebody standing in
+ * a building: the caller falls back to the grid.
+ */
+export function parkNear(
+  world: KartWorld,
+  x: number,
+  y: number,
+  taken: ReadonlyArray<{ x: number; y: number }>,
+): { x: number; y: number; heading: number } | null {
+  const clear = KART_RADIUS_PX * 2;
+  for (const spot of ringOut(tileOf(x), tileOf(y), KART_PARK_REACH_TILES, 1)) {
+    if (!roomForKart(world, spot.c, spot.r)) continue;
+    const px = spot.c * TILE_SIZE + TILE_SIZE / 2;
+    const py = spot.r * TILE_SIZE + TILE_SIZE / 2;
+    if (taken.some((t) => Math.hypot(t.x - px, t.y - py) < clear)) continue;
+    return { x: px, y: py, heading: roadHeadingAt(world.track, px, py) };
+  }
+  return null;
+}
+
+/**
+ * Solid road near a point, or null — where a fallen kart is put back.
+ *
+ * `roomForKart` is three of the four conditions; the fourth is this caller's own:
+ *
  *  - **No nearer the next gate than where it fell.** Without it, a drop beside a corner is a
  *    shortcut: the nearest road across a void can be further round the lap than the road you left,
  *    and falling off would become the fast way round.
@@ -484,32 +565,10 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
  * Searched nearest-first, so what comes back is the least the map can get away with.
  */
 function roadNear(world: KartWorld, x: number, y: number, gate: number): { x: number; y: number } | null {
-  const col = tileOf(x);
-  const row = tileOf(y);
   const target = nextPoint(world.track, gate);
   const fellGap = Math.hypot(target.x - x, target.y - y);
-  const reach = KART_RESPAWN_REACH_TILES;
-  const solid = (c: number, r: number): boolean => {
-    if (!isWalkable(c, r, world.tileMap, world.blockedTiles)) return false;
-    if (isRough(world.track, c, r)) return false;
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (!isWalkable(c + dc, r + dr, world.tileMap, world.blockedTiles)) return false;
-      }
-    }
-    return true;
-  };
-  const spots: Array<{ c: number; r: number; d: number }> = [];
-  for (let dr = -reach; dr <= reach; dr++) {
-    for (let dc = -reach; dc <= reach; dc++) {
-      const d = Math.hypot(dc, dr);
-      if (d > reach) continue;
-      spots.push({ c: col + dc, r: row + dr, d });
-    }
-  }
-  spots.sort((a, b) => a.d - b.d);
-  for (const spot of spots) {
-    if (!solid(spot.c, spot.r)) continue;
+  for (const spot of ringOut(tileOf(x), tileOf(y), KART_RESPAWN_REACH_TILES)) {
+    if (!roomForKart(world, spot.c, spot.r)) continue;
     const px = spot.c * TILE_SIZE + TILE_SIZE / 2;
     const py = spot.r * TILE_SIZE + TILE_SIZE / 2;
     if (Math.hypot(target.x - px, target.y - py) < fellGap) continue;

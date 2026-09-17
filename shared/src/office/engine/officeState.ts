@@ -54,7 +54,7 @@ import {
 import { DEFAULT_WARP_STYLE, warpStyle, type WarpStyleId } from '../effects.js';
 import { ALL_KART_ITEMS, drawItem, KartItem } from '../race/items.js';
 import { DEFAULT_KART_SPEC, KART_SPECS } from '../race/kartSpec.js';
-import { bumpKarts, createKart, facingFromHeading, updateKart, updateLost, type Kart } from '../race/kart.js';
+import { bumpKarts, createKart, facingFromHeading, parkNear, updateKart, updateLost, type Kart } from '../race/kart.js';
 import { VEHICLE_ART } from '../race/kartArt.js';
 import { racerInput, racerUsesItem } from '../race/racerDriver.js';
 import { DEFAULT_DIFFICULTY, DIFFICULTY, isDifficulty, RACER_NAMES, RACER_SKILLS, type RaceDifficulty } from '../race/racerNames.js';
@@ -1321,24 +1321,27 @@ export class OfficeState {
     // brought yourself. They exist only while the race does — see `clearRacers`.
     // A car per computer driver, made HERE — there are no spare ones standing about any more, and
     // that is the point: nothing is on the grid before the lights but the people who are racing.
-    const freeSlots = this.track.grid
-      .map((slot, i) => ({ slot, i }))
-      .filter(({ slot }) => ![...this.karts.values()].some((k) => Math.hypot(k.x - slot.x, k.y - slot.y) < TILE_SIZE));
-    let bots = Math.min(this.setup.bots, freeSlots.length);
-    for (const { slot, i } of freeSlots) {
-      if (bots <= 0) break;
+    //
+    // What bounds the field is the grid MINUS the people in it, and that is not the same as "the
+    // slots nobody is parked on" it used to be: a player's car now stands beside its owner
+    // (`syncPlayerKarts`), so every slot reads free and a full grid of bots would be lined up on
+    // top of the drivers by the placement below.
+    const room = Math.max(0, this.track.grid.length - driven.length);
+    const wanted = Math.min(this.setup.bots, room);
+    for (let b = 0; b < wanted; b++) {
       const id = this.addRacer();
       if (id === null) break;
-      bots--;
+      // The slot this one lines up on, so the car is made where it is going to stand.
+      const i = driven.length;
       const kartId = this.nextKartId++;
-      const kart = createKart(kartId, slot, headingFrom(this.track, this.track.gates[0]), id);
+      const kart = createKart(kartId, this.track.grid[i], headingFrom(this.track, this.track.gates[0]), id);
       kart.art = i % VEHICLE_ART.length;
       this.karts.set(kartId, kart);
       kart.driverId = id;
       // A computer driver takes a kart from the table in turn, so the field is a field of cars and
       // not one car ten times. Round-robin rather than random, for the same reason the scenery
       // scatter is a hash: a grid that is different every time is a grid nobody can learn.
-      kart.spec = KART_SPECS[bots % KART_SPECS.length].id;
+      kart.spec = KART_SPECS[b % KART_SPECS.length].id;
       kart.state = 'drive';
       driven.push(kart);
     }
@@ -1435,7 +1438,7 @@ export class OfficeState {
   }
 
   private updateKarts(dt: number): void {
-    if (!this.track || this.karts.size === 0) return;
+    if (!this.track) return;
     const world = { tileMap: this.tileMap, blockedTiles: this.blockedTiles, walls: this.walls, track: this.track };
 
     // Oil dries. Ticked with the karts because that is when it matters, and deleted rather than
@@ -1453,6 +1456,11 @@ export class OfficeState {
     // Every tick, and not only while idle: adding is gated inside (a fresh car on a live grid is
     // an obstacle), but REMOVING a car whose owner has gone cannot wait for the flag.
     this.syncPlayerKarts();
+    // Only HERE, and not at the top with the track: the early-out used to include
+    // `karts.size === 0`, so a zone whose last car had gone never handed out another — the one
+    // person left standing on the circuit was the one case that could not get a car, and the
+    // lifecycle above is the thing that has to run before there is anything to tick.
+    if (this.karts.size === 0) return;
     // Held on the grid until the lights go out. Not a refusal of input — the throttle is simply
     // not connected yet — so a driver leaning on it is already going when it is.
     const held = this.race.phase === 'countdown';
@@ -3224,24 +3232,32 @@ export class OfficeState {
       if (!owner && kart.driverId === null) this.karts.delete(id);
     }
     if (this.race.phase !== 'idle') return;
-    const taken = new Set<number>();
-    for (const kart of this.karts.values()) {
-      const at = this.track.grid.findIndex((slot) => Math.hypot(slot.x - kart.x, slot.y - kart.y) < TILE_SIZE);
-      if (at >= 0) taken.add(at);
-    }
     const owned = new Set<number>();
     for (const kart of this.karts.values()) if (kart.ownerId !== null) owned.add(kart.ownerId);
+    const world = { tileMap: this.tileMap, blockedTiles: this.blockedTiles, walls: this.walls, track: this.track };
     for (const ch of this.characters.values()) {
       // People only. An agent is a character nobody is steering and a pet is not a character at
       // all; giving either one a car would put it back on the grid in front of the driver.
       if (ch.controller !== ControllerKind.HUMAN || owned.has(ch.id)) continue;
-      const slot = this.track.grid.findIndex((_s, i) => !taken.has(i));
-      if (slot < 0) return; // the grid is full: the next arrival waits for a slot
-      taken.add(slot);
+      const cars = [...this.karts.values()];
+      // BESIDE THEM, not on the grid. The grid is where a race lines up and `startRace` gathers
+      // everybody onto it anyway; what a parked car wants is to be where its owner is, so walking
+      // into the zone hands you a car you can see and get into. A cell the map cannot offer falls
+      // back to a free grid slot, which is where every car used to stand.
+      const spot = parkNear(world, ch.x, ch.y, cars);
+      const slot = spot
+        ? null
+        : this.track.grid.findIndex(
+            (g) => !cars.some((k) => Math.hypot(g.x - k.x, g.y - k.y) < TILE_SIZE),
+          );
+      const at = spot ?? (slot !== null && slot >= 0 ? this.track.grid[slot] : null);
+      if (!at) continue; // nowhere beside them and no free slot either: the next tick tries again
       const id = this.nextKartId++;
-      const kart = createKart(id, this.track.grid[slot], headingFrom(this.track, this.track.gates[0]), ch.id);
-      // One colour per grid slot: on a screen full of identical cars nobody can follow their own.
-      kart.art = slot % VEHICLE_ART.length;
+      const heading = spot ? spot.heading : headingFrom(this.track, this.track.gates[0]);
+      const kart = createKart(id, at, heading, ch.id);
+      // One colour per OWNER now that a car is not tied to a slot: on a screen full of identical
+      // cars nobody can follow their own, and a colour that follows you is one you can learn.
+      kart.art = ch.id % VEHICLE_ART.length;
       this.karts.set(id, kart);
     }
   }

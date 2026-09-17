@@ -514,6 +514,22 @@ export const KART_FALL_SEC = 1.2;
 export const KART_RESPAWN_REACH_TILES = 6;
 
 /**
+ * How far from an arriving player their kart may be parked.
+ *
+ * A player's car spawns with them (`parkNear`), and this is the radius the search may look in for
+ * a cell a car's body fits on — road, not rough, drivable all the way round. Four tiles is about
+ * a car's own length, so the car is something you walk to in a step or two and can see from where
+ * you landed; a wider reach would put it out of sight behind the pit wall and read as no car at
+ * all. Past that the grid is the fallback, which is where it used to stand in the first place.
+ *
+ * It has to stay INSIDE `KART_BOARD_REACH_TILES` (5): a car that spawns with you and is then out
+ * of reach of E is a car that did not spawn with you. `raceway.int.test.ts` asserts that as a
+ * boarding rather than as arithmetic between the two numbers, because the behaviour is the thing
+ * that must hold — the reach is measured from the body's centre and a car is four tiles long.
+ */
+export const KART_PARK_REACH_TILES = 4;
+
+/**
  * When a kart counts as WEDGED: asking for thrust and going nowhere for this long.
  *
  * A wall takes the movement and leaves the car pointing into it, so a driver whose only answer is
