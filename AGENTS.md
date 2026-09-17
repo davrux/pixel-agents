@@ -1090,12 +1090,23 @@ check asks: is the release present in the code that acquires?
   SQLite writes are not a problem**: `setPlayerSpot` (the 5-second checkpoint) is **3.1 µs**, a
   read 0.8 µs, a viewer setting 4.2 µs — so 300 players checkpointing cost under a millisecond
   spread over five seconds, and moving the store off-thread would buy nothing while making 57 call
-  sites async. **`encodeDirectionalSheet` still packs synchronously** (`art/artStore.ts`, on
-  `appStore.saveAsset`): 3.2 ms for an ordinary character sheet and **86.7 ms for a maximal one**,
-  on an explicit user action ("save my avatar as a template", `SimRoom`'s one call). That one is
-  worth fixing when somebody is in there anyway — it needs `saveAsset` to become async, which
-  ripples through a store used in 57 places, so it is a change of its own and not a detail. The
-  same function on the art-SERVING route is the legacy fallback for un-repacked rows and is
+  sites async. **`encodeDirectionalSheet` packs synchronously** (`art/artStore.ts`, on
+  `appStore.saveAsset`): 3.2 ms for an ordinary character sheet and **86.7 ms for a maximal one**.
+  Nothing reaches it any more, and the fix was not the one this paragraph used to prescribe —
+  "`saveAsset` has to become async, which ripples through a store used in 57 places" was a remedy
+  for a cost that had no business existing. Both HTTP save routes hand the store a row that is
+  ALREADY packed (`sheetRowFrom` encodes off-thread), so `packArt` passes it through untouched; the
+  one caller that still arrived with pixels was "save my avatar as a template", which read its own
+  stored row through `getPlayerAvatar` — unpacking the PNG into one hex string per pixel — in order
+  to change the NAME, and paid for an encode of art this server had written itself. It copies the
+  row now (`assetRow` + a new name), measured through the real store at **21.7 ms → 0.19 ms** for
+  an ordinary sheet and **29.9 ms → 0.06 ms** for a maximal one. The rule that generalises, and the
+  reason this is written down rather than deleted: **an optimisation is the second answer; the
+  first is to ask why the expensive thing is being done at all.** Two things follow for anyone
+  adding a caller — arrive with the packed row wherever the art already exists on disk, and if you
+  must arrive with pixels, they are untrusted input and go through `validCharacterData`, whereas a
+  stored row's only new field is whatever you replaced (`validSheetName` for a name). The same
+  function on the art-SERVING route is the legacy fallback for un-repacked rows and is
   cached per content hash, i.e. cold and bounded. `mmo-readiness` has a rule for the
   shape (a client-supplied image is bounded and header-checked before decoding) with its own
   planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old

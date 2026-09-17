@@ -37,6 +37,18 @@ const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
  *  said 32). */
 const NAME = new RegExp(`^[\\x20-\\x7e]{1,${MAX_NAME_LEN}}$`);
 
+/**
+ * Is this a name a sheet may carry? Printable ASCII, at least one character, no longer than
+ * `cleanName` would cut it to.
+ *
+ * Exported because a THIRD caller asks it: copying an avatar into the gallery replaces the name
+ * and nothing else, so it validates the name without validating pixels it did not receive. Three
+ * copies of one regex is how the three drift apart.
+ */
+export function validSheetName(name: string): boolean {
+  return NAME.test(name);
+}
+
 /** Validate an optional CharacterSpec: sane frame size + non-empty tracks whose frame
  *  counts sum to `n` (the number of frames per direction). */
 export function validCharacterSpec(spec: unknown, n: number): boolean {
@@ -103,7 +115,7 @@ export function validSheetMeta(meta: unknown, frames: number): boolean {
   if (typeof m.name !== 'string') return false;
   const name = cleanName(m.name);
   m.name = name; // persisted on save, exactly as in validCharacterData
-  if (!NAME.test(name)) return false;
+  if (!validSheetName(name)) return false;
   // The sum rule is the load-bearing one: a track list that claims more or fewer frames than
   // the sheet has makes the renderer read a column that is not there.
   if (m.spec !== undefined && !validCharacterSpec(m.spec, frames)) return false;
@@ -136,7 +148,7 @@ export function validCharacterData(data: unknown): boolean {
   if (typeof d.name !== 'string') return false;
   const name = cleanName(d.name); // trim + collapse whitespace + cap
   d.name = name; // persisted on save
-  if (!NAME.test(name)) return false;
+  if (!validSheetName(name)) return false;
   // One frame size for the whole sheet: `dims` is shared across the direction rows, so a
   // sheet whose `up` row is a different size than its `down` row is refused rather than
   // sliced on one row's numbers.
