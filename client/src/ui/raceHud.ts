@@ -213,6 +213,32 @@ export class RaceHud {
   private itemSlot: HTMLDivElement | null = null;
   /** What the banner last said, so it is only rewritten when it changes. */
   private bannerText = '';
+  /**
+   * The HUD's STRUCTURE as it was last built, and the nodes whose text changes per frame.
+   *
+   * `innerHTML` was assigned on every frame a race was running — a whole table rebuilt from
+   * strings, so the browser re-parsed it, threw away the elements and laid them out again, sixty
+   * times a second. Nothing about that is visible in any Phaser number (the perf overlay's `ms`
+   * is the scene's own update and measures 0.12 ms here), which is how it survived alongside a
+   * complaint about the frame rate.
+   *
+   * A whole-string guard would not have helped: the clock is rendered in hundredths, so the
+   * string really does differ every frame. What differs is a handful of TEXT NODES, and what does
+   * not is everything around them — so the markup is rebuilt only when the structure changes (who
+   * is in the field, in what order, whose lap it is) and the clock, the lap line and the gaps are
+   * written straight onto the nodes below.
+   */
+  private hudKey = '';
+  private hudParts: {
+    clock: Element | null;
+    lap: Element | null;
+    times: Element | null;
+    gaps: Element[];
+  } | null = null;
+  /** The same guard for the two blocks whose content is nearly static, where comparing the built
+   *  string is enough — the slot changes when you pick something up, the board when a race ends. */
+  private itemKey = '';
+  private boardKey = '';
 
   /**
    * `send` is how the panel asks for a change. It ASKS: the server clamps every number and answers
@@ -265,17 +291,24 @@ export class RaceHud {
     const shield = (own?.shieldSec ?? 0) > 0;
     if (!own || (!holding && !shield)) {
       if (this.itemSlot) this.itemSlot.style.display = 'none';
+      this.itemKey = '';
       return;
     }
     this.itemSlot = this.el(this.itemSlot, 'pa-race-item');
     this.itemSlot.style.display = '';
-    this.itemSlot.className = `pa-race-item${holding ? ' armed' : ''}${shield ? ' shield' : ''}`;
+    const cls = `pa-race-item${holding ? ' armed' : ''}${shield ? ' shield' : ''}`;
     // The shield wins the slot while it is running: what it is worth is how long is left.
     const glyph = shield ? '🛡' : (holding?.glyph ?? '');
     const name = shield ? `${Math.ceil(own.shieldSec)}s` : (holding?.label ?? '');
-    this.itemSlot.innerHTML =
+    const html =
       `<span class="glyph">${glyph}</span><span class="name">${name}</span>` +
       (holding ? '<span class="key">SPACE</span>' : '');
+    // Whole seconds and one glyph: this changes about once a second at its busiest, so comparing
+    // the built string is the whole guard it needs.
+    if (this.itemKey === cls + html) return;
+    this.itemKey = cls + html;
+    this.itemSlot.className = cls;
+    this.itemSlot.innerHTML = html;
   }
 
   /**
@@ -546,6 +579,8 @@ export class RaceHud {
     this.hud = this.el(this.hud, 'pa-race-hud');
     if (m.phase === 'done' || (m.phase === 'idle' && !m.own)) {
       this.hud.style.display = 'none';
+      this.hudKey = '';
+      this.hudParts = null;
       return;
     }
     this.hud.style.display = '';
@@ -556,26 +591,39 @@ export class RaceHud {
         ? `<div class="rec">record ${raceTime(m.recordLapMs)}` +
           `${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
         : '<div class="rec">no record yet — /race to set one</div>';
-      this.hud.innerHTML =
+      // Nothing here is per-frame: the clock shows your LAST lap, not a running one, so practice
+      // is the case where a plain string guard takes the rebuild to zero while you drive.
+      const html =
         `<div class="top"><span class="lap">${m.sprint ? 'Practice' : `Practice · lap ${m.own.lap + 1}`}</span>` +
         `<span class="clock">${raceTime(m.own.lastLapMs)}</span></div>` +
         `<div class="times">best ${raceTime(m.own.bestLapMs)}</div>` +
         rec;
+      if (this.hudKey !== `practice${html}`) {
+        this.hudKey = `practice${html}`;
+        this.hudParts = null;
+        this.hud.innerHTML = html;
+      }
       return;
     }
     const order = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
     const leader = order[0];
     const own = m.own;
+    // A stage has no laps to count, so it counts the road instead: how much of it is behind you.
+    // `progress` is already in laps and a stage is one, so the fraction is the answer.
+    const lapLine = own
+      ? m.sprint
+        ? `Stage ${Math.round(Math.max(0, Math.min(1, own.progress)) * 100)}%`
+        : `Lap ${Math.min(own.lap + 1, m.laps)}/${m.laps}`
+      : m.sprint
+        ? 'Sprint'
+        : `${m.laps} laps`;
+    const timesLine = own ? `last ${raceTime(own.lastLapMs)} · best ${raceTime(own.bestLapMs)}` : '';
     const head = own
       ? `<div class="top"><span class="pos">P${own.place || '–'}<small>/${m.entries}</small></span>` +
-        // A stage has no laps to count, so it counts the road instead: how much of it is behind
-        // you. `progress` is already in laps and a stage is one, so the fraction is the answer.
-        `<span class="lap">${m.sprint
-          ? `Stage ${Math.round(Math.max(0, Math.min(1, own.progress)) * 100)}%`
-          : `Lap ${Math.min(own.lap + 1, m.laps)}/${m.laps}`}</span>` +
+        `<span class="lap">${lapLine}</span>` +
         `<span class="clock">${raceTime(m.timerMs)}</span></div>` +
-        `<div class="times">last ${raceTime(own.lastLapMs)} · best ${raceTime(own.bestLapMs)}</div>`
-      : `<div class="top"><span class="lap">${m.sprint ? 'Sprint' : `${m.laps} laps`}</span>` +
+        `<div class="times">${timesLine}</div>`
+      : `<div class="top"><span class="lap">${lapLine}</span>` +
         `<span class="clock">${raceTime(m.timerMs)}</span></div>`;
     const rec = m.recordLapMs
       ? `<div class="rec">record ${raceTime(m.recordLapMs)}${m.recordLapBy ? ` · ${escapeHtml(m.recordLapBy)}` : ''}</div>`
@@ -588,17 +636,51 @@ export class RaceHud {
           `<td class="g">${this.gap(m, d, leader)}</td></tr>`,
       )
       .join('');
-    this.hud.innerHTML = `${head}${rec}<hr><table>${rows}</table>`;
+    /**
+     * The STRUCTURE: who is in the field, in what order, and everything that is not a number
+     * ticking over. An overtake is in here and so is a new lap, because both change the markup —
+     * they happen a handful of times in a race, where the clock changes every frame.
+     */
+    const key =
+      `race|${m.laps}|${m.sprint}|${m.entries}|${m.recordLapMs}|${m.recordLapBy}|${own?.place ?? ''}|` +
+      order.map((d) => `${d.place}:${d.name}:${d.me ? 1 : 0}:${d.finishedMs ? 1 : 0}`).join(',');
+    if (this.hudKey !== key) {
+      this.hudKey = key;
+      this.hud.innerHTML = `${head}${rec}<hr><table>${rows}</table>`;
+      // Looked up once per rebuild rather than per frame: a querySelector is a tree walk, and
+      // doing four of them sixty times a second is the same mistake in a smaller coat.
+      this.hudParts = {
+        clock: this.hud.querySelector('.clock'),
+        lap: this.hud.querySelector('.lap'),
+        times: this.hud.querySelector('.times'),
+        gaps: [...this.hud.querySelectorAll('td.g')],
+      };
+      return; // just built with these very values — there is nothing to write yet
+    }
+    const parts = this.hudParts;
+    if (!parts) return;
+    setText(parts.clock, raceTime(m.timerMs));
+    // The lap line carries a stage's percentage, which does tick over; a lap COUNT does not, and
+    // writing the same string costs nothing because `setText` compares first.
+    setText(parts.lap, lapLine);
+    setText(parts.times, timesLine);
+    for (let i = 0; i < parts.gaps.length && i < order.length; i++) {
+      setText(parts.gaps[i], this.gap(m, order[i], leader));
+    }
   }
 
   private renderBoard(m: RaceHudModel): void {
     this.board = this.el(this.board, 'pa-race-board');
     if (m.phase !== 'done') {
       this.board.style.display = 'none';
+      this.boardKey = '';
       return;
     }
     this.board.style.display = '';
     const rows = [...m.drivers].sort((a, b) => (a.place || 99) - (b.place || 99));
+    // Guarded like the rest: the results stand for several seconds and change when the last car
+    // crosses the line, so there is nothing here worth re-parsing per frame.
+    // (the key is built with the finished markup, below)
     const body = rows
       .map((d) => {
         // What this finish was worth. Resolved from the same shared table the server scores with
@@ -619,12 +701,26 @@ export class RaceHud {
         (m.recordRaceMs ? ` · race ${raceTime(m.recordRaceMs)}${m.recordRaceBy ? ` — ${escapeHtml(m.recordRaceBy)}` : ''}` : '') +
         '</div>'
       : '';
-    this.board.innerHTML =
+    const html =
       `<h4>Result — ${m.laps} laps</h4>` +
       `<table><tr><th></th><th>Driver</th><th class="r">Time</th><th class="r">Best lap</th>` +
       `<th class="r">Pts</th></tr>${body}</table>` +
       foot;
+    if (this.boardKey === html) return;
+    this.boardKey = html;
+    this.board.innerHTML = html;
   }
+}
+
+/**
+ * Write a text node only when it changed.
+ *
+ * Assigning the same string still marks the node dirty, and the browser then re-runs layout for
+ * it — which at sixty frames a second, for a clock that ticks in hundredths and a gap that is
+ * recomputed from a moving car, is most of what this whole split exists to avoid.
+ */
+function setText(el: Element | null, text: string): void {
+  if (el && el.textContent !== text) el.textContent = text;
 }
 
 /** Names come from other accounts, so they are text and never markup. */

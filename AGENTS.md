@@ -879,9 +879,30 @@ check asks: is the release present in the code that acquires?
   - **The client has no viewport culling anywhere.** `PhaserRenderer.buildStatic()` creates one
     GameObject per non-VOID ground cell — ~3700 live objects for `uponu`, all submitted and
     depth-sorted every frame, all destroyed and rebuilt on every `buildStatic`. At twice a screen
-    that is ~8-10 000. Nothing in that pipeline scales sublinearly with area, so this is the first
-    thing to measure (F8 / `?perf=1`, and judge by frame time — see above) and the first thing to
-    fix if a big map feels slow.
+    that is ~8-10 000; a race map is 10 836 objects on the raceway and **19 360 on Monza** (ground
+    cells plus decals).
+    **What building it would actually buy was measured on 2026-09-17, after "47 fps aber irgendwie
+    ruckelt es" — and the answer is: not the frame rate.** 47 fps is a 21.3 ms frame, and the
+    object count accounts for about 2.9 ms of it:
+
+    | | monza, 19 660 objects | after |
+    |---|---:|---:|
+    | depth sort, every frame | 2.05 ms | 0.39 ms *(ground baked out)* |
+    | per-object submission (proxy) | 0.81 ms | 0.12 ms *(viewport test)* |
+
+    Two things follow, and the first is the one that stops a wasted afternoon. **The two costs need
+    two different fixes**: hiding an off-screen object with `visible = false` does NOT take it out
+    of the display list, so Phaser keeps sorting it — the 1.7 ms only goes away if the objects go
+    away, i.e. if the static ground is baked into one RenderTexture (15 197 of Monza's 19 360, and
+    it only changes on a map push; the `occludes` decals must stay objects because they sort
+    against characters). And Phaser really does re-sort every frame: `setDepth` queues a depth
+    sort, and karts, characters, helmets and oil all set theirs each frame.
+    Second: **~18 of the 21 ms are somewhere else entirely**, and it is not the scene's own update
+    either — the perf overlay's `ms` field is exactly that, and it reads 0.12-0.33 ms. So before
+    building any of this, take a real profile (Electron: DevTools → Performance, five seconds while
+    driving) and find out what the render pass, the DOM and the compositor are each doing. The old
+    sentence here said culling was "the first thing to fix if a big map feels slow"; these numbers
+    say it is the first thing to MEASURE, and that it buys around 11 % of a frame when it is.
   - **The `layoutLoaded` payload is per JOIN and scales with area.** Measured on `uponu`: **245 KB
     of JSON, ~78 B/cell**, of which `walls` is 46 % and `tileActions` the next largest because it
     serializes a full object per painted meeting-room cell. Twice a screen is ~700 KB. Deflate
@@ -1148,6 +1169,32 @@ a button; highlight `#e7da00`. Radius: buttons `0.35–0.45rem`, panels `0.6rem`
 `#2a2f3a`, borders `#3a4150`/`#2c323e` or any `1px solid` on chrome, accent
 `#3a6df0`, flat `0 8px 0` shadows. (`#14161c` is fine as the Phaser *canvas*
 background only.)
+
+- **An overlay that redraws every frame writes TEXT NODES, not `innerHTML`.** The race HUD is
+  drawn from `OfficeScene.update` on every frame (deliberately — see `updateRaceOverlay`, which
+  sits ahead of the idle gate so a panel is not late), and it assigned `innerHTML` each time: the
+  browser re-parsed the markup, threw the elements away and laid them out again, sixty times a
+  second. Measured in a real browser on the raceway: **0.69 ms per frame for a seven-row standings
+  table, 0.73 ms for twelve, against 0.15-0.19 ms for writing the changed text nodes.**
+  Three things to copy, and one trap:
+  - **A whole-string guard is not enough where a clock ticks.** `raceClock` renders hundredths, so
+    the string genuinely differs every frame. Split the markup into a STRUCTURE (who is in the
+    list, in what order) rebuilt only when that changes, and text nodes written per frame —
+    `setText` compares before writing, because assigning the same string still dirties the node.
+  - **It works exactly as well as the structure is stable.** Measured with a `MutationObserver` on
+    the live HUD: driving alone it is **1 rebuild in 39 frames** (against one per frame before),
+    and in the opening seconds of a seven-car race it is **0.99 per frame** — because the rows are
+    sorted by PLACE and a bunched field really does swap places every tick. Fixing that half needs
+    row elements kept per driver and reordered with `appendChild` instead of re-parsed, and it
+    buys 0.5 ms of a 21 ms frame: not built, on purpose, and written down here so the next person
+    can decide with the number rather than the instinct.
+  - **The cost is invisible to every Phaser number.** The perf overlay's `ms` is the scene's own
+    update (0.12-0.33 ms here) and does not include the render pass, the DOM or the compositor. A
+    frame-rate complaint therefore needs a browser profile, not the overlay — see the culling
+    bullet above for the same lesson in the renderer.
+  - The guards belong on every block that redraws: `renderLights`, `renderBanner`, `renderSetup`,
+    `renderItem` and `renderBoard` each keep what they last drew, and a block that hides itself
+    clears its key so the next show rebuilds.
 
 - **The client waits for its art, then draws once** (the loading phase in
   `OfficeScene.runLoadingPhase`, panel in `ui/loadingOverlay.ts`). Four independent
