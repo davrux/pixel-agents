@@ -881,28 +881,35 @@ check asks: is the release present in the code that acquires?
     depth-sorted every frame, all destroyed and rebuilt on every `buildStatic`. At twice a screen
     that is ~8-10 000; a race map is 10 836 objects on the raceway and **19 360 on Monza** (ground
     cells plus decals).
-    **What building it would actually buy was measured on 2026-09-17, after "47 fps aber irgendwie
-    ruckelt es" — and the answer is: not the frame rate.** 47 fps is a 21.3 ms frame, and the
-    object count accounts for about 2.9 ms of it:
+    **What building it would actually buy was measured on 2026-09-18**, after "47 fps aber
+    irgendwie ruckelt es" — with a CPU sampling profile (CDP `Profiler`, 200 µs) over six seconds
+    of driving Monza with a seven-car field. Per frame, of the main thread:
 
-    | | monza, 19 660 objects | after |
-    |---|---:|---:|
-    | depth sort, every frame | 2.05 ms | 0.39 ms *(ground baked out)* |
-    | per-object submission (proxy) | 0.81 ms | 0.12 ms *(viewport test)* |
+    | | measured | scales with |
+    |---|---:|---|
+    | Phaser's batch path (`batch`, `render`, `setRenderOptions`, `setQuad`, `getTintAppendFloatAlpha`, `bufferSubData`) | **2.8 ms** | objects DRAWN |
+    | depth sort (`sortByDepth`) | **0.14 ms** | objects in the display list |
+    | the scene's own `update()` | 0.06 ms | entities |
+    | `(program)` — rasterisation, style, layout | **69 % of the thread** | pixels |
 
-    Two things follow, and the first is the one that stops a wasted afternoon. **The two costs need
-    two different fixes**: hiding an off-screen object with `visible = false` does NOT take it out
-    of the display list, so Phaser keeps sorting it — the 1.7 ms only goes away if the objects go
-    away, i.e. if the static ground is baked into one RenderTexture (15 197 of Monza's 19 360, and
-    it only changes on a map push; the `occludes` decals must stay objects because they sort
-    against characters). And Phaser really does re-sort every frame: `setDepth` queues a depth
-    sort, and karts, characters, helmets and oil all set theirs each frame.
-    Second: **~18 of the 21 ms are somewhere else entirely**, and it is not the scene's own update
-    either — the perf overlay's `ms` field is exactly that, and it reads 0.12-0.33 ms. So before
-    building any of this, take a real profile (Electron: DevTools → Performance, five seconds while
-    driving) and find out what the render pass, the DOM and the compositor are each doing. The old
-    sentence here said culling was "the first thing to fix if a big map feels slow"; these numbers
-    say it is the first thing to MEASURE, and that it buys around 11 % of a frame when it is.
+    Three things follow. **Culling is the fix, and baking the ground is not**: the cost is per
+    object DRAWN, not per object owned, so a viewport test recovers nearly all of the 2.8 ms while
+    a RenderTexture for the static ground would take away a 0.14 ms sort. **The frame is not JS**
+    — 69 % of the main thread was `(program)`, which in a headless browser with `--disable-gpu`
+    is software rasterisation, and it is why that environment measures 40 ms/frame where a real
+    machine measures 21. So the ~3 ms above is the JS share, and on a machine whose raster is on
+    the GPU it is a bigger fraction of the frame than it looks here. And the old sentence — that
+    culling is "the first thing to fix if a big map feels slow" — is now: the first thing to
+    MEASURE. The perf overlay's `ms` is the scene's own update and never included the render pass,
+    the DOM or the compositor, so a frame-rate complaint needs a profile (Electron: DevTools →
+    Performance, five seconds while driving) and not that number.
+    **Two figures that stood here for a day were wrong, and how they were wrong is the lesson**:
+    a node micro-benchmark had the sort at 2.05 ms (a synthetic merge sort, 15× too high — it
+    matched neither Phaser's real path, which sorts only when the flag is set, nor V8's behaviour
+    on a nearly-sorted list) and the submission at 0.81 ms (a hand-written proxy for the batch,
+    3× too low). Their SUM happened to come out right, which is the trap: the split was the whole
+    argument, and it pointed at the wrong fix. **A browser cost is measured in the browser** — the
+    profiler is two CDP calls away and needs no edit to the tree.
   - **The `layoutLoaded` payload is per JOIN and scales with area.** Measured on `uponu`: **245 KB
     of JSON, ~78 B/cell**, of which `walls` is 46 % and `tileActions` the next largest because it
     serializes a full object per painted meeting-room cell. Twice a screen is ~700 KB. Deflate
