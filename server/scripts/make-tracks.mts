@@ -461,7 +461,24 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'monza',
     label: 'Monza',
     ...fromDust('monza.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
-    width: 7,
+    /**
+     * Eleven, from seven — "Ich finde sie zu schmal", and the numbers agreed: a kart is 1.6 tiles
+     * across, so seven is two cars side by side on a twelve-car grid, and eleven is nearly seven.
+     * Eleven is what AGENTS.md states a four-tile car wants (nine to eleven) — a figure NEITHER
+     * track had met: the raceway is seven too, and stays seven until somebody asks, which is worth
+     * knowing before wondering why one circuit now feels roomier than the other.
+     *
+     * TWELVE is the ceiling on this shape and fourteen is impossible, which is worth leaving
+     * written down because "twice as wide" was the first idea. The constraint is the one this
+     * spec's own doc comment states — two parts of the curve may not come closer than
+     * `2 * (HALF + SAND + 1 + 1)`, i.e. `width + 8` — and the tightest pinch on this outline is
+     * 20 tiles between centrelines (13 between road edges, measured over the generated map
+     * between the legs of gates 18 and 6, around column 103, row 70). Eleven leaves a tile of
+     * margin there; twelve leaves none and the grass between those two straights disappears.
+     * Anything wider needs the SHAPE spread — `scale: 6` would make the pinch 24 and the map
+     * ~197 × 106 — which is a different track, not a wider one.
+     */
+    width: 11,
     laps: 3,
     // Run 0 of the walk is the finish tile itself, and the walk sets off down the start-finish
     // straight — so the grid, which is laid out BACKWARDS from the line, lands on the straight
@@ -471,7 +488,15 @@ const TRACKS: readonly TrackSpec[] = [
   },
 ];
 
-function buildTrack(spec: TrackSpec): { bytes: string; painted: number; scenery: number; markers: number; furniture: number } {
+function buildTrack(spec: TrackSpec): {
+  bytes: string;
+  painted: number;
+  scenery: number;
+  markers: number;
+  furniture: number;
+  /** Trackside pieces the road swallowed — see `place`. */
+  dropped: string[];
+} {
 /**
  * The ring: a road FIVE tiles wide, and that number is the whole difficulty of the track.
  *
@@ -562,6 +587,47 @@ for (let i = 1; i < linePts.length; i++) {
   lineRun.push(lineRun[lineRun.length - 1] + Math.hypot(b.x - a.x, b.y - a.y));
 }
 const LINE_LENGTH = lineRun[lineRun.length - 1];
+/**
+ * The second constraint the spec's `line` doc comment promises: no two parts of the curve may come
+ * closer than twice `HALF + SAND + 1 + 1` — the road's half-width, its sand, its barrier and a tile
+ * of grass, on each side — or the two run into one another and the map has one wide road where it
+ * should have two separated ones.
+ *
+ * It was a CLAIM and not a check until 2026-09-18, which is how "make Monza twice as wide" could
+ * be discussed for an afternoon with the answer measured off the generated map instead of off the
+ * line it came from. Widening is exactly when this bites: the curve does not move, so what a wider
+ * road eats is the gap — Monza's tightest pinch is 20 tiles between centrelines, which is why 11
+ * fits (needs 19) and 14 does not (needs 22).
+ *
+ * Samples less than an eighth of a lap apart ALONG the road are skipped: a lap is continuous, so
+ * its own neighbourhood is always close, and the thing being asked about is two different parts of
+ * it passing each other.
+ */
+{
+  const need = 2 * (spec.width / 2 + SAND + 2);
+  let pinch = Infinity;
+  let where = { x: 0, y: 0 };
+  for (let i = 0; i < linePts.length; i++) {
+    for (let j = i + 1; j < linePts.length; j++) {
+      const along = lineRun[j] - lineRun[i];
+      if (Math.min(along, LINE_LENGTH - along) < LINE_LENGTH / 8) continue;
+      const d = Math.hypot(linePts[j].x - linePts[i].x, linePts[j].y - linePts[i].y);
+      if (d < pinch) {
+        pinch = d;
+        where = linePts[i];
+      }
+    }
+  }
+  if (pinch < need) {
+    throw new Error(
+      `${spec.id} cannot be built: a road ${spec.width} tiles wide needs ${need.toFixed(1)} tiles ` +
+        `between any two parts of the lap, and the tightest is ${pinch.toFixed(1)} near ` +
+        `${Math.round(where.x)},${Math.round(where.y)}. Widen the shape (fromDust's scale) rather ` +
+        `than the road, or the two run into each other.`,
+    );
+  }
+  console.log(`  ${spec.id}: road ${spec.width} wide, tightest pass ${pinch.toFixed(1)} tiles (needs ${need.toFixed(1)})`);
+}
 /** The point this far along the road, and which way it points there. A closed line WRAPS, so a
  *  gate at 95 % of the lap is a gate, not the end of the world. */
 const lineAt = (run: number): { x: number; y: number; dir: number } => {
@@ -1220,6 +1286,37 @@ const furn = (
   y: (bottomRow + 1) * TILE,
   ...(props.length > 0 ? { properties: typed(props) } : {}),
 });
+/**
+ * Put a piece on the map — unless it would stand on the ROAD.
+ *
+ * Everything trackside is placed at an offset from the centreline (`beside`, `VERGE`, `IN`), so it
+ * follows the road outwards when the road gets wider. That is right for the verge and wrong for
+ * the infield: `IN` is measured INWARD, and where the infield is narrow a piece eleven tiles in
+ * reaches across to the road on the other side. Widening Monza from seven to eleven put a drinking
+ * fountain and three trees on the racing line — and furniture BLOCKS, so that is not a decoration
+ * bug, it is an obstacle a kart meets at three hundred pixels a second.
+ *
+ * The road wins and the decoration is dropped, with a line saying which: a missing tree is
+ * invisible, a tree on the line is a bug report. The sand and the barrier are deliberately NOT
+ * checked — a sign in the gravel is exactly where a sign belongs.
+ */
+const dropped: string[] = [];
+const FURN_NAME = new Map(Object.entries(FURN).map(([k, v]) => [v, k]));
+const place = (piece: ReturnType<typeof furn>): void => {
+  const wide = Math.max(1, Math.ceil(piece.width / TILE));
+  const tall = Math.max(1, Math.ceil(piece.height / TILE));
+  const col = Math.round(piece.x / TILE);
+  const bottom = Math.round(piece.y / TILE) - 1;
+  for (let dc = 0; dc < wide; dc++) {
+    for (let dr = 0; dr < tall; dr++) {
+      if (!isRoad(col + dc, bottom - dr)) continue;
+      dropped.push(`${FURN_NAME.get(piece.gid) ?? `gid ${piece.gid}`} at ${col},${bottom}`);
+      return;
+    }
+  }
+  furniture.push(piece);
+};
+
 /** A text label — the same objects a mapper draws with Tiled's text tool. */
 const label = (col: number, row: number, text: string, cells = 8) => ({
   height: TILE,
@@ -1284,28 +1381,28 @@ const onVerge = (run: number): { col: number; row: number } => {
   // BEHIND the start line, along the grid, because that is where you walk: the spawn points are
   // in the grid lane and this is what you pass on the way to a kart.
   const board = beside(startRun - 12, HALF + 4.5);
-  furniture.push(furn(FURN.LEADERBOARD, board.col, board.row, 48, 64, [
+  place(furn(FURN.LEADERBOARD, board.col, board.row, 48, 64, [
     { name: 'actionKind', type: 'string', value: 'raceRecords' },
   ]));
 }
 {
   const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
   const tap = onVerge(startRun - 18);
-  furniture.push(furn(FURN.DRINKING_FOUNTAIN, tap.col, tap.row, 16, 32, [
+  place(furn(FURN.DRINKING_FOUNTAIN, tap.col, tap.row, 16, 32, [
     { name: 'actionKind', type: 'string', value: 'appliance' },
     { name: 'actionPose', type: 'string', value: 'drink' },
   ]));
   const pad = onVerge(startRun - 22);
   // A way home that is not the menu: travel is placed furniture with a portal action, never a
   // hard-coded jump (AGENTS.md invariant 8).
-  furniture.push(furn(FURN.BEAM_PAD, pad.col, pad.row, 16, 16, [
+  place(furn(FURN.BEAM_PAD, pad.col, pad.row, 16, 16, [
     { name: 'actionKind', type: 'string', value: 'portal' },
   ]));
   // Flags either side of the line — animated furniture, which is the other thing a placement can
   // be: the frames are the client's business and only ON/OFF ever travels.
   for (const off of [-(HALF + 3.5), HALF + 3.5]) {
     const f = beside(startRun + 1, off);
-    furniture.push(furn(FURN.FLAG_1, f.col, f.row, 32, 32));
+    place(furn(FURN.FLAG_1, f.col, f.row, 32, 32));
   }
   /**
    * And the infield, which is purely to look at: nothing can reach it, so nothing there needs an
@@ -1314,16 +1411,16 @@ const onVerge = (run: number): { col: number; row: number } => {
    */
   const IN = -(HALF + 6);
   const car = beside(startRun - 26, IN);
-  furniture.push(furn(FURN.CAR_RACE_29, car.col, car.row, 96, 48));
+  place(furn(FURN.CAR_RACE_29, car.col, car.row, 96, 48));
   const fountain = beside(startRun - 38, IN - 3);
-  furniture.push(furn(FURN.FOUNTAIN_1, fountain.col, fountain.row, 48, 48));
+  place(furn(FURN.FOUNTAIN_1, fountain.col, fountain.row, 48, 48));
   for (const [at, into, gid, w, h] of [
     [startRun - 8, IN - 2, FURN.TREE, 32, 48],
     [startRun - 15, IN - 6, FURN.PINE_TREE, 32, 48],
     [startRun - 32, IN - 1, FURN.LARGE_PLANT, 32, 48],
   ] as const) {
     const t = beside(at, into);
-    furniture.push(furn(gid, t.col, t.row, w, h));
+    place(furn(gid, t.col, t.row, w, h));
   }
   // Labels, so the parts name themselves.
   const paddock = beside(startRun - 30, HALF + 4);
@@ -1558,6 +1655,7 @@ const map = {
     bytes: JSON.stringify(map, null, 1).replace(/"data": \[[^\]]*\]/g, (m) => m.replace(/\s+/g, ' ')) + '\n',
     painted: ground.filter((g) => g).length,
     furniture: furniture.length,
+    dropped,
     scenery: decal.filter((g) => g).length,
     markers: objects.length,
   };
@@ -1566,7 +1664,7 @@ const map = {
 let differs = false;
 for (const spec of TRACKS) {
   const out = path.join(ZONES, `${spec.id}.tmj`);
-  const { bytes, painted, scenery, markers, furniture } = buildTrack(spec);
+  const { bytes, painted, scenery, markers, furniture, dropped } = buildTrack(spec);
   if (CHECK) {
     const onDisk = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
     if (onDisk !== bytes) {
@@ -1580,6 +1678,9 @@ for (const spec of TRACKS) {
     `wrote ${path.relative(REPO, out)} (${spec.cols}x${spec.rows}, ${painted} painted cells, ` +
       `${scenery} scenery, ${markers} markers, ${furniture} placed, ${spec.laps} laps)`,
   );
+  // Named rather than counted: "3 dropped" is a number to wonder about, and this is a list to act
+  // on — either the piece moves or the infield is genuinely too narrow there.
+  for (const d of dropped) console.log(`  dropped ${d} — it would have stood on the road`);
 }
 if (CHECK) {
   if (differs) {
