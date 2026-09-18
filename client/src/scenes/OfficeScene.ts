@@ -44,6 +44,7 @@ import {
   lookAheadPoint,
   speedZoom,
   worldToScreen,
+  cameraBounds,
 } from '../render/driveCamera.js';
 import { carriedPoint, KART_CATCH_UP_PER_SEC } from '../render/kartMotion.js';
 import {
@@ -2046,9 +2047,8 @@ export class OfficeScene extends Phaser.Scene {
     // Fahrer". Framing the whole map is a thing you want while looking at it and the opposite of
     // what you want while racing on it, so a driver keeps the margin that lets the camera move.
     const driving = this.drivePose() !== null;
-    const marginX = !driving && viewW >= this.officeW ? 0 : viewW / 2;
-    const marginY = !driving && viewH >= this.officeH ? 0 : viewH / 2;
-    cam.setBounds(-marginX, -marginY, this.officeW + marginX * 2, this.officeH + marginY * 2);
+    const b = cameraBounds({ officeW: this.officeW, officeH: this.officeH, viewW, viewH, driving });
+    cam.setBounds(b.x, b.y, b.width, b.height);
   }
 
   // ── Input: pan / zoom / hover / select ───────────────────────────

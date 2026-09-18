@@ -109,3 +109,36 @@ export function worldToScreen(cam: ViewCamera, wx: number, wy: number): { x: num
     y: cam.height / 2 + (wy - cam.centreY) * cam.zoom,
   };
 }
+
+/**
+ * The camera's bounds: how far it may scroll, given the map and what fits on screen.
+ *
+ * Phaser clamps `scrollX` to `bounds.x + (displayWidth - width) / 2` and refuses to go past
+ * `bounds.x + bounds.width - displayWidth` — so when the bounds are SMALLER than the view, both
+ * ends collapse onto the first value and the camera is pinned. That pinning is wanted (there is
+ * nothing out there to pan to), but with the bounds set to the map it pins the screen's centre at
+ * `displayWidth / 2` rather than at the map's middle: the map then sits off to one side with the
+ * slack beside it, and no amount of dragging moves it. Reported from the desktop app as "die Karte
+ * bleibt am linken Rand, ich kann sie nicht frei bewegen", and measured on the raceway in a
+ * 1400 × 800 window: **251 world pixels off centre**, which is 117 on screen.
+ *
+ * So the bounds are at least as big as the VIEW and centred on the map, which makes Phaser's own
+ * clamp land the map's middle in the middle of the screen. Everything else is unchanged: while the
+ * map is bigger than the view — and always while DRIVING, where the camera has to be able to lead
+ * the car past the edge — the generous half-a-screen margin stays, because that is what lets the
+ * camera move at all.
+ */
+export function cameraBounds(opts: {
+  officeW: number;
+  officeH: number;
+  viewW: number;
+  viewH: number;
+  driving: boolean;
+}): { x: number; y: number; width: number; height: number } {
+  const { officeW, officeH, viewW, viewH, driving } = opts;
+  const overscrollX = !driving && viewW >= officeW ? 0 : viewW / 2;
+  const overscrollY = !driving && viewH >= officeH ? 0 : viewH / 2;
+  const width = Math.max(officeW + overscrollX * 2, viewW);
+  const height = Math.max(officeH + overscrollY * 2, viewH);
+  return { x: officeW / 2 - width / 2, y: officeH / 2 - height / 2, width, height };
+}

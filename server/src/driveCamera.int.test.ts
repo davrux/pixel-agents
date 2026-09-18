@@ -27,6 +27,7 @@ import {
   speedFraction,
   speedZoom,
   worldToScreen,
+  cameraBounds,
 } from '../../client/src/render/driveCamera.js';
 
 test('the camera leads the kart in proportion to speed, and never trails it', () => {
@@ -106,4 +107,66 @@ test('world to screen agrees with the maths every overlay used before it existed
     const mid = worldToScreen({ ...cam, zoom }, cam.centreX, cam.centreY);
     assert.ok(Math.abs(mid.x - 400) < 1e-9 && Math.abs(mid.y - 300) < 1e-9, `centre moved at zoom ${zoom}`);
   }
+});
+
+/**
+ * The map ends up in the MIDDLE of the screen when it is smaller than the view.
+ *
+ * Asserted through Phaser's own clamp rather than against the bounds I chose — the numbers in
+ * `cameraBounds` only mean something once that formula is applied to them, and the bug being fixed
+ * was precisely a set of bounds that looked right and clamped wrong. The formula is copied from
+ * `BaseCamera.clampX` in the installed Phaser (4.2.1) and is four lines long; a test that instead
+ * re-stated my own arithmetic would have passed on the broken version too.
+ */
+const clamp = (scroll: number, bound: number, span: number, view: number, screen: number): number => {
+  // Phaser: bx = bounds.x + (displayWidth - width) / 2, bw = max(bx, bx + bounds.width - dw)
+  const bx = bound + (view - screen) / 2;
+  const bw = Math.max(bx, bx + span - view);
+  return Math.min(Math.max(scroll, bx), bw);
+};
+
+test('a map smaller than the view is centred, not pushed against an edge', () => {
+  // The raceway as it is now, in a desktop window: 156x107 tiles, and a view wider than the map.
+  const officeW = 156 * 16;
+  const officeH = 107 * 16;
+  const screenW = 1400;
+  const screenH = 800;
+  const zoom = Math.min(screenW / officeW, screenH / officeH); // what minZoom() lands on
+  const viewW = screenW / zoom;
+  const viewH = screenH / zoom;
+  assert.ok(viewW > officeW, 'this fixture no longer has slack beside the map');
+
+  const b = cameraBounds({ officeW, officeH, viewW, viewH, driving: false });
+  // Whatever the camera asks for, the clamp puts the screen's centre on the map's centre.
+  for (const asked of [-9999, 0, officeW / 2, 9999]) {
+    const scrollX = clamp(asked, b.x, b.width, viewW, screenW);
+    const middle = scrollX + screenW / 2;
+    assert.ok(
+      Math.abs(middle - officeW / 2) < 1,
+      `asking for ${asked} put the screen's middle at ${middle.toFixed(0)} instead of ${officeW / 2}`,
+    );
+  }
+  // The bounds set to the MAP — what this replaced — miss by a quarter of the slack, which is what
+  // "the map sits at the left edge" was.
+  const naive = clamp(0, 0, officeW, viewW, screenW) + screenW / 2;
+  assert.ok(
+    Math.abs(naive - officeW / 2) > 100,
+    `the old bounds were only ${Math.abs(naive - officeW / 2).toFixed(0)} px off, so this test proves little`,
+  );
+});
+
+test('a map bigger than the view keeps its half-a-screen of overscroll', () => {
+  // Nothing about panning a big map changes: that margin is what lets the camera move at all, and
+  // a driver keeps it even when the whole circuit would fit on screen.
+  const officeW = 2496;
+  const officeH = 1712;
+  for (const driving of [false, true]) {
+    const b = cameraBounds({ officeW, officeH, viewW: 900, viewH: 500, driving });
+    assert.equal(b.x, -450, 'lost the horizontal overscroll');
+    assert.equal(b.width, officeW + 900, 'lost the horizontal overscroll');
+    assert.equal(b.y, -250, 'lost the vertical overscroll');
+  }
+  // …and DRIVING keeps it even where the view is bigger, or the camera cannot lead the car.
+  const wide = cameraBounds({ officeW: 800, officeH: 600, viewW: 3000, viewH: 1700, driving: true });
+  assert.equal(wide.width, 800 + 3000, 'a driving camera lost the room it needs to lead the car');
 });

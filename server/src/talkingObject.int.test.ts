@@ -39,6 +39,7 @@ import { PNG } from 'pngjs';
 import { OfficeState } from '@pixel/shared/office/engine/index.js';
 import {
   announceDue,
+  hourChimes,
   ANNOUNCE_TIMEZONE,
   hourStamp,
   hourText,
@@ -56,6 +57,8 @@ import { emptyZoneMap } from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout, PlacedFurniture } from '@pixel/shared/office/types.js';
 
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
+import { importTmjToLayout } from './tiled/mapBridge.js';
+import { loadTiledRegistry } from './tiled/tiledRegistry.js';
 import { MAX_QUOTE_LEN, parseQuotes, QUOTES_REL } from './quotes.js';
 import { isFurnitureTileset } from './tiled/tiledRegistry.js';
 
@@ -72,6 +75,16 @@ function whale(): { asset: ReturnType<typeof parseFurnitureTileset>[number]['ass
     if (found) return found;
   }
   throw new Error('TALKING_WHALE is in no furniture tileset — there is nothing a mapper could place');
+}
+
+/** The committed office map, through the real importer — lazily, because most of this file needs
+ *  no map at all and the catalog build is the slow part. */
+let uponuCache: OfficeLayout | null = null;
+function uponu(): OfficeLayout {
+  if (uponuCache) return uponuCache;
+  const tmj = JSON.parse(fs.readFileSync(path.join(TILED_DIR, 'zones', 'uponu.tmj'), 'utf8'));
+  uponuCache = importTmjToLayout(tmj, loadTiledRegistry(REPO_ROOT), () => null).layout;
+  return uponuCache;
 }
 
 // ── 1. the art ──────────────────────────────────────────────────────────────
@@ -575,4 +588,42 @@ test('the hour and the quote are attributed the same way, through the engine', (
 
   os.update(0.05, at(10, 20, 0));
   assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Second line.', 'Talking Whale')]);
+});
+
+/**
+ * The line a talker emits names a cell a CLIENT can find the piece at — the bubble's one
+ * precondition that is not DOM.
+ *
+ * The bubble itself is a div and stays out of this file (see the header's honest absence), but
+ * everything up to it can be checked: the client positions a bubble by looking up
+ * `furniturePlacements.find(p => p.col === col && p.row === row)` for the `col`/`row` the server
+ * broadcast, and a mismatch there fails SILENTLY — `bubbleAnchorPoint` returns null, the bubble is
+ * dropped on the next frame, and what is left is the chat line alone. Which is exactly what a
+ * talking object looks like when it has no bubble, so it is worth one assertion.
+ *
+ * Driven over the REAL committed map rather than a fixture: the coordinates have to survive Tiled's
+ * bottom-left object anchoring and the importer's conversion, and a hand-built placement would
+ * skip both.
+ */
+test('a spoken line points at a cell the map really has a placement on', () => {
+  const layout = uponu();
+  // Found by its ART, not through the catalog: this file builds tiny fake catalogs per test and a
+  // real one here would clobber theirs. The action is put on the INSTANCE for the same reason —
+  // `effectiveAction` prefers it over the entry, so the chime needs no catalog at all, and that
+  // the whale's TILE carries the action is already pinned further up.
+  const whales = (layout.furniture ?? []).filter((f) => f.id === 'TALKING_WHALE');
+  assert.ok(whales.length > 0, 'uponu carries no talking whale any more, so this proves nothing');
+  const talkers = whales.map((f) => ({ ...f, action: { kind: 'talkingObject' } }) as PlacedFurniture);
+  // Nine in the morning, on the boundary, which is when the hour is spoken.
+  const lines = hourChimes(talkers, Date.parse('2026-09-18T09:00:00+02:00'));
+  assert.equal(lines.length, talkers.length, 'not every talker spoke');
+  for (const line of lines) {
+    const at = (layout.furniture ?? []).find((f) => f.col === line.col && f.row === line.row);
+    assert.ok(
+      at,
+      `a line was anchored at ${line.col},${line.row} where the map has no placement — a client ` +
+        'would drop the bubble and show only the chat line',
+    );
+    assert.equal(at?.id, 'TALKING_WHALE', 'the anchor resolved to another piece');
+  }
 });
