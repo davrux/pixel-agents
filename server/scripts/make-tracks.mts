@@ -401,8 +401,27 @@ const TRACKS: readonly TrackSpec[] = [
     id: 'raceway',
     label: 'Raceway',
     cols: 116,
-    rows: 74,
-    width: 7,
+    /**
+     * 78, from 74 — four rows of grass along the bottom, bought by the width.
+     *
+     * Two things needed them, and the second is the one that would have been missed. The line is
+     * hand-placed and used to clear the bottom edge by 9.4 tiles: room to spare for a seven-tile
+     * road (needs 7.5) and a tenth of a tile short for an eleven-tile one (needs 9.5), which the
+     * check below named rather than leaving it to the eye. And the TIMING BOARD stands outside
+     * the barrier on the start-finish straight, which is the straight that runs along that same
+     * bottom edge — four tiles of board at `HALF + 4.5` reached off the map, so `place` dropped
+     * it, and a circuit without the board that shows its record is a worse circuit than one with
+     * a wider margin. Both are the same tile arithmetic: HALF grew by two, so everything measured
+     * from it moved two out.
+     *
+     * The rows are added at the BOTTOM, so every coordinate on the map stays where it was and the
+     * shape of the lap is untouched.
+     */
+    rows: 78,
+    /** Eleven, like Monza's — see the note on that spec for why seven was too narrow and where
+     *  the ceiling comes from. This outline has far more room: its tightest pass is 25.9 tiles
+     *  against the 19 an eleven-wide road needs. */
+    width: 11,
     // Three, and the number follows the lap rather than taste: a lap of this circuit is about
     // twenty seconds, so three is a minute of racing — long enough to have a shape, short enough
     // that a grid of twelve gets round it before anybody puts the kettle on. The panel can still
@@ -460,7 +479,14 @@ const TRACKS: readonly TrackSpec[] = [
      */
     id: 'monza',
     label: 'Monza',
-    ...fromDust('monza.trk', { scale: 5, pad: 9, smooth: 6, every: 2 }),
+    /**
+     * `pad` went from 9 to 10 when the road went from seven tiles to eleven: the outline's
+     * closest approach to the map edge was 9.0 tiles, which is room to spare for a seven-wide
+     * road and half a tile short for an eleven-wide one. The check below named it. A pad is
+     * tiles on every side, so this grows the map to 169 × 93 and moves everything one tile in —
+     * which costs nothing, the map being generated.
+     */
+    ...fromDust('monza.trk', { scale: 5, pad: 10, smooth: 6, every: 2 }),
     /**
      * Eleven, from seven — "Ich finde sie zu schmal", and the numbers agreed: a kart is 1.6 tiles
      * across, so seven is two cars side by side on a twelve-car grid, and eleven is nearly seven.
@@ -604,6 +630,29 @@ const LINE_LENGTH = lineRun[lineRun.length - 1];
  * it passing each other.
  */
 {
+  // The first of the two constraints: the curve has to stay far enough inside the map for its own
+  // road, sand, barrier and a tile of grass. Widening is when this bites too — a hand-placed line
+  // that sat comfortably inside a 116-wide map with a seven-tile road has two tiles less room on
+  // each side with an eleven-tile one.
+  const margin = spec.width / 2 + SAND + 2;
+  let closest = Infinity;
+  let edgeAt = { x: 0, y: 0 };
+  for (const p of linePts) {
+    const d = Math.min(p.x, p.y, COLS - p.x, ROWS - p.y);
+    if (d < closest) {
+      closest = d;
+      edgeAt = p;
+    }
+  }
+  if (closest < margin) {
+    throw new Error(
+      `${spec.id} cannot be built: a road ${spec.width} tiles wide needs ${margin.toFixed(1)} tiles ` +
+        `of room to the map edge, and the curve comes within ${closest.toFixed(1)} near ` +
+        `${Math.round(edgeAt.x)},${Math.round(edgeAt.y)}. Grow the map or move the line.`,
+    );
+  }
+}
+{
   const need = 2 * (spec.width / 2 + SAND + 2);
   let pinch = Infinity;
   let where = { x: 0, y: 0 };
@@ -626,7 +675,10 @@ const LINE_LENGTH = lineRun[lineRun.length - 1];
         `than the road, or the two run into each other.`,
     );
   }
-  console.log(`  ${spec.id}: road ${spec.width} wide, tightest pass ${pinch.toFixed(1)} tiles (needs ${need.toFixed(1)})`);
+  console.log(
+    `  ${spec.id}: road ${spec.width} wide, tightest pass ${pinch.toFixed(1)} tiles ` +
+      `(needs ${need.toFixed(1)})`,
+  );
 }
 /** The point this far along the road, and which way it points there. A closed line WRAPS, so a
  *  gate at 95 % of the lap is a gate, not the end of the world. */
@@ -1299,6 +1351,10 @@ const furn = (
  * The road wins and the decoration is dropped, with a line saying which: a missing tree is
  * invisible, a tree on the line is a bug report. The sand and the barrier are deliberately NOT
  * checked — a sign in the gravel is exactly where a sign belongs.
+ *
+ * The MAP EDGE is refused for the same reason and it is the same cause: widening the raceway
+ * pushed three cells of trackside furniture over the boundary, where the cells do not exist, the
+ * art hangs off the world and nothing blocks. A piece that does not fit on the map is not placed.
  */
 const dropped: string[] = [];
 const FURN_NAME = new Map(Object.entries(FURN).map(([k, v]) => [v, k]));
@@ -1307,10 +1363,17 @@ const place = (piece: ReturnType<typeof furn>): void => {
   const tall = Math.max(1, Math.ceil(piece.height / TILE));
   const col = Math.round(piece.x / TILE);
   const bottom = Math.round(piece.y / TILE) - 1;
+  const name = FURN_NAME.get(piece.gid) ?? `gid ${piece.gid}`;
   for (let dc = 0; dc < wide; dc++) {
     for (let dr = 0; dr < tall; dr++) {
-      if (!isRoad(col + dc, bottom - dr)) continue;
-      dropped.push(`${FURN_NAME.get(piece.gid) ?? `gid ${piece.gid}`} at ${col},${bottom}`);
+      const c = col + dc;
+      const r = bottom - dr;
+      if (c < 0 || r < 0 || c >= COLS || r >= ROWS) {
+        dropped.push(`${name} at ${col},${bottom} — it would hang off the map`);
+        return;
+      }
+      if (!isRoad(c, r)) continue;
+      dropped.push(`${name} at ${col},${bottom} — it would have stood on the road`);
       return;
     }
   }
@@ -1374,6 +1437,18 @@ const onVerge = (run: number): { col: number; row: number } => {
     const cell = beside(run, off);
     if (isRunOff(cell.col, cell.row)) return cell;
   }
+  /**
+   * Nothing out there: the fallback, and on a pinched circuit it can land on the road, where
+   * `place` refuses it.
+   *
+   * Searching further ALONG the lap was tried when Monza's road went to eleven and the fountain
+   * behind its start line lost its verge — ±4 up to ±45 tiles, and not one of them found sand.
+   * That is the geometry rather than the search: where two straights pass close, the sand bands
+   * of both meet and the cell between them belongs to whichever centreline is nearer, so there is
+   * no verge to find at any distance along that stretch. The loop went again rather than stay as
+   * a rule that never fires — and the drop is reported by name, which is the honest answer for a
+   * piece a map has no room for.
+   */
   return beside(run, VERGE);
 };
 {
@@ -1680,7 +1755,7 @@ for (const spec of TRACKS) {
   );
   // Named rather than counted: "3 dropped" is a number to wonder about, and this is a list to act
   // on — either the piece moves or the infield is genuinely too narrow there.
-  for (const d of dropped) console.log(`  dropped ${d} — it would have stood on the road`);
+  for (const d of dropped) console.log(`  dropped ${d}`);
 }
 if (CHECK) {
   if (differs) {
