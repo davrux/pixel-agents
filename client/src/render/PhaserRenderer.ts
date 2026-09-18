@@ -190,6 +190,19 @@ const NO_OVERLAY: WarpOverlay = { kind: 'none' };
 
 export class PhaserRenderer {
   private readonly statics: Phaser.GameObjects.Image[] = [];
+  /**
+   * The world rectangle of each static, packed as x1,y1,x2,y2 — what `cullStatics` compares.
+   *
+   * Measured at build time with `getBounds()` (which accounts for origin, scale and any turn)
+   * rather than per frame: the geometry of a ground cell cannot change without a rebuild, and
+   * asking nineteen thousand objects for their bounds sixty times a second would cost more than
+   * the culling saves. Rebuilt wholesale with `statics`, so it is bounded by the layout.
+   */
+  private staticBox: Float32Array | null = null;
+  /** The view the current visibility answers, quantised to tiles — see `cullStatics`. */
+  private culledView = '';
+  /** How many statics the last cull left visible, for the perf overlay (F8). */
+  private drawn = 0;
   /** Free-text labels (OfficeLayout.texts) — rebuilt wholesale alongside
    *  floor/walls in buildStatic() rather than pooled like furniture, since
    *  they're plain decorative strings with no animation/instance churn. */
@@ -269,6 +282,8 @@ export class PhaserRenderer {
   buildStatic(): void {
     for (const o of this.statics) o.destroy();
     this.statics.length = 0;
+    this.staticBox = null;
+    this.culledView = '';
     for (const t of this.texts) t.destroy();
     this.texts.length = 0;
     for (const img of this.images) img.destroy();
@@ -414,6 +429,90 @@ export class PhaserRenderer {
         .setDepth(pt.y);
       this.texts.push(txt);
     }
+    // Every static's world rectangle, once, for the cull below.
+    this.staticBox = new Float32Array(this.statics.length * 4);
+    for (let i = 0; i < this.statics.length; i++) {
+      const b = this.statics[i].getBounds();
+      this.staticBox[i * 4] = b.x;
+      this.staticBox[i * 4 + 1] = b.y;
+      this.staticBox[i * 4 + 2] = b.right;
+      this.staticBox[i * 4 + 3] = b.bottom;
+    }
+    // NOT culled here, deliberately: a rebuild can happen before the camera has been put where
+    // the player is (the loading phase ends with one), and deciding visibility against a camera
+    // still at the origin would hide most of the map until something moved. Everything is created
+    // visible, so the worst case is one frame that submits the whole map — which is what every
+    // frame used to do. The next `update()` culls it, with a camera that means something.
+  }
+
+  /**
+   * Hide the statics the camera cannot see.
+   *
+   * A race map is one GameObject per ground cell plus one per decal — 10 836 on the raceway and
+   * 19 360 on Monza — and every one of them used to be submitted to the batch, whether or not it
+   * was on screen. A CPU sampling profile of the raceway put that batch path (`batch`, `render`,
+   * `setRenderOptions`, `setQuad`, the tint helper, `bufferSubData`) at **2.8 ms of every frame**,
+   * and it is per object DRAWN: `willRender` returns false for an invisible object, so the whole
+   * path is skipped for it. Of Monza's 19 360, **2 091 are in view standing still and 1 781 while
+   * driving** — the overlay's `cull` field — and the batch path measured 2.8 → 1.65 ms afterwards.
+   * Not the 90 % the counts suggest, because the renderer still walks every child to ask
+   * `willRender`: what this removes is the batching, not the visit.
+   *
+   * What it does NOT save is the depth sort — an invisible object stays in the display list, and
+   * Phaser re-sorts on every frame that queued one. That is deliberate: the profile puts the sort
+   * at 0.14-0.48 ms, so the fix for it (baking the static ground into one RenderTexture) would be
+   * a lot of machinery for a fraction of a millisecond. A node micro-benchmark had said 2.05 ms
+   * and sent an earlier version of this comment in the opposite direction; see AGENTS.md.
+   *
+   * The change is verified by a screenshot A/B — same build, same standing position, the cull
+   * switched on and off — which came back **byte-identical**, with 33 fps against 23 in a headless
+   * browser. Pixel-identical output is the assertion that matters for a cull; a per-frame time is
+   * not A/B-able on a map this size (two runs of one build differ by more than the effect).
+   *
+   * Three details:
+   *
+   *  - **The rectangle is quantised to whole tiles and compared**, so standing still costs
+   *    nothing and driving flat out recomputes about twenty times a second rather than sixty.
+   *  - **One tile of padding**, which covers both the quantisation and the fact that `worldView`
+   *    is updated in Phaser's own pre-render — so what is read here is at most one frame old, and
+   *    at twelve tiles a second that is a third of a tile.
+   *  - **Only `statics`.** The map's pictures and text labels are a handful of objects each and
+   *    not worth a second pass; the pooled furniture, karts, characters and pets are always near
+   *    the camera because that is where the world is happening.
+   */
+  private cullStatics(): void {
+    const box = this.staticBox;
+    const cam = this.scene.cameras?.main;
+    if (!box || !cam) return;
+    const pad = TILE_SIZE;
+    const view = cam.worldView;
+    const x1 = view.x - pad;
+    const y1 = view.y - pad;
+    const x2 = view.right + pad;
+    const y2 = view.bottom + pad;
+    const key = `${Math.round(x1 / TILE_SIZE)},${Math.round(y1 / TILE_SIZE)},${Math.round(x2 / TILE_SIZE)},${Math.round(y2 / TILE_SIZE)}`;
+    if (key === this.culledView) return;
+    this.culledView = key;
+    let drawn = 0;
+    for (let i = 0; i < this.statics.length; i++) {
+      const o = this.statics[i];
+      const seen = box[i * 4] <= x2 && box[i * 4 + 2] >= x1 && box[i * 4 + 1] <= y2 && box[i * 4 + 3] >= y1;
+      if (seen) drawn++;
+      if (o.visible !== seen) o.setVisible(seen);
+    }
+    this.drawn = drawn;
+  }
+
+  /**
+   * How many statics are drawn, of how many the map has — the perf overlay's `cull` field.
+   *
+   * A COUNT rather than a time, and that is the point: the frame time of a map this size is
+   * dominated by rasterisation, so a stopwatch cannot isolate what culling did (measured in a
+   * headless browser, two runs of the same build differed by more than the effect). How many
+   * objects reach the batch is exact, repeatable, and the thing the fix is actually about.
+   */
+  drawnStatics(): { drawn: number; total: number } {
+    return { drawn: this.statics.length === 0 ? 0 : this.drawn, total: this.statics.length };
   }
 
   /**
@@ -521,6 +620,9 @@ export class PhaserRenderer {
 
   /** Per-frame sync of furniture (when changed), characters, pets and bubbles. */
   update(): void {
+    // First, because it decides how much work everything below submits — and the camera has
+    // already been moved for this frame by the scene (see OfficeScene.update).
+    this.cullStatics();
     this.syncFurniture();
     this.syncFurnitureAnimation();
     this.syncKarts();

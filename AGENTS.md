@@ -876,14 +876,23 @@ check asks: is the release present in the code that acquires?
   is our own art where a pushed one is input. So the question
   "do maps grow?" is answered for now, and what a doubling costs is written down here rather than
   re-derived, because **neither of the two things it costs is interest management**:
-  - **The client has no viewport culling anywhere.** `PhaserRenderer.buildStatic()` creates one
-    GameObject per non-VOID ground cell — ~3700 live objects for `uponu`, all submitted and
-    depth-sorted every frame, all destroyed and rebuilt on every `buildStatic`. At twice a screen
-    that is ~8-10 000; a race map is 10 836 objects on the raceway and **19 360 on Monza** (ground
-    cells plus decals).
-    **What building it would actually buy was measured on 2026-09-18**, after "47 fps aber
-    irgendwie ruckelt es" — with a CPU sampling profile (CDP `Profiler`, 200 µs) over six seconds
-    of driving Monza with a seven-car field. Per frame, of the main thread:
+  - **The statics are viewport-culled, and nothing else is** (`PhaserRenderer.cullStatics`, built
+    2026-09-18). `buildStatic()` creates one GameObject per non-VOID ground cell plus one per
+    decal — ~3 300 for `uponu`, 10 836 on the raceway, **19 360 on Monza** — and each one used to
+    be submitted to the batch whether or not it was on screen. Hiding the ones outside the camera
+    takes Monza from 19 360 submitted to **2 091 standing still and 1 781 while driving**; the
+    perf overlay's `cull` field is that count, and it is a COUNT rather than a millisecond on
+    purpose (see below). What it does NOT remove is the per-child iteration or the depth sort — an
+    invisible object stays in the display list — and that is deliberate, because the sort measures
+    0.14-0.48 ms and taking it away needs the static ground baked into a RenderTexture.
+    **Verified by screenshot A/B rather than by argument**: same build, same zone, same standing
+    position, the cull switched on and off at runtime — the two PNGs are **byte-identical** (one
+    md5), and the frame rate is **33 fps against 23** in a headless browser with `--disable-gpu`.
+    Pixel-identical output is the assertion that matters for a culling change; the fps pair is
+    that environment's, where 82-86 % of the main thread is software rasterisation.
+    **What the frame is made of was measured on 2026-09-18**, after "47 fps aber irgendwie ruckelt
+    es" — a CPU sampling profile (CDP `Profiler`, 200 µs) over six seconds of driving the RACEWAY
+    with a seven-car field, before the cull existed. Per frame, of the main thread:
 
     | | measured | scales with |
     |---|---:|---|
@@ -893,8 +902,11 @@ check asks: is the release present in the code that acquires?
     | `(program)` — rasterisation, style, layout | **69 % of the thread** | pixels |
 
     Three things follow. **Culling is the fix, and baking the ground is not**: the cost is per
-    object DRAWN, not per object owned, so a viewport test recovers nearly all of the 2.8 ms while
-    a RenderTexture for the static ground would take away a 0.14 ms sort. **The frame is not JS**
+    object DRAWN, not per object owned, so a viewport test recovers most of the 2.8 ms while a
+    RenderTexture for the static ground would take away a 0.14 ms sort. Measured after building it,
+    on the raceway: the batch path went **2.8 → 1.65 ms** per frame. It is not the ~90 % the object
+    count suggests, and the reason is worth knowing — the renderer still walks every child to ask
+    `willRender`, so what culling removes is the batching, not the visit. **The frame is not JS**
     — 69 % of the main thread was `(program)`, which in a headless browser with `--disable-gpu`
     is software rasterisation, and it is why that environment measures 40 ms/frame where a real
     machine measures 21. So the ~3 ms above is the JS share, and on a machine whose raster is on
@@ -903,6 +915,11 @@ check asks: is the release present in the code that acquires?
     MEASURE. The perf overlay's `ms` is the scene's own update and never included the render pass,
     the DOM or the compositor, so a frame-rate complaint needs a profile (Electron: DevTools →
     Performance, five seconds while driving) and not that number.
+    **A per-frame TIME cannot be A/B'd on a map this size, and trying it cost an hour**: two runs
+    of the same build differed by more than the effect, because the frame is dominated by
+    rasterisation and the driving line is not reproducible, so "how many objects were submitted"
+    is the honest number and the screenshot is the honest check. What CAN be timed is a state that
+    repeats: standing still.
     **Two figures that stood here for a day were wrong, and how they were wrong is the lesson**:
     a node micro-benchmark had the sort at 2.05 ms (a synthetic merge sort, 15× too high — it
     matched neither Phaser's real path, which sorts only when the flag is set, nor V8's behaviour

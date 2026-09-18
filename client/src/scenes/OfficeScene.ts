@@ -2758,6 +2758,11 @@ export class OfficeScene extends Phaser.Scene {
     // is actually happening. Before the runtime atlas (see render/sprites.ts) this
     // grew by one per distinct sprite, and every one of them is a texture bind the
     // GPU cannot batch away.
+    // How much of the map reaches the batch. The number that says whether viewport culling is
+    // doing anything — and a count rather than a millisecond, because on a race map the frame is
+    // mostly rasterisation and a stopwatch cannot see the difference (see PhaserRenderer).
+    const cull = this.view.drawnStatics();
+    const drawn = cull.total === 0 ? '  —' : `${String(cull.drawn).padStart(5)}/${cull.total}`;
     const tex = String(Object.keys(this.game.textures.list).length).padStart(3);
     const pages = String(spriteAtlasPageCount()).padStart(2);
     // Frames = distinct pictures packed. It has to stay FLAT when the same art
@@ -2770,7 +2775,8 @@ export class OfficeScene extends Phaser.Scene {
     const skipped = frameFailures();
     const skippedTxt = skipped > 0 ? ` · ${skipped} err` : '';
     el.textContent =
-      `${fps} fps · ${ms} ms · ${chars} chars · ${tex} tex/${pages}p/${frames}f · ${stateTxt}` + skippedTxt;
+      `${fps} fps · ${ms} ms · ${chars} chars · ${tex} tex/${pages}p/${frames}f · ${drawn} cull · ${stateTxt}` +
+      skippedTxt;
   }
 
   private togglePerf(): void {
