@@ -15,6 +15,8 @@
  *       third (that a field survives a save) is a bug this repo has shipped twice.
  */
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { raceTrack } from '@pixel/shared/office/race/track.js';
@@ -24,6 +26,7 @@ import { sanitizeLayoutActions } from './layoutSanitize.js';
 import { importTmjToLayout } from './tiled/mapBridge.js';
 import type { TiledRegistry } from './tiled/tiledRegistry.js';
 
+const PROJECT = join(import.meta.dirname, '..', '..', 'assets', 'tiled', 'Pixels.tiled-project');
 const COLS = 8;
 const ROWS = 4;
 const CELLS = COLS * ROWS;
@@ -87,6 +90,31 @@ test('a layer with no surface, or one this build does not know, paints nothing',
   assert.equal(surfacesOf(mapWith([{ name: 'Blank', cells: [1, 2] }])), undefined);
   assert.equal(surfacesOf(mapWith([{ name: 'Empty', surface: '', cells: [1, 2] }])), undefined);
   for (const kind of SURFACE_KINDS) assert.ok(isSurfaceKind(kind), `${kind} is not its own kind`);
+});
+
+/**
+ * Every kind the engine knows is one a mapper can PICK — and nothing else is offered.
+ *
+ * The check the `ActionKind` dropdown has had for a while, arriving late here and finding exactly
+ * what that one was written for: `item` had been a `SurfaceKind` in the code for weeks and was
+ * never added to `Pixels.tiled-project`, so the enum offered "rough" and "boost" and a mapper
+ * could not paint an item box at all. Tiled only offers a type's own values, so a kind missing
+ * from that list is a kind that exists everywhere except where somebody would use it.
+ */
+test('every surface kind the engine knows is in the Tiled dropdown, and vice versa', () => {
+  const types = (JSON.parse(readFileSync(PROJECT, 'utf8')) as { propertyTypes: Array<{ name: string; values?: string[] }> })
+    .propertyTypes;
+  const kind = types.find((t) => t.name === 'SurfaceKind');
+  assert.ok(kind, 'Pixels.tiled-project has no SurfaceKind type');
+  const offered = new Set(kind.values ?? []);
+  for (const k of SURFACE_KINDS) {
+    assert.ok(offered.has(k), `Tiled's SurfaceKind dropdown does not offer "${k}"`);
+  }
+  for (const value of kind.values ?? []) {
+    // The empty choice is "this layer paints no surface", which is how a mapper clears one.
+    if (value === '') continue;
+    assert.ok(isSurfaceKind(value), `Tiled offers "${value}" but the engine would ignore it`);
+  }
 });
 
 test('surfaces survive a save, and nothing outside the map can be one', () => {

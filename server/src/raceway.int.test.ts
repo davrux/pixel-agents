@@ -33,7 +33,8 @@ import {
 import { OfficeState } from '@pixel/shared/office/engine/officeState.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog';
 import { parkNear, type Kart, type KartWorld } from '@pixel/shared/office/race/kart.js';
-import { isRough, raceTrack, type RaceTrack } from '@pixel/shared/office/race/track.js';
+import { racerInput } from '@pixel/shared/office/race/racerDriver.js';
+import { isBoost, isIce, isItemBox, isRough, raceTrack, type RaceTrack } from '@pixel/shared/office/race/track.js';
 import type { OfficeLayout } from '@pixel/shared/office/types';
 
 import { buildFurnitureCatalogAndSprites } from './assets.js';
@@ -534,6 +535,88 @@ test('a busy arrival point spreads into the cells beside it', () => {
     [...os.characters.values()].map((c) => `${c.tileCol},${c.tileRow}`),
   );
   assert.equal(where.size, 10, `ten arrivals ended up on ${where.size} tiles`);
+});
+
+/**
+ * ICE is road you cannot grip — the fourth surface, and the one that takes nothing away but your say.
+ *
+ * `rough` slows a car down; ice leaves every pixel per second it brought and cuts what the tyres
+ * can do to a quarter (`ICE_GRIP`), which is one factor over the lateral bite, the brake and the
+ * drive, because friction is friction. What that has to produce is a braking distance a driver
+ * has to respect, and that is what is measured here rather than the constant being restated.
+ *
+ * Driven onto the patch by the computer driver rather than placed on it: a car put down by hand
+ * needs a heading, the local road direction is not the start heading, and the first version of
+ * this measurement had the car falling off the map on the first tick for exactly that reason.
+ */
+test('a car brakes far worse on ice than on road', () => {
+  const DT = 1 / RACE_TICK_HZ;
+  const os = world();
+  const track = os.raceTrack();
+  assert.ok(track);
+  assert.ok(track.ice.size > 0, 'the raceway carries no ice');
+  const driver = os.addPlayer('char_0', 'Skater', undefined, 'skater');
+  const ch = os.characters.get(driver);
+  assert.ok(ch);
+  const kart = [...os.karts.values()].find((k) => k.ownerId === driver);
+  assert.ok(kart);
+  ch.x = kart.x;
+  ch.y = kart.y;
+  assert.equal(os.boardKart(driver), true);
+  os.setRaceSetup({ bots: 0 });
+  assert.equal(os.startRace(), true);
+  while (os.raceInfo().phase === 'countdown') os.update(DT);
+  const inner = os as unknown as { tileMap: number[][]; blockedTiles: Set<string>; walls: unknown };
+  const world_ = { tileMap: inner.tileMap, blockedTiles: inner.blockedTiles, walls: inner.walls, track } as never;
+  const icy = (): boolean => isIce(track, Math.floor(kart.x / TILE), Math.floor(kart.y / TILE));
+
+  /** Drive until the car is fast and (not) on ice, then hold the brake and report the distance. */
+  const brakeFrom = (wantIce: boolean): number => {
+    for (let i = 0; i < Math.round(120 / DT); i++) {
+      kart.input = racerInput(kart, world_, { level: 1 });
+      os.update(DT);
+      if (Math.hypot(kart.vx, kart.vy) > KART_MAX_SPEED_PX_PER_SEC * 0.9 && icy() === wantIce) break;
+    }
+    assert.equal(icy(), wantIce, `never got the car ${wantIce ? 'onto' : 'off'} the ice at speed`);
+    const x0 = kart.x;
+    const y0 = kart.y;
+    for (let i = 0; i < Math.round(12 / DT) && Math.hypot(kart.vx, kart.vy) > 15; i++) {
+      kart.input = { throttle: -1, steer: 0 };
+      os.update(DT);
+    }
+    return Math.hypot(kart.x - x0, kart.y - y0) / TILE;
+  };
+  const onIce = brakeFrom(true);
+  const onRoad = brakeFrom(false);
+  // Measured: 8.7 tiles against 3.5, and the ice figure is the SHORT one of the two possible —
+  // the car slides off the patch part-way and the road it lands on is what finally stops it.
+  assert.ok(
+    onIce > onRoad * 1.8,
+    `ice stopped the car in ${onIce.toFixed(1)} tiles against ${onRoad.toFixed(1)} on road, which is no hazard`,
+  );
+});
+
+/**
+ * …and the patch is on the ROAD, clear of everything else that owns a cell.
+ *
+ * Two surfaces on one cell is a map arguing with itself, and which one wins would be decided by
+ * whichever layer happens to be on top. The generator keeps ice clear of the grid, the boost pads
+ * and the item rows; this is that promise read back off the committed map.
+ */
+test('the ice sits on the road and on nothing else', () => {
+  const track = raceTrack(layout);
+  assert.ok(track);
+  for (const cell of track.ice) {
+    const [col, row] = cell.split(',').map(Number);
+    assert.equal(isRough(track, col, row), false, `ice at ${cell} is also rough`);
+    assert.equal(isBoost(track, col, row), false, `ice at ${cell} is also a boost pad`);
+    assert.equal(isItemBox(track, col, row), false, `ice at ${cell} is also an item box`);
+    assert.ok(track.grid.every((g) => Math.hypot(g.x / TILE - col, g.y / TILE - row) > 2), `ice at ${cell} is on the grid`);
+  }
+  // A patch rather than a scatter: it spans the road, so it cannot be driven round.
+  const rows = new Set([...track.ice].map((c) => Number(c.split(',')[1])));
+  const cols = new Set([...track.ice].map((c) => Number(c.split(',')[0])));
+  assert.ok(Math.min(rows.size, cols.size) >= 6, `the ice is ${cols.size}x${rows.size} cells, which is not a patch across the road`);
 });
 
 /**

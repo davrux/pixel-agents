@@ -435,7 +435,9 @@
       "values": [
         "",
         "rough",
-        "boost"
+        "boost",
+        "item",
+        "ice"
       ],
       "valuesAsFlags": false
     },

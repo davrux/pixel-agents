@@ -1,12 +1,12 @@
 {
-  "columns": 34,
+  "columns": 36,
   "image": "png/src/track.png",
   "imageheight": 18,
-  "imagewidth": 612,
+  "imagewidth": 648,
   "margin": 1,
   "name": "track",
   "spacing": 2,
-  "tilecount": 34,
+  "tilecount": 36,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tiles": [

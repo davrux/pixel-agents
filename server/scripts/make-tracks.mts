@@ -60,6 +60,9 @@ const TRACK_TILES = [
   'shoreW', 'shoreNW', 'shoreEW', 'shoreNEW', 'shoreSW', 'shoreNSW', 'shoreESW', 'shoreNESW',
   'shoreCNE', 'shoreCSE', 'shoreCSW', 'shoreCNW',
   'itemBox',
+  // Appended after `itemBox`, in the order `draw-track-tiles.mts` emits them. Two variants so a
+  // patch is not one tile repeated, picked by the cell's own coordinates like the grass.
+  'ice', 'iceB',
 ] as const;
 type TrackTile = (typeof TRACK_TILES)[number];
 /**
@@ -1068,12 +1071,14 @@ for (const at of chosen) {
  * evenly is what makes them part of the lap. Offset from the start so the first row is not under
  * the grid, and nudged off the pads' own runs so a row is never painted on top of a chevron.
  */
+const itemRuns: number[] = [];
 for (let r = 0; r < ITEM_ROWS; r++) {
   let at = startRun + (LINE_LENGTH * (r + 0.5)) / ITEM_ROWS;
   for (const pad of chosen) {
     const d = Math.abs(((at - pad) % LINE_LENGTH + LINE_LENGTH) % LINE_LENGTH);
     if (Math.min(d, LINE_LENGTH - d) < BOOST_LENGTH_TILES + 2) at += BOOST_LENGTH_TILES + 4;
   }
+  itemRuns.push(at);
   const p = lineAt(at);
   const nx = -Math.sin(p.dir);
   const ny = Math.cos(p.dir);
@@ -1081,6 +1086,55 @@ for (let r = 0; r < ITEM_ROWS; r++) {
     const col = Math.round(p.x + nx * u);
     const row = Math.round(p.y + ny * u);
     if (onRoad(col, row)) itemCells.add(`${col},${row}`);
+  }
+}
+
+/**
+ * ICE: one patch a lap, across the whole road, on the straightest stretch that is free.
+ *
+ * Three decisions, and the first is what makes it fair. It spans the FULL width, unlike a boost
+ * pad (two cells of the middle) or an item row (a lane to choose): a patch you can drive round is
+ * scenery, and the point of ice is that it is a thing the lap does to you and you prepare for it.
+ * It sits on the STRAIGHTEST stretch that is clear, because ice in a corner is a corner nobody can
+ * take — the tyres hold `v²/r` at a quarter of their grip, which on these circuits is no radius at
+ * all (see `ICE_GRIP`) — and what makes a patch interesting is arriving at it slowly and leaving
+ * it fast, not being thrown off it. And it is six tiles long: about two car lengths, which is a
+ * fifth of a second at racing speed and nineteen tiles of stopping distance if you meant to brake.
+ *
+ * Clear of the grid, the boost pads and the item rows, for the same reason a pad keeps clear of
+ * them: two surfaces on one cell is a map arguing with itself, and the layer that happens to be
+ * on top would decide it.
+ */
+const ICE_LENGTH_TILES = 6;
+const iceCells = new Set<string>();
+{
+  const gapTo = (a: number, b: number): number => {
+    const d = Math.abs(a - b) % LINE_LENGTH;
+    return Math.min(d, LINE_LENGTH - d);
+  };
+  let at = -1;
+  let straightest = 0;
+  for (let run = 0; run < LINE_LENGTH; run += 2) {
+    if (gapTo(run, startRun) < GRID_ROWS * 5 + 12) continue;
+    if (chosen.some((pad) => gapTo(run, pad) < BOOST_LENGTH_TILES + ICE_LENGTH_TILES + 4)) continue;
+    if (itemRuns.some((box) => gapTo(run, box) < ICE_LENGTH_TILES + 4)) continue;
+    // The whole patch has to be straight, not just its start.
+    const r = Math.min(radiusAtRun(run), radiusAtRun(run + ICE_LENGTH_TILES / 2), radiusAtRun(run + ICE_LENGTH_TILES));
+    if (r <= straightest) continue;
+    straightest = r;
+    at = run;
+  }
+  if (at >= 0) {
+    for (let k = 0; k <= ICE_LENGTH_TILES * 2; k++) {
+      const p = lineAt(at + k / 2);
+      const nx = -Math.sin(p.dir);
+      const ny = Math.cos(p.dir);
+      for (let u = -HALF; u <= HALF; u += 0.5) {
+        const col = Math.round(p.x + nx * u);
+        const row = Math.round(p.y + ny * u);
+        if (onRoad(col, row)) iceCells.add(`${col},${row}`);
+      }
+    }
   }
 }
 
@@ -1094,6 +1148,9 @@ const boostLayer = new Array(COLS * ROWS).fill(0);
 /** The third one. An item box is a fact about a CELL of the road, like the other two — see
  *  `RaceTrack.itemBox` for why it needs no state of its own. */
 const itemLayer = new Array(COLS * ROWS).fill(0);
+/** The fourth. Ice is a kind of ROAD, not a kind of run-off — see `RaceTrack.ice` for the
+ *  difference and `ICE_GRIP` for what it does to a car. */
+const iceLayer = new Array(COLS * ROWS).fill(0);
 /** The FLAT decal layer: things that lie on the ground and never sort against anybody — the water
  *  under the bridge, tyres, tufts on the verge. The standing layer is for things you see the side
  *  of. Declared up here because the ground pass writes the water into it. */
@@ -1189,6 +1246,26 @@ for (let row = 0; row < ROWS; row++) {
     else if (roll >= 6 && roll < 10) decal[row * COLS + col] = decalGid('RACE_PLANT');
     else if (roll >= 10 && roll < 13 && roomForTree(col, row)) decal[row * COLS + col] = decalGid('RACE_BUSH');
   }
+}
+
+/**
+ * The ICE goes on LAST, over whatever the road painted there.
+ *
+ * Written after the ground pass rather than inside it, and that is the whole reason it is a
+ * separate loop: a kerb is asphalt with a stripe on it and a chequered band is asphalt with
+ * squares, while ice is a different SURFACE — so on a cell that is both, the ice has to win, and
+ * a rule inside the pass would have had to know about every other rule's order. Here it simply
+ * comes after them.
+ *
+ * Two variants, picked by the cell's own coordinates like the grass, so a six-tile patch is not
+ * one tile repeated twelve times.
+ */
+for (const cell of iceCells) {
+  const col = Number(cell.slice(0, cell.indexOf(',')));
+  const row = Number(cell.slice(cell.indexOf(',') + 1));
+  const i = row * COLS + col;
+  ground[i] = gidOf(variant(col, row, 2) === 0 ? 'ice' : 'iceB');
+  iceLayer[i] = COLLISION_GID;
 }
 
 /**
@@ -1688,6 +1765,11 @@ const map = {
       ...tileLayer(13, 'Items', 'SurfaceLayer', itemLayer),
       visible: false,
       properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'item' }],
+    },
+    {
+      ...tileLayer(14, 'Ice', 'SurfaceLayer', iceLayer),
+      visible: false,
+      properties: [{ name: 'surface', type: 'string', propertytype: 'SurfaceKind', value: 'ice' }],
     },
     objectLayer(9, 'Furniture', furniture),
     objectLayer(3, 'Actions', objects),

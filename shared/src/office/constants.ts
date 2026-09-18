@@ -530,6 +530,23 @@ export const KART_RESPAWN_REACH_TILES = 6;
 export const KART_PARK_REACH_TILES = 4;
 
 /**
+ * What the tyres can do on ICE, as a share of what they do on road.
+ *
+ * Friction is friction, so this one number scales all three things a tyre does — the lateral bite
+ * that holds a corner, the brake and the drive — and deliberately NOT the top speed. That is the
+ * whole character of ice against `rough`: the grass SLOWS you (`ROUGH_SPEED` caps the ceiling and
+ * the throttle), ice lets you keep every pixel per second you had and takes away your say in
+ * where they go. A car that arrives on ice fast leaves it fast, pointing wherever it was pointing.
+ *
+ * A quarter, and the two numbers that follow from it are the ones to judge it by. Cornering:
+ * grip is `KART_GRIP_PX_PER_SEC2` = 1212 px/s², so a quarter of it holds `v²/r` at 320 px/s only
+ * on a radius of 21 tiles — wider than anything either circuit has, which is the point: at racing
+ * speed there is no line through it, you slow down or you go straight on. Braking: the car stops
+ * from flat out in 4.8 tiles on road, so about nineteen on ice.
+ */
+export const ICE_GRIP = 0.25;
+
+/**
  * When a kart counts as WEDGED: asking for thrust and going nowhere for this long.
  *
  * A wall takes the movement and leaves the car pointing into it, so a driver whose only answer is

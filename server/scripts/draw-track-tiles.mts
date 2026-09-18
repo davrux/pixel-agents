@@ -44,6 +44,13 @@ const KERB_PALE_LIT: RGB = [0xff, 0xff, 0xff];
 const KERB_PALE_DARK: RGB = [0x9a, 0x94, 0x8c];
 const LINE: RGB = [0xe8, 0xe4, 0xdc];
 const BOOST: RGB = [0xe7, 0xda, 0x00];
+/** ICE, over the asphalt: a pale blue-grey, a lighter sheen and a white crack. Cold rather than
+ *  bright — the tile has to read as ROAD you cannot grip, so it keeps the asphalt's value range
+ *  and shifts its hue, where a white patch would read as a hole in the map. */
+const ICE: RGB = [0x8c, 0xa8, 0xb8];
+const ICE_LIT: RGB = [0xa8, 0xc4, 0xd4];
+const ICE_DARK: RGB = [0x6e, 0x88, 0x98];
+const ICE_CRACK: RGB = [0xe4, 0xf0, 0xf6];
 const BOOST_LIT: RGB = [0xff, 0xf6, 0x66];
 const DARK: RGB = [0x14, 0x13, 0x12];
 
@@ -254,6 +261,41 @@ function itemBox(): Tile {
   return t;
 }
 
+/**
+ * ICE: frozen road. Deterministic like everything else here, so `--check` means something.
+ *
+ * Three things make it read as a surface rather than as a colour. The value range is the
+ * asphalt's, shifted in hue — a white patch reads as a hole in the map, and the point of this
+ * tile is that it is ROAD. The sheen runs in DIAGONAL bands rather than per pixel, because ice is
+ * smooth and noise reads as gravel, which is the opposite of what the cell does to a car. And it
+ * carries one crack, bright and thin, so a patch of several cells has something for the eye to
+ * catch other than its own edge.
+ */
+function ice(seed: number): Tile {
+  const t = fill(ICE);
+  const rnd = lcg(seed);
+  for (let y = 0; y < TW; y++) {
+    for (let x = 0; x < TW; x++) {
+      // Diagonal bands: smooth, and wide enough that neighbouring cells do not line up into a
+      // stripe across a whole patch.
+      const band = (x + y * 2 + Math.floor(rnd() * 2)) % 9;
+      if (band < 2) t[y][x] = ICE_LIT;
+      else if (band > 6) t[y][x] = ICE_DARK;
+    }
+  }
+  // One crack, walked from a random edge pixel across the tile — thin, bright, and never a
+  // straight line, so it reads as broken rather than drawn.
+  let cx = Math.floor(rnd() * TW);
+  let cy = 0;
+  while (cy < TW) {
+    t[cy][Math.max(0, Math.min(TW - 1, cx))] = ICE_CRACK;
+    cx += rnd() < 0.5 ? 1 : -1;
+    cy += rnd() < 0.3 ? 0 : 1;
+    if (cx < 0 || cx >= TW) break;
+  }
+  return t;
+}
+
 /** Every mask that can occur, in a fixed order — the index IS the tile id. */
 const SHORE_TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   ...Array.from({ length: 15 }, (_, k) => {
@@ -284,6 +326,11 @@ const TILES: ReadonlyArray<{ name: string; tile: Tile }> = [
   { name: 'boost-w', tile: boostPad('W') },
   ...SHORE_TILES,
   { name: 'item-box', tile: itemBox() },
+  // APPENDED, always: the index is the tile id and a committed map's gids point straight at it,
+  // so inserting anything above this line repaints every road on every circuit (AGENTS.md on gid
+  // ranges). Two of them, picked by the cell's own coordinates, so a patch is not one tile tiled.
+  { name: 'ice', tile: ice(0x1ce01) },
+  { name: 'ice-b', tile: ice(0x1ce02) },
 ];
 
 const COLUMNS = TILES.length;

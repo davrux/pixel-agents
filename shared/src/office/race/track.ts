@@ -74,6 +74,19 @@ export interface RaceTrack {
    */
   boost: ReadonlySet<string>;
   /**
+   * `"col,row"` of every ICE cell — road you keep your speed on and lose your say over.
+   *
+   * The third kind of road (with plain road and a boost pad) rather than a fourth kind of
+   * run-off, and the distinction is what it does to a car: `rough` takes the SPEED away, ice
+   * takes the GRIP away and leaves the speed. So a driver treats it the opposite way round — the
+   * grass is somewhere you get out of, ice is somewhere you should already have slowed down for.
+   *
+   * The computer drivers read it the way they read the road's edge: `racerInput`'s probe stops at
+   * ice, so the corner-speed cap it derives from what it can see makes them arrive slowly instead
+   * of sliding off the far side. Without that they lapped the raceway's patch once and left.
+   */
+  ice: ReadonlySet<string>;
+  /**
    * `"col,row"` of every ITEM BOX — road that hands a driver something to use.
    *
    * A surface rather than a placed object, for the same reason `boost` is one: it is a fact about
@@ -114,6 +127,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   const byGate = new Map<number, { tiles: Set<string>; sx: number; sy: number; n: number }>();
   const grid: Array<{ slot: number; x: number; y: number; dir: number }> = [];
   const rough = new Set<string>();
+  const ice = new Set<string>();
   const boost = new Set<string>();
   const itemBox = new Set<string>();
   let finish: { x: number; y: number } | null = null;
@@ -147,6 +161,10 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
   for (const cell of layout.surfaces?.rough ?? []) {
     const col = cell % layout.cols;
     rough.add(key(col, (cell - col) / layout.cols));
+  }
+  for (const cell of layout.surfaces?.ice ?? []) {
+    const col = cell % layout.cols;
+    ice.add(key(col, (cell - col) / layout.cols));
   }
   for (const cell of layout.surfaces?.boost ?? []) {
     const col = cell % layout.cols;
@@ -183,6 +201,7 @@ export function raceTrack(layout: OfficeLayout): RaceTrack | null {
     sprint: finish !== null,
     finish,
     rough,
+    ice,
     boost,
     itemBox,
   };
@@ -194,6 +213,11 @@ export function isRough(track: RaceTrack, col: number, row: number): boolean {
 }
 
 /** Is this tile a boost pad? */
+/** Is this cell ICE? See `RaceTrack.ice` for what that does and why it is not a kind of rough. */
+export function isIce(track: RaceTrack, col: number, row: number): boolean {
+  return track.ice.has(key(col, row));
+}
+
 export function isBoost(track: RaceTrack, col: number, row: number): boolean {
   return track.boost.has(key(col, row));
 }

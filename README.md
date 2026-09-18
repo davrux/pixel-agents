@@ -218,7 +218,7 @@ Every map has these, identified by their **class**, not their name:
 | `WallFaceLayer` | north-wall face pieces — the flat surface a room is looked at | none |
 | `CollisionLayer` | the single "blocked" marker tile from `collision.tsj` | none |
 | `DecalLayer` | painted map art — see below. **Several are allowed**, drawn in the order the Layers panel lists them; its `occludes` property decides whether everything on it lies flat or stands | none |
-| `SurfaceLayer` | what the ground DOES on a race track — one layer per kind, named by its own `surface` property. **Several are allowed**; see "A race track" below | none |
+| `SurfaceLayer` | what the ground DOES on a race track — one layer per kind, named by its own `surface` property (`rough`, `boost`, `item`, `ice`). **Several are allowed**; see "A race track" below | none |
 
 Walls are **edges on a half-offset lattice**: a wall piece's N/E/S/W bitmask says
 which of the four edges meeting at that point are wall, so the Wang/Terrain brush
@@ -524,6 +524,7 @@ is what lets a mapper stack them and read the topmost.
 | `rough` | off the racing surface: grass, sand, the run-off. Drivable and slow rather than fatal, and the computer drivers steer by it — their road probe stops at rough exactly as it stops at a drop, or they would cut every corner across the grass |
 | `boost` | road that throws you down it, and keeps the raised ceiling for a moment after you leave the pad |
 | `item` | an item box: drive over one with empty hands and you are holding a gadget. Which gadgets a box may hand out is a race SETTING, not the map's business — the panel has a switch per kind |
+| `ice` | road you keep your speed on and lose your say over: the tyres do a quarter of their work, which is one factor over cornering, braking AND acceleration. The opposite of `rough`, and that is the point — grass takes the speed away, ice takes the grip and leaves the speed. Measured on the raceway's patch: 8.7 tiles to stop from flat out against 3.5 on asphalt, and above about half speed there is no line through it at all. Paint a patch across the WHOLE road on a straight; a patch you can drive round is scenery, and ice in a corner is a corner nobody can take |
 
 One layer rather than one Action per cell, and that is a size decision: on the
 raceway the rough is 6265 cells, which as objects is 6265 objects and as a layer
@@ -564,7 +565,7 @@ nothing custom about it.
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
 | `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `petScores`, `portal`, `toggle`, `spawnPoint`, `talkingObject`, `raceGate`, `raceStart`, `raceFinish`, `raceRecords` |
 | `ApplianceKind` | *(empty)*, `coffee`, `drink`, `pet_feed` |
-| `SurfaceKind` | `rough`, `boost`, `item` |
+| `SurfaceKind` | `rough`, `boost`, `item`, `ice` |
 
 ## Two things that will bite you
 

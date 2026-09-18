@@ -58,6 +58,7 @@ import {
   KART_STEER_RAD_PER_SEC,
   ROUGH_GRIP,
   ROUGH_SPEED,
+  ICE_GRIP,
 } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE, type GroundMap, type WallEdges } from '../types.js';
@@ -69,6 +70,7 @@ import {
   gateBehind,
   headingFrom,
   isBoost,
+  isIce,
   isRough,
   nextGate,
   nextPoint,
@@ -375,13 +377,27 @@ export function updateKart(kart: Kart, dt: number, world: KartWorld): { lapped: 
   // Off the racing surface everything is worse: less grip and a lower ceiling. Slow rather than
   // fatal — a run-off you cannot drive out of is a wall with grass painted on it.
   const offRoad = isRough(world.track, tileOf(kart.x), tileOf(kart.y));
-  const surface = offRoad ? ROUGH_GRIP : 1;
+  /**
+   * ICE: the tyres stop working and nothing else changes.
+   *
+   * One factor for all three things friction does — the lateral bite below, the brake and the
+   * drive — because that is what friction IS. The ceiling is deliberately untouched, which is
+   * the whole difference from the grass: `rough` takes the speed away, ice leaves every pixel per
+   * second you brought and takes away your say in where they go. See `ICE_GRIP` for the two
+   * numbers that follow (no line through it above about half speed; nineteen tiles to stop).
+   *
+   * Off-road wins where both are painted — a car in the grass is in the grass whatever the grass
+   * is frozen to — and there is nothing to arbitrate on the road itself, where ice and a boost pad
+   * are the only two options and a mapper would not paint both on one cell.
+   */
+  const icy = !offRoad && isIce(world.track, tileOf(kart.x), tileOf(kart.y));
+  const surface = offRoad ? ROUGH_GRIP : icy ? ICE_GRIP : 1;
   // A BOOST pad: road that throws you down it. The shove lands whether or not the throttle is
   // down — lifting on one is not a way to refuse it — and only while the car is actually on the
   // pad, so what you get is the length of it and not a switch you flicked.
   const boosting = !offRoad && isBoost(world.track, tileOf(kart.x), tileOf(kart.y)) && kart.driverId !== null;
-  if (input.throttle > 0) along += spec.accel * dt * (offRoad ? ROUGH_SPEED : 1);
-  else if (input.throttle < 0) along -= spec.brake * dt;
+  if (input.throttle > 0) along += spec.accel * dt * (offRoad ? ROUGH_SPEED : icy ? ICE_GRIP : 1);
+  else if (input.throttle < 0) along -= spec.brake * dt * (icy ? ICE_GRIP : 1);
   if (boosting && along >= 0) along += spec.accel * BOOST_ACCEL_FACTOR * dt;
   along -= along * Math.min(1, KART_DRAG_PER_SEC * dt);
   // The raised ceiling OUTLIVES the pad, and it has to. The cap is applied every tick, so without

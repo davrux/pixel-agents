@@ -30,13 +30,13 @@
  * held anybody back — the PACE they run at, so the grid is a field rather than a train of
  * identical karts, and so a human can beat the slow ones.
  */
-import { KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC } from '../constants.js';
+import { ICE_GRIP, KART_RADIUS_PX, KART_MAX_SPEED_PX_PER_SEC } from '../constants.js';
 import { isWalkable } from '../layout/tileMap.js';
 import { TILE_SIZE } from '../types.js';
 import type { Kart, KartInput, KartWorld } from './kart.js';
 import { KartItem } from './items.js';
 import { kartSpec } from './kartSpec.js';
-import { isRough, nextPoint } from './track.js';
+import { isIce, isRough, nextPoint } from './track.js';
 
 /**
  * How far ahead a perfect driver looks — as a TIME, and converted to tiles at the speed it is
@@ -122,8 +122,18 @@ export interface RacerSkill {
  * ray probe is the shape where the two drift apart and only one of them learns about rough.
  */
 function room(kart: Kart, world: KartWorld, heading: number, maxTiles: number, curvature = 0): number {
-  // ROAD, not merely ground: grass is drivable and a driver that probed for "somewhere I can go"
-  // would cut every corner across it, and the racing line would stop meaning anything.
+  /**
+   * ROAD, not merely ground: grass is drivable and a driver that probed for "somewhere I can go"
+   * would cut every corner across it, and the racing line would stop meaning anything.
+   *
+   * ICE is road here, deliberately, and making it stop the probe was tried first and was wrong.
+   * The probe answers "how far can I see", which the caller turns into a corner radius and then
+   * into a speed — so refusing ice says "there is a wall six tiles ahead", and the driver crept
+   * onto the patch at walking pace, could not accelerate off it (the throttle is scaled by
+   * `ICE_GRIP` too) and never finished a lap: measured, eight tests, "never finished (240.0 s)".
+   * What ice actually takes away is the ability to TURN, which is the corner cap's business and
+   * not the probe's — see where `spec.grip` is read below.
+   */
   const ok = (x: number, y: number): boolean => {
     const col = Math.floor(x / TILE_SIZE);
     const row = Math.floor(y / TILE_SIZE);
@@ -267,7 +277,22 @@ export function racerInput(kart: Kart, world: KartWorld, skill: RacerSkill): Kar
   const half = Math.max(1, beside / 2);
   const bendRadius = ((straightAhead * straightAhead) / (2 * half)) * TILE_SIZE;
   const spec = kartSpec(kart.spec);
-  const corner = CORNER_PACE * Math.sqrt(spec.grip * bendRadius);
+  /**
+   * The grip the car ACTUALLY has where it is standing — a quarter of it on ice (`ICE_GRIP`).
+   *
+   * This is the whole of what a computer driver needs to know about ice, and it falls out of the
+   * cap rather than being a rule of its own: `v² = grip · r`, so a quarter of the grip is half the
+   * speed through a given bend. On a STRAIGHT patch the radius the probe measures is enormous and
+   * the cap stays above the car's top speed, so the driver crosses at racing pace and simply does
+   * not steer — which is the right answer, because on a straight it does not need to. In a BEND
+   * the same arithmetic halves its pace, which is the difference between a patch that is a hazard
+   * and a patch that is a hole in the circuit.
+   *
+   * Read at the car's own cell and not along the probe: what ice does happens while you are on it,
+   * and a driver that slowed for ice it could see would crawl the straight leading up to it.
+   */
+  const icy = isIce(world.track, Math.floor(kart.x / TILE_SIZE), Math.floor(kart.y / TILE_SIZE));
+  const corner = CORNER_PACE * Math.sqrt(spec.grip * (icy ? ICE_GRIP : 1) * bendRadius);
   // Lift early or late by skill, and keep a floor so a slow driver still gets moving at all. The
   // brake comes out only when the road is genuinely about to run out.
   const lift = (look * 0.62) * (1.25 - 0.45 * level);
