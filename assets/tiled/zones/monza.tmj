@@ -207,6 +207,33 @@
      ]
     },
     {
+     "gid": 7400,
+     "height": 32,
+     "id": 343,
+     "name": "",
+     "opacity": 1,
+     "rotation": 0,
+     "type": "FurnitureObject",
+     "visible": true,
+     "width": 16,
+     "x": 1392,
+     "y": 1408,
+     "properties": [
+      {
+       "name": "actionKind",
+       "type": "string",
+       "value": "appliance",
+       "propertytype": "ActionKind"
+      },
+      {
+       "name": "actionPose",
+       "type": "string",
+       "value": "drink",
+       "propertytype": "ApplianceKind"
+      }
+     ]
+    },
+    {
      "gid": 7061,
      "height": 16,
      "id": 344,

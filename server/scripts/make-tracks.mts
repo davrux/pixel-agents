@@ -40,6 +40,8 @@ const REPO = path.join(import.meta.dirname, '..', '..');
 const SRC = path.join(REPO, 'assets', 'tiled', 'zones', 'uponu.tmj');
 const ZONES = path.join(REPO, 'assets', 'tiled', 'zones');
 const CHECK = process.argv.includes('--check');
+/** `--profile`: print the lap's curvature per 2 %, which is how a bridge's stretch is chosen. */
+const PROFILE = process.argv.includes('--profile');
 
 /**
  * The track's own tileset, appended after everything uponu carries.
@@ -403,7 +405,7 @@ const TRACKS: readonly TrackSpec[] = [
   {
     id: 'raceway',
     label: 'Raceway',
-    cols: 116,
+    cols: 156,
     /**
      * 78, from 74 — four rows of grass along the bottom, bought by the width.
      *
@@ -420,7 +422,7 @@ const TRACKS: readonly TrackSpec[] = [
      * The rows are added at the BOTTOM, so every coordinate on the map stays where it was and the
      * shape of the lap is untouched.
      */
-    rows: 78,
+    rows: 107,
     /** Eleven, like Monza's — see the note on that spec for why seven was too narrow and where
      *  the ceiling comes from. This outline has far more room: its tightest pass is 25.9 tiles
      *  against the 19 an eleven-wide road needs. */
@@ -432,36 +434,62 @@ const TRACKS: readonly TrackSpec[] = [
     laps: 3,
     /**
      * A lap with a shape: a long start-finish straight along the bottom, a fast sweep up the
-     * right, a tighter pair at the top and a long left-hander home. Ten points, unevenly spaced on
-     * purpose — evenly spaced ones give a lap of four identical bends, which is the rectangle
-     * again with the corners filed off.
+     * right, a tight pair at the top right, a KINK that dives back into the middle, then the run
+     * up to the top-left and a long left-hander home. Thirteen points, unevenly spaced on purpose
+     * — evenly spaced ones give a lap of identical bends, which is the rectangle again with the
+     * corners filed off.
      *
-     * Measured by the script: 246 tiles of centreline, tightest corner 5.6 tiles of radius, which
-     * at 320 px/s asks 1139 px/s² of 1212 — right on the limit, so it is a corner a quick driver
-     * takes flat and a clumsy one does not.
+     * **Lengthened on 2026-09-18** — "dann lass mal die Runde länger werden" — from 246 tiles to
+     * **367**, which took the map from 116 × 78 to 156 × 107 and the lap from 12.8 s to **17.0 s**
+     * for the computer driver, against Monza's 17.4: the two circuits are comparable now, where
+     * the raceway used to be a third shorter. Eighteen gates instead of twelve, since a checkpoint
+     * every twenty tiles follows the lap.
+     *
+     * Measured by the script: 367 tiles of centreline, tightest corner **4.3 tiles** of radius.
+     * At 320 px/s that asks 1488 px/s² of the 1212 the tyres have, so unlike the old 5.6 it is a
+     * corner that HAS to be braked for — the same class as Monza's 4.4, and the reason the lap
+     * asks something of a driver rather than being flat out all the way round. The driver still
+     * carries 100 % of its top speed on average and never uses the grass.
+     *
+     * The kink is what buys most of the length, and it is the part to be careful with: it brings
+     * two stretches of the lap within 35 tiles of each other (`--profile` prints the clearance),
+     * which is fine for road but is why the bridge cannot go near it — see `bridge` below.
      */
     line: [
-      { x: 14, y: 58 },
-      { x: 45, y: 64 },
-      { x: 80, y: 63 },
-      { x: 102, y: 52 },
-      { x: 104, y: 34 },
-      { x: 86, y: 22 },
-      { x: 60, y: 12 },
-      { x: 30, y: 14 },
-      { x: 12, y: 28 },
-      { x: 10, y: 46 },
+      { x: 14, y: 88 },
+      { x: 56, y: 96 },
+      { x: 100, y: 95 },
+      { x: 130, y: 88 },
+      { x: 145, y: 66 },
+      { x: 141, y: 46 },
+      { x: 126, y: 34 },
+      { x: 104, y: 46 },
+      { x: 80, y: 36 },
+      { x: 54, y: 20 },
+      { x: 24, y: 26 },
+      { x: 12, y: 50 },
+      { x: 14, y: 72 },
     ],
     /**
      * On the STRAIGHT between the two corner sequences, half a lap from the grid.
      *
      * A straight, because a bridge on a bend is a wedge rather than a span: the cells whose
      * nearest stretch of road is the bend are the ones on the INSIDE of it, so the gap they make
-     * is a gash cut into the infield. Half a lap away, because a hazard on the run to the first
-     * corner punishes the start rather than the driving. The script prints the lap's curvature
-     * per 2 %, which is how this stretch was picked rather than guessed.
+     * is a gash cut into the infield. Away from the start, because a hazard on the run to the
+     * first corner punishes the start rather than the driving. `scripts/make-tracks.sh --profile`
+     * prints the lap's radius and clearance per 2 %, which is how this stretch is picked rather
+     * than guessed — and the flag was added the day that comment turned out to be describing
+     * something the script did not do.
+     *
+     * The second constraint is one the straightest stretch does NOT satisfy, and it took a broken
+     * gate to find: a bridge's RAMP must not coincide with a gate. The air ramps in over a few
+     * tiles, so at the ramp it has eaten the middle of a gate's span while the outer end is still
+     * ground — the gate comes out in two pieces with a drivable gap between them, which is a
+     * checkpoint a kart drives through. A gate wholly ON the bridge is fine (it is the eight road
+     * cells and contiguous), and so is one clear of it. Measured on this lap: 0.54, 0.62 and 0.84
+     * each broke one gate, 0.30 and 0.72 broke none, and 0.72 is the one further from the start.
      */
-    bridge: { from: 0.47, to: 0.55 },
+    bridge: { from: 0.72, to: 0.78 },
     /** Where the start-finish line goes, as a fraction of the lap — chosen so the thirty tiles
      *  BEHIND it are the long bottom straight, which is what a grid of six rows needs. */
     startAt: 0.22,
@@ -655,6 +683,8 @@ const LINE_LENGTH = lineRun[lineRun.length - 1];
     );
   }
 }
+let pinchTiles = Infinity;
+let pinchNeeded = 0;
 {
   const need = 2 * (spec.width / 2 + SAND + 2);
   let pinch = Infinity;
@@ -678,10 +708,8 @@ const LINE_LENGTH = lineRun[lineRun.length - 1];
         `than the road, or the two run into each other.`,
     );
   }
-  console.log(
-    `  ${spec.id}: road ${spec.width} wide, tightest pass ${pinch.toFixed(1)} tiles ` +
-      `(needs ${need.toFixed(1)})`,
-  );
+  pinchTiles = pinch;
+  pinchNeeded = need;
 }
 /** The point this far along the road, and which way it points there. A closed line WRAPS, so a
  *  gate at 95 % of the lap is a gate, not the end of the world. */
@@ -790,6 +818,66 @@ const radiusAtRun = (run: number): number => {
   }
   return lineRadius[Math.min(lo, lineRadius.length - 1)];
 };
+/**
+ * The four numbers that say what this lap IS, printed on every build.
+ *
+ * The tightest corner is the one the centreline comment has always promised the script prints and
+ * never did — and it is the number that decides whether a circuit asks anything of a driver: at
+ * 320 px/s a corner of radius r demands `v²/r` against 1212 px/s² of grip, so 5.6 tiles is right
+ * on the limit, wider is flat out and tighter has to be braked for. Printing it is what makes
+ * designing a lap a loop with a measurement in it rather than a look at the picture.
+ */
+{
+  let tightest = Infinity;
+  for (let run = 0; run < LINE_LENGTH; run += 1) tightest = Math.min(tightest, radiusAtRun(run));
+  /**
+   * The lap's curvature per 2 %, on `--profile` — the thing the bridge's own comment says is how
+   * its stretch was picked, which until 2026-09-18 the script did not print.
+   *
+   * A bridge has to span a STRAIGHT: the cells whose nearest stretch of road is a bend are the
+   * ones on the inside of it, so a span there is a gash cut into the infield rather than a bridge.
+   * Fifty numbers is the right resolution because a bridge is stated as a fraction of the lap to
+   * two decimal places.
+   */
+  if (PROFILE) {
+    /**
+     * …and the CLEARANCE beside each stretch: how far it is from the nearest OTHER part of the
+     * lap. A bridge needs both, and needing the second is what this profile was missing.
+     *
+     * A bridge replaces the barrier and the grass with a DROP, so it takes more room beside the
+     * road than an ordinary stretch does — and where the lap doubles back, the air belonging to
+     * one stretch eats the cells a GATE on the other one needs. Measured the hard way: a bridge
+     * placed on a straight that passed 20 tiles from another leg broke gate 7 into three pieces,
+     * and a broken gate is one a kart drives between.
+     */
+    const clearance = (run: number): number => {
+      const p0 = lineAt(run);
+      let best = Infinity;
+      for (let i = 0; i < linePts.length; i++) {
+        const along = Math.abs(lineRun[i] - run);
+        if (Math.min(along, LINE_LENGTH - along) < LINE_LENGTH / 8) continue;
+        best = Math.min(best, Math.hypot(linePts[i].x - p0.x, linePts[i].y - p0.y));
+      }
+      return best;
+    };
+    const rows: string[] = [];
+    for (let k = 0; k < 50; k++) {
+      const at = (k / 50) * LINE_LENGTH;
+      const r = radiusAtRun(at);
+      const c = clearance(at);
+      rows.push(
+        `${String(k * 2).padStart(3)}% r=${(r > 999 ? 999 : r).toFixed(0).padStart(3)}` +
+          ` c=${(c > 99 ? 99 : c).toFixed(0).padStart(2)}`,
+      );
+    }
+    for (let i = 0; i < rows.length; i += 4) console.log(`    ${rows.slice(i, i + 4).join('   ')}`);
+  }
+  console.log(
+    `  ${spec.id}: lap ${LINE_LENGTH.toFixed(0)} tiles, road ${spec.width} wide, ` +
+      `tightest corner ${tightest.toFixed(1)} tiles, tightest pass ${pinchTiles.toFixed(1)} ` +
+      `(needs ${pinchNeeded.toFixed(1)})`,
+  );
+}
 const distAt = (col: number, row: number): number =>
   col < 0 || row < 0 || col >= COLS || row >= ROWS ? Infinity : lineDist[row * COLS + col];
 const nearAt = (col: number, row: number): number =>
@@ -1509,10 +1597,24 @@ const VERGE = HALF + 1.5;
  * edge" lands on the barrier — which is exactly where the drinking fountain ended up, unreachable,
  * caught by the test that asks the engine to walk to it rather than by the eye.
  */
-const onVerge = (run: number): { col: number; row: number } => {
+const onVerge = (run: number, wide = 1, tall = 1): { col: number; row: number } => {
   for (let off = HALF + 0.7; off <= HALF + SAND; off += 0.3) {
     const cell = beside(run, off);
-    if (isRunOff(cell.col, cell.row)) return cell;
+    if (!isRunOff(cell.col, cell.row)) continue;
+    // The WHOLE piece, not just the cell it is anchored on. A verge is two tiles of sand and the
+    // drinking fountain is two tiles tall, so the first sand cell going outwards is one whose
+    // upper half is still road — which is how a longer lap dropped the only appliance on the
+    // circuit and took the reference test's `appliance` with it. Tiled anchors a tile object at
+    // its BOTTOM row, so the piece grows upward from here, which may be toward the road or away
+    // from it depending on which side of the lap this is; testing the cells is the only answer
+    // that holds for both.
+    let fits = true;
+    for (let dc = 0; dc < wide && fits; dc++) {
+      for (let dr = 0; dr < tall && fits; dr++) {
+        if (isRoad(cell.col + dc, cell.row - dr)) fits = false;
+      }
+    }
+    if (fits) return cell;
   }
   /**
    * Nothing out there: the fallback, and on a pinched circuit it can land on the road, where
@@ -1539,7 +1641,7 @@ const onVerge = (run: number): { col: number; row: number } => {
 }
 {
   const startRun = (spec.startAt ?? 0.07) * LINE_LENGTH;
-  const tap = onVerge(startRun - 18);
+  const tap = onVerge(startRun - 18, 1, 2);
   place(furn(FURN.DRINKING_FOUNTAIN, tap.col, tap.row, 16, 32, [
     { name: 'actionKind', type: 'string', value: 'appliance' },
     { name: 'actionPose', type: 'string', value: 'drink' },

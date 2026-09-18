@@ -417,12 +417,21 @@ test('falling off the bridge costs seconds, not the lap', () => {
 
   const home = Math.hypot(kart.x - fellAt.x, kart.y - fellAt.y) / TILE;
   assert.ok(home <= KART_RESPAWN_REACH_TILES, `put back ${home.toFixed(1)} tiles from where it fell`);
-  // …and NOT at a gate, which is the whole point: every one of them is further away than the
-  // search is even allowed to look.
+  /**
+   * …and it was NOT the gate fallback, which is the whole point of the short reach.
+   *
+   * Stated as "the car is not standing on a gate's centre" rather than "no gate is within the
+   * search radius", and the difference is a lesson about writing a claim in terms of the map.
+   * The second version held while a lap had twelve gates twenty tiles apart and a bridge that
+   * fitted between two of them — and stopped holding the moment the lap grew to eighteen gates
+   * with a twenty-two-tile bridge, where a gate INSIDE the bridge is unavoidable. What the rule
+   * actually promises is that `respawn` used `roadNear` and not `track.gates[kart.gate]`, and the
+   * fallback sets the position to a gate's exact centre, so that is what to look for.
+   */
   for (const g of track.gates) {
     assert.ok(
-      Math.hypot(kart.x - g.x, kart.y - g.y) / TILE > KART_RESPAWN_REACH_TILES,
-      `the respawn went back to gate ${g.index}`,
+      Math.hypot(kart.x - g.x, kart.y - g.y) > 1,
+      `the respawn put the car on gate ${g.index}'s own centre, which is the fallback`,
     );
   }
   // It is ON the road, not on the grass and not over the drop.
