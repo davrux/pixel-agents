@@ -112,6 +112,21 @@ export interface AdminOidcPatch {
   adminRole?: string;
 }
 
+/** The talking objects' quote pool, as the admin typed it (server/src/quotes.ts). */
+export interface AdminTalkingQuotes {
+  text: string;
+  count: number;
+  maxQuoteLength: number;
+  maxTextLength: number;
+}
+
+/** A line the server refused, by its line number in the text. */
+export interface RejectedQuoteLine {
+  line: number;
+  text: string;
+  why: string;
+}
+
 export interface ApiResult<T> {
   ok: boolean;
   status: number;
@@ -205,4 +220,10 @@ export const adminApi = {
     req<{ cabinets: AdminArcadeCabinet[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/arcade-cabinets`),
   setArcadeCabinetGames: (zoneId: string, key: string, gameIds: string[] | null) =>
     req<{ effective: string[] }>('PUT', `/admin/zone/${encodeURIComponent(zoneId)}/arcade-cabinet`, { key, gameIds }),
+
+  // A refused save comes back as 400 with `rejected` — every line that failed, and why — and
+  // nothing stored: the pool is replaced whole or not at all.
+  getTalkingQuotes: () => req<AdminTalkingQuotes>('GET', '/admin/talking-quotes'),
+  setTalkingQuotes: (text: string) =>
+    req<{ text: string; count: number; rejected?: RejectedQuoteLine[] }>('PUT', '/admin/talking-quotes', { text }),
 };

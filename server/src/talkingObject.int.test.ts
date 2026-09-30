@@ -18,8 +18,9 @@
  *      while still picking up every other kind — tested with a positive
  *      control beside it, or "returns false" would pass for a piece that is
  *      simply unreachable.
- *   4. the QUOTES: the pool the repo ships parses, every line of it fits the
- *      bubble, and the wait between two quotes really is 20-to-60 minutes.
+ *   4. the QUOTES: the format parses as documented, a line that would not fit
+ *      the bubble is refused, and the wait between two quotes really is
+ *      20-to-60 minutes (storing and editing the pool: talkingQuotes.int.test.ts).
  *      Nobody can watch that either — and it is the one part where "it seemed
  *      to work when I looked" is worthless, because a bug would be a quote
  *      thirty seconds or six hours later, both of which look like silence.
@@ -59,7 +60,7 @@ import type { OfficeLayout, PlacedFurniture } from '@pixel/shared/office/types.j
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
 import { importTmjToLayout } from './tiled/mapBridge.js';
 import { loadTiledRegistry } from './tiled/tiledRegistry.js';
-import { MAX_QUOTE_LEN, parseQuotes, QUOTES_REL } from './quotes.js';
+import { MAX_QUOTE_LEN, parseQuotes } from './quotes.js';
 import { isFurnitureTileset } from './tiled/tiledRegistry.js';
 
 const REPO_ROOT = new URL('../..', import.meta.url).pathname;
@@ -301,25 +302,9 @@ test('walking up to a talking object is refused, while its neighbour still works
   assert.deepEqual(os.takePendingActionArrivals(), [], 'and nothing fired');
 });
 
-// ── 5. the quote pool the repo ships ────────────────────────────────────────
+// ── 5. the quote format ─────────────────────────────────────────────────────
 
-test('the shipped quote pool loads, and every line of it fits the bubble', () => {
-  // The file is content, so this is the check that content cannot rot: a quote
-  // longer than the bubble is refused at load, which means a well-meant edit
-  // would silently make the whale say less than the author wrote.
-  const text = fs.readFileSync(path.join(REPO_ROOT, QUOTES_REL), 'utf-8');
-  const { quotes, rejected } = parseQuotes(text);
-  assert.deepEqual(rejected, [], 'a line the loader would skip is a line nobody will ever hear');
-  assert.ok(quotes.length >= 5, `expected a pool worth drawing from, got ${quotes.length}`);
-  for (const q of quotes) {
-    assert.ok(q.length > 0 && q.length <= MAX_QUOTE_LEN, `${q.length} characters: ${q}`);
-    assert.equal(q, q.trim());
-    assert.ok(!q.startsWith('#'), 'a comment must not reach the pool');
-  }
-  assert.equal(new Set(quotes).size, quotes.length, 'the same line twice is an editing accident');
-});
-
-test('the format is what the file says it is: comments, blanks, trimming, CRLF', () => {
+test('the format is what the editor says it is: comments, blanks, trimming, CRLF', () => {
   const { quotes, rejected } = parseQuotes(
     ['# a comment', '', '  A quote.  ', '\t# an indented comment', 'Another.', '   ', 'Third.'].join('\r\n'),
   );
@@ -339,6 +324,19 @@ test('an over-long quote is refused by line number, not truncated', () => {
   assert.ok(rejected[0].why.includes(String(MAX_QUOTE_LEN)));
   // Exactly at the cap is fine — the bubble truncates ABOVE it.
   assert.equal(parseQuotes('y'.repeat(MAX_QUOTE_LEN)).quotes.length, 1);
+});
+
+test('the same quote twice is refused at the second line, and a control character anywhere', () => {
+  const { quotes, rejected } = parseQuotes('One.\nTwo.\n  One.  \nThree\u0007.\nFour\tfive.');
+  assert.deepEqual(quotes, ['One.', 'Two.']);
+  assert.deepEqual(
+    rejected.map((r) => [r.line, r.why]),
+    [
+      [3, 'the same quote as line 1'],
+      [4, 'contains a control character'],
+      [5, 'contains a control character'],
+    ],
+  );
 });
 
 // ── 6. the interval, and which line comes out ───────────────────────────────
@@ -453,7 +451,7 @@ test('a quote comes at the end of the wait, not before, and then the wait starts
 test('a whale with no quotes still tells the time, and says nothing else ever', () => {
   const os = world([piece('whale', 5, 5, { kind: 'talkingObject' })]);
   // No setQuotes at all — the pool is empty until the server hands one over,
-  // and a missing quotes file is a normal world (see loadQuotes).
+  // and a world whose admin never saved any quotes is a normal one (see loadQuotes).
   os.update(0.05, at(9, 0, 0));
   for (const t of [at(9, 20), at(9, 40), at(9, 59, 59)]) os.update(0.05, t);
   assert.deepEqual(os.takeSpokenLines(), []);

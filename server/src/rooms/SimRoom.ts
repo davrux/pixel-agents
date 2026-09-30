@@ -73,6 +73,7 @@ import {
   AVATAR_CHANGED_EVENT,
   ZONE_LAYOUT_CHANGED_EVENT,
   PRESENCE_EVENT,
+  QUOTES_CHANGED_EVENT,
 } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
@@ -395,6 +396,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.broadcast('m', { type: 'zoneTransition', zone: DEFAULT_ZONE });
   };
 
+  /** An admin saved a new quote pool. A fresh deck from the new lines; each
+   *  talker keeps its own wait, so a save does not make every whale speak at
+   *  once. */
+  private readonly onQuotesChanged = (): void => {
+    this.os.setQuotes(loadQuotes());
+  };
+
   /** Somebody anywhere in the world joined, switched zone or left (see
    *  presence.ts) — push the refreshed roster to this room's clients. Coalesced
    *  onto the next macrotask: a zone switch is a leave plus a join, and a server
@@ -538,8 +546,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // The zone's map — one per zone, pushed from Tiled (see zoneLayout).
     this.store = new ZoneMapStore();
     this.os = new OfficeState(this.zoneLayout()); // portals derive from placed furniture (P5 v2)
-    // What the talking objects say between the hours — a file in the repo, read
-    // and bounded on the server (see quotes.ts), never by the engine.
+    // What the talking objects say between the hours — stored in the database,
+    // edited in the admin panel and bounded on the server (see quotes.ts), never
+    // by the engine. A later save arrives as QUOTES_CHANGED_EVENT.
     this.os.setQuotes(loadQuotes());
     // Pet decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
@@ -591,6 +600,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(AVATAR_CHANGED_EVENT, this.onAvatarChanged);
     controlBus.on(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     controlBus.on(PRESENCE_EVENT, this.onPresenceChanged);
+    controlBus.on(QUOTES_CHANGED_EVENT, this.onQuotesChanged);
 
     this.registerRoomHandlers();
     // A race zone ticks faster, and only a race zone. Steering at 20 Hz feels like posting
@@ -630,6 +640,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.off(AVATAR_CHANGED_EVENT, this.onAvatarChanged);
     controlBus.off(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     controlBus.off(PRESENCE_EVENT, this.onPresenceChanged);
+    controlBus.off(QUOTES_CHANGED_EVENT, this.onQuotesChanged);
     if (this.presencePush !== null) clearTimeout(this.presencePush);
     this.zones?.close();
   }
@@ -2268,8 +2279,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *
    * Nothing here is client input: no handler, no payload, nothing to validate.
    * The text is the server's own — the hour (`H UHR, H UHR !!!`) or a line from
-   * the repo's quote pool, capped at 120 characters when that file is read (see
-   * quotes.ts) — so it is bounded before it ever gets here.
+   * the world's quote pool, which an admin wrote and quotes.ts validated (120
+   * characters, no control characters) on save and again on read — so it is
+   * bounded before it ever gets here.
    */
   private handleSpokenLines(): void {
     const at = Date.now();

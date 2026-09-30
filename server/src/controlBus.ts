@@ -63,3 +63,9 @@ export const ZONE_LAYOUT_CHANGED_EVENT = 'zoneLayoutChanged';
  *  the online list is world-wide and a room only ever sees its own joins. No
  *  payload — a listener reads `presence.list()`. */
 export const PRESENCE_EVENT = 'presence';
+
+/** An admin saved the talking objects' quote pool (see quotes.ts). No payload —
+ *  every SimRoom re-reads `loadQuotes()` and hands it to its engine, so the next
+ *  quote any whale says comes from the new pool, in every zone, without a
+ *  restart. */
+export const QUOTES_CHANGED_EVENT = 'quotesChanged';

@@ -192,8 +192,8 @@ export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): 
 
 /* ── Quotes ────────────────────────────────────────────────────────────────
  *
- * The other thing a talking object says. Not the hour: a line out of a pool the
- * repo carries as a text file (assets/quotes/talking-objects.txt), at a random
+ * The other thing a talking object says. Not the hour: a line out of the
+ * world's pool, which admins edit in the admin panel's Quotes tab, at a random
  * moment inside a 20-to-60-minute window, rolled again after each one. WHICH
  * line is not a draw but a deal: the pool is shuffled once at the start and
  * said through in that order, so no line comes twice before every line has come
@@ -213,9 +213,10 @@ export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): 
  *     both fire on one tick. The hour does not move a quote either: 20 to 60
  *     minutes is the whole rule, with no exception for what o'clock it lands on.
  *   - The POOL is injected, not read from disk here. This module runs in the
- *     engine, which is headless and has no business owning a file path; the
- *     server loads and validates the file (server/src/quotes.ts) and hands the
- *     lines in through OfficeState.setQuotes, the same shape as setPetDecider.
+ *     engine, which is headless and has no business owning storage; the server
+ *     loads and validates the pool (server/src/quotes.ts) and hands the lines in
+ *     through OfficeState.setQuotes, the same shape as setPetDecider — again
+ *     whenever an admin saves a new one.
  */
 
 /** The window a quote waits in. A talking object picks a moment uniformly
@@ -327,7 +328,7 @@ export class QuoteSchedule {
     this.rnd = rnd;
   }
 
-  /** Install the world's quote pool (see the header: the server owns the file)
+  /** Install the world's quote pool (see the header: the server owns the pool)
    *  and shuffle it — the deck's first pass is dealt here, at the start of the
    *  service, so the die is rolled `quotes.length - 1` times before the first
    *  wait is scheduled (a test with a scripted die has to account for that).

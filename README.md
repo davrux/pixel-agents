@@ -426,21 +426,25 @@ not tick without a viewer in it, and the first tick after somebody arrives adopt
 the hour rather than announcing it — arriving at 9:05 is not being present at
 9:00.
 
-**The quotes live in `assets/quotes/talking-objects.txt`** — one quote per line,
-`#` for comments, blank lines to group them. That is the whole format: prose in
-JSON would mean escaping every quotation mark that belongs to the sentence, and
-there would be nowhere to leave a note for the next author. Every talking object
-in every zone draws from this one pool. A line longer than 120 characters is
-refused when the file is loaded, with a warning naming it, because that is where
-the speech bubble truncates — half a sentence and an ellipsis is not a shorter
-quote. Attribution, if you want it, is simply part of the line; there is no
-author field and nothing checks one, so quoting a real person is on you. Each
+**The quotes are edited in the admin panel** (Administration → Quotes; the route
+is `GET`/`PUT /admin/talking-quotes`, global admin only) and stored in the
+database, not in git — they used to be a committed text file, which made every
+new line a commit, a deploy and a restart. The format is still the file's: one
+quote per line, `#` for comments, blank lines to group them, and the text is
+kept exactly as typed so the comments survive. Every talking object in every
+zone draws from this one pool, and a save reaches every running zone at once. A
+line longer than 120 characters is refused, because that is where the speech
+bubble truncates — half a sentence and an ellipsis is not a shorter quote — and
+so are the same line twice and a control character; one bad line refuses the
+whole save, and the editor names it as you type. Attribution, if you want it, is
+simply part of the line; there is no author field and nothing checks one, so
+quoting a real person is on you. `PIXEL_RESET_WORLD` empties the pool with the
+rest of the world. Each
 piece rolls its own wait, so two whales in a zone drift apart instead of
 chanting in unison, and the wait knows nothing about the hour: 20 to 60 minutes
 is the whole rule, with no exception for what o'clock it runs out at. When a
 quote and the hour land on the same tick both are said and both reach the chat,
-and the bubble shows the later one. The file is read at startup: editing it takes
-a restart, not a push.
+and the bubble shows the later one.
 
 | `actionKind` | What it does | Reads |
 |---|---|---|

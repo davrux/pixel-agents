@@ -16,13 +16,14 @@ import { ZoneStore } from './zoneStore.js';
 import { ZoneMapStore } from './zoneMapStore.js';
 import { appStore } from './appStore.js';
 import { meetingRoomStore } from './meetingRoomStore.js';
-import { controlBus, KICK_EVENT } from './controlBus.js';
+import { controlBus, KICK_EVENT, QUOTES_CHANGED_EVENT } from './controlBus.js';
 import { can, type Principal } from './permissions.js';
 import { effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 import { getArcadeCatalog } from './arcadeCatalog.js';
 import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
 import { oidcConfig, envOidcConfig } from './oidc/config.js';
+import { getQuotesText, loadQuotes, MAX_QUOTE_LEN, MAX_QUOTES_TEXT, setQuotesText } from './quotes.js';
 import {
   CALLBACK_PATH,
   MAX_LABEL_LEN,
@@ -374,6 +375,29 @@ export function registerAdminApi(app: Express): void {
     if (!gameIds) return void res.status(400).json({ error: 'bad gameIds' });
     setArcadeDefaultGames(gameIds);
     res.json({ ok: true, gameIds });
+  });
+
+  // ── Talking-object quotes ──────────────────────────────────────────────────
+  // One pool for the whole world, so global admin only (see quotes.ts). The
+  // text travels as it was typed — comments and blank lines included — and the
+  // limits go with it, so the editor can check as you type; the check that
+  // counts is setQuotesText's, which refuses the whole save on any bad line.
+  // Its own body limit, since 64 K characters of text are more than the 16 KB
+  // above: at most three UTF-8 bytes per UTF-16 unit, plus the JSON around it.
+  const quotesJson = express.json({ limit: '256kb' });
+  app.get('/admin/talking-quotes', (req, res) => {
+    if (!admin(req, res)) return;
+    res.json({ text: getQuotesText(), count: loadQuotes().length, maxQuoteLength: MAX_QUOTE_LEN, maxTextLength: MAX_QUOTES_TEXT });
+  });
+
+  app.put('/admin/talking-quotes', quotesJson, (req, res) => {
+    const me = admin(req, res);
+    if (!me) return;
+    const result = setQuotesText((req.body as { text?: unknown } | undefined)?.text);
+    if (!result.ok) return void res.status(400).json({ error: result.error, rejected: result.rejected });
+    controlBus.emit(QUOTES_CHANGED_EVENT);
+    console.log(`[quotes] ${me.userId} saved ${result.quotes.length} quote${result.quotes.length === 1 ? '' : 's'}`);
+    res.json({ text: result.text, count: result.quotes.length });
   });
 
   // Cabinets come from the zone's active saved layout (where admins place them

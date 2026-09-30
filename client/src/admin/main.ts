@@ -22,6 +22,7 @@ import {
   type AdminMeetingRoom,
   type AdminArcadeCabinet,
   type AdminOidcSettings,
+  type RejectedQuoteLine,
   type Role,
 } from './api.js';
 import type { ArcadeGame } from '@pixel/shared';
@@ -34,7 +35,7 @@ let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
 let meetingRooms: AdminMeetingRoom[] = [];
 let arcadeGames: ArcadeGame[] = [];
-let tab: 'users' | 'zones' | 'meetings' | 'arcade' | 'signin' = 'users';
+let tab: 'users' | 'zones' | 'meetings' | 'arcade' | 'quotes' | 'signin' = 'users';
 /** Who's signed in — fetched once at startup; backs the "Take ownership" self-button. */
 let me: { userId: string; name: string } | null = null;
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User' };
@@ -156,6 +157,13 @@ const STYLE = `
   .setting .body{flex:1;}
   .setting .body label{font-size:.92rem;cursor:pointer;}
   .setting .body .muted{font-size:.82rem;display:block;margin-top:.15rem;}
+  textarea.quotes{display:block;width:100%;box-sizing:border-box;min-height:22rem;resize:vertical;
+    background:var(--panel2);color:var(--text);border:2px solid var(--line);border-radius:.35rem;
+    padding:.5rem .6rem;font:inherit;font-size:.88rem;line-height:1.45;white-space:pre;overflow-wrap:normal;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;margin:.7rem 0 .5rem;}
+  textarea.quotes:focus{outline:none;border-color:var(--accent);}
+  .quote-problems{margin:.2rem 0 .6rem;padding-left:1.1rem;color:#e2585a;font-size:.85rem;}
+  .quote-problems li{margin:.15rem 0;overflow-wrap:anywhere;}
   .arcade-cabinet{border:1px solid var(--line);border-radius:.5rem;padding:.55rem .7rem;}
   .arcade-cabinet .editor{display:none;margin-top:.6rem;}
   .arcade-cabinet .editor.open{display:block;}
@@ -269,6 +277,7 @@ function buildShell(app: HTMLElement, onClose: () => void): void {
       <button data-tab="zones">Zones</button>
       <button data-tab="meetings">Meetings</button>
       <button data-tab="arcade">Arcade</button>
+      <button data-tab="quotes">Quotes</button>
       <button data-tab="signin">Sign-in</button>
     </div>
     <div id="pa-adm-toast"></div>
@@ -346,6 +355,7 @@ function render(): void {
   if (tab === 'users') void renderUsers();
   else if (tab === 'zones') void renderZones();
   else if (tab === 'arcade') void renderArcade();
+  else if (tab === 'quotes') void renderQuotes();
   else if (tab === 'signin') void renderSignIn();
   else void renderMeetings();
 }
@@ -919,6 +929,111 @@ async function renderArcade(): Promise<void> {
     card.appendChild(actions);
   }
   view.appendChild(card);
+}
+
+// ── Talking-object quotes ──────────────────────────────────────────────────
+//
+// One textarea in the format the old file had: a quote per line, `#` comments and blank lines for
+// the author's own grouping. The check while typing mirrors the server's (server/src/quotes.ts) so
+// a problem shows up at the line that has it; it is UX only — the server refuses the whole save on
+// any bad line and answers with its own list, which replaces this one.
+async function renderQuotes(): Promise<void> {
+  const res = await adminApi.getTalkingQuotes();
+  if (res.status === 401) return redirectToLogin();
+  const view = document.getElementById('pa-adm-view')!;
+  view.innerHTML = '';
+  if (res.status === 403) {
+    view.innerHTML = '<div class="pa-adm-card">This page is for administrators only.</div>';
+    return;
+  }
+  if (!res.ok || !res.data) {
+    fail('Load quotes', res.error);
+    return;
+  }
+  const { maxQuoteLength, maxTextLength } = res.data;
+  let saved = res.data.text;
+
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML =
+    '<h2>Talking-object quotes</h2><div class="muted">What every talking object in every zone says between ' +
+    'the hours — one line at a random moment every 20 to 60 minutes, each line once before any comes again. ' +
+    `One quote per line, at most ${maxQuoteLength} characters (where the speech bubble cuts off). Blank lines ` +
+    'are ignored and a line starting with # is a comment. Saving takes effect in every zone at once.</div>';
+
+  const area = el('textarea', 'quotes');
+  area.spellcheck = false;
+  area.maxLength = maxTextLength;
+  area.value = saved;
+  area.placeholder = '# a comment\nThe first quote.\nThe second one.';
+  const problems = el('ul', 'quote-problems');
+  const actions = el('div', 'row');
+  const saveBtn = el('button', 'act primary', 'Save');
+  const revertBtn = el('button', 'act', 'Revert');
+  const status = el('span', 'muted');
+  actions.append(saveBtn, revertBtn, status);
+
+  const showProblems = (list: RejectedQuoteLine[]): void => {
+    problems.replaceChildren(
+      ...list.map((p) => el('li', undefined, `Line ${p.line}: ${p.why} — ${p.text.length > 60 ? `${p.text.slice(0, 60)}…` : p.text}`)),
+    );
+  };
+  const refresh = (): void => {
+    const { count, rejected } = checkQuotes(area.value, maxQuoteLength);
+    showProblems(rejected);
+    const dirty = area.value !== saved;
+    status.textContent = `${count} quote${count === 1 ? '' : 's'}${dirty ? ' · unsaved changes' : ''}`;
+    saveBtn.disabled = !dirty || rejected.length > 0;
+    revertBtn.disabled = !dirty;
+  };
+  area.oninput = refresh;
+  revertBtn.onclick = () => {
+    area.value = saved;
+    refresh();
+  };
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    const r = await adminApi.setTalkingQuotes(area.value);
+    if (r.ok && r.data) {
+      saved = r.data.text;
+      // The server stores one form (no BOM, \n line ends); show what was kept.
+      area.value = saved;
+      refresh();
+      flashSaved(actions);
+      toast(`Quotes saved (${r.data.count}).`);
+    } else {
+      if (r.data?.rejected?.length) showProblems(r.data.rejected);
+      saveBtn.disabled = false;
+      fail('Save quotes', r.error);
+    }
+  };
+
+  card.append(area, problems, actions);
+  view.appendChild(card);
+  refresh();
+}
+
+/** The editor's copy of the server's rules (parseQuotes), for feedback while typing. */
+function checkQuotes(text: string, maxLen: number): { count: number; rejected: RejectedQuoteLine[] } {
+  const rejected: RejectedQuoteLine[] = [];
+  const seen = new Map<string, number>();
+  let count = 0;
+  text
+    .replace(/^\uFEFF/, '')
+    .split(/\r\n?|\n/)
+    .forEach((raw, i) => {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) return;
+      const n = i + 1;
+      const dup = seen.get(line);
+      if (line.length > maxLen) rejected.push({ line: n, text: line, why: `${line.length} characters, at most ${maxLen}` });
+      else if (/[\u0000-\u001f\u007f-\u009f]/.test(line)) rejected.push({ line: n, text: line, why: 'contains a control character' });
+      else if (dup !== undefined) rejected.push({ line: n, text: line, why: `the same quote as line ${dup}` });
+      else {
+        seen.set(line, n);
+        count++;
+      }
+    });
+  return { count, rejected };
 }
 
 // ── Sign-in / single sign-on ───────────────────────────────────────────────

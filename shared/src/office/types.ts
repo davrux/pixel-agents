@@ -580,8 +580,8 @@ export type Action =
   /**
    * A talking object: it speaks by itself, with nobody there. On every full
    * hour it says the time — a speech bubble reading `9 UHR, 9 UHR !!!` — and
-   * between the hours it says a random quote out of the world's pool
-   * (assets/quotes/talking-objects.txt), at a random moment every 20 to 60
+   * between the hours it says a random quote out of the world's pool (edited
+   * in the admin panel, server/src/quotes.ts), at a random moment every 20 to 60
    * minutes. Both lines also land in the zone's chat log, attributed to the
    * piece, so what it said outlives the few seconds its bubble is up. Today's
    * talking whale.
