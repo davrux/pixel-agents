@@ -1181,6 +1181,9 @@ export class MumbleVoice {
    */
   toggleMic(): void {
     const on = !this.micOn;
+    // Turning the mic on while deafened lifts both, which is the same flip a
+    // deafen is — so it is logged as one, the way it is for everybody else.
+    this.logOwnToggle(on ? (this.deafened ? 'undeafened' : 'unmuted') : 'muted');
     if (on) this.setDeafened(false);
     this.setMicOn(on);
     void this.pushSelfState();
@@ -1190,6 +1193,7 @@ export class MumbleVoice {
   /** Deafening mutes the mic; un-deafening restores whatever it was before, so
    *  a mic you had deliberately muted stays muted. */
   toggleDeafen(): void {
+    this.logOwnToggle(this.deafened ? 'undeafened' : 'deafened');
     if (this.deafened) {
       this.setDeafened(false);
       this.setMicOn(this.micOnBeforeDeafen);
@@ -1535,9 +1539,10 @@ export class MumbleVoice {
    * click would read as two things happening. Self toggles and an admin's are
    * separate pairs and each gets its own line.
    *
-   * Our own self toggles are left out: we pressed the button, and the log is a
-   * record of what others did. An admin muting or deafening US stays in, for
-   * the same reason our own moves do — it is the only record of it.
+   * Our own self toggles are not taken from here but from the toggle itself
+   * (`logOwnToggle`): every sync re-sends the stored mic/sound state, and the
+   * server's echo of that would log a "muted" on each connect that nobody did.
+   * An admin muting or deafening US is taken from here like anyone else's.
    */
   private logAudioToggles(before: MumbleUserInfo, after: MumbleUserInfo): void {
     const self = after.session === this.mySession;
@@ -1553,6 +1558,11 @@ export class MumbleVoice {
     } else if (before.mute !== after.mute) {
       this.logActivity(after.name, after.mute ? 'muted' : 'unmuted', undefined, undefined, true);
     }
+  }
+
+  /** One of our own toggles, logged as it is pressed (see logAudioToggles). */
+  private logOwnToggle(kind: MumbleActivityKind): void {
+    this.logActivity(this.users.get(this.mySession)?.name ?? '', kind);
   }
 
   private channelName(id: number): string {
