@@ -128,11 +128,21 @@ export interface MumbleVoiceState {
 }
 
 /** What one activity line records. A move is deliberately its own kind rather
- *  than a leave plus a join: the person never went anywhere. */
-export type MumbleActivityKind = 'joined' | 'left' | 'moved';
+ *  than a leave plus a join: the person never went anywhere. The mic and sound
+ *  toggles are four kinds rather than two-with-a-direction, so a row's wording
+ *  and colour stay a lookup. */
+export type MumbleActivityKind =
+  | 'joined'
+  | 'left'
+  | 'moved'
+  | 'muted'
+  | 'unmuted'
+  | 'deafened'
+  | 'undeafened';
 
 /**
- * One line of the activity log: somebody arrived on, left, or changed channel.
+ * One line of the activity log: somebody arrived on, left, or changed channel,
+ * or switched their mic or their sound.
  *
  * Server-wide, not channel-scoped — that is what the join/leave *alerts* are
  * (they only fire for our own channel, because an OS notification for every
@@ -154,6 +164,9 @@ export interface MumbleActivity {
    *  against has moved on — a channel can be renamed, or cease to exist. */
   from?: string;
   to?: string;
+  /** For a mute/deafen: an admin did it (Mumble's `mute`/`deaf`), not the
+   *  person themselves (`selfMute`/`selfDeaf`). */
+  forced?: boolean;
 }
 
 export interface MumbleTree {
@@ -570,6 +583,7 @@ export class MumbleVoice {
           if (!before) this.logActivity(e.user.name, 'joined');
         }
         if (switched) this.logMove(e.user.name, before.channel, e.user.channel);
+        if (before) this.logAudioToggles(before, e.user);
         this.emitTree();
         return;
       }
@@ -1483,9 +1497,15 @@ export class MumbleVoice {
 
   // ── server activity log ────────────────────────────────────────────────────
 
-  /** Record one arrival/departure/move. Gated on `connected` so a stray event
+  /** Record one arrival/departure/move/toggle. Gated on `connected` so a stray event
    *  before sync cannot enter the whole roster as arrivals. */
-  private logActivity(name: string, kind: MumbleActivityKind, from?: string, to?: string): void {
+  private logActivity(
+    name: string,
+    kind: MumbleActivityKind,
+    from?: string,
+    to?: string,
+    forced?: boolean,
+  ): void {
     if (!this.connected) return;
     this.activityLog.push({
       seq: ++this.activitySeq,
@@ -1494,6 +1514,7 @@ export class MumbleVoice {
       kind,
       from,
       to,
+      ...(forced ? { forced } : {}),
     });
     if (this.activityLog.length > MAX_ACTIVITY) {
       this.activityLog.splice(0, this.activityLog.length - MAX_ACTIVITY);
@@ -1506,6 +1527,32 @@ export class MumbleVoice {
    *  name something else or nothing. */
   private logMove(name: string, from: number, to: number): void {
     this.logActivity(name, 'moved', this.channelName(from), this.channelName(to));
+  }
+
+  /**
+   * A change of mic or sound. Deafening implies muting in Mumble, so a deafen
+   * flips both flags and is logged as the deafen alone — two lines for one
+   * click would read as two things happening. Self toggles and an admin's are
+   * separate pairs and each gets its own line.
+   *
+   * Our own self toggles are left out: we pressed the button, and the log is a
+   * record of what others did. An admin muting or deafening US stays in, for
+   * the same reason our own moves do — it is the only record of it.
+   */
+  private logAudioToggles(before: MumbleUserInfo, after: MumbleUserInfo): void {
+    const self = after.session === this.mySession;
+    if (!self) {
+      if (before.selfDeaf !== after.selfDeaf) {
+        this.logActivity(after.name, after.selfDeaf ? 'deafened' : 'undeafened');
+      } else if (before.selfMute !== after.selfMute) {
+        this.logActivity(after.name, after.selfMute ? 'muted' : 'unmuted');
+      }
+    }
+    if (before.deaf !== after.deaf) {
+      this.logActivity(after.name, after.deaf ? 'deafened' : 'undeafened', undefined, undefined, true);
+    } else if (before.mute !== after.mute) {
+      this.logActivity(after.name, after.mute ? 'muted' : 'unmuted', undefined, undefined, true);
+    }
   }
 
   private channelName(id: number): string {

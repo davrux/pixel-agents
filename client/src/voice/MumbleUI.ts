@@ -36,6 +36,7 @@
 import {
   MumbleVoice,
   type MumbleActivity,
+  type MumbleActivityKind,
   type MumbleDevices,
   type MumbleTree,
   type MumbleVoiceState,
@@ -389,6 +390,10 @@ export class MumbleUI {
       /* A channel move. Its own colour because it is neither an arrival nor a
          departure — the person was already here and still is. */
       #pa-mb-log .ev.mv .a{color:#7ea9c4;}
+      /* Mic or sound switched off (warn) and back on (muted text): a state
+         change rather than a movement, so neither of the colours above. */
+      #pa-mb-log .ev.off .a{color:#a86a2e;}
+      #pa-mb-log .ev.on .a{color:#adb0b2;}
       #pa-mb-note{font-size:0.78rem;color:#e0b062;margin-top:0.4rem;line-height:1.45;}
       /* ---- channel row popover (panelMenu.ts) -------------------------------
          The floating-surface look every other popover in the app uses (deeper
@@ -1100,6 +1105,29 @@ function applyStateIcon(el: HTMLElement, kind: 'mic' | 'speaker', user: MumbleUs
   }
 }
 
+/** Row colour per kind: arrival, departure, move, and a mic/sound switched
+ *  off or back on. */
+const ACTIVITY_CLASS: Record<MumbleActivityKind, string> = {
+  joined: 'in',
+  left: 'out',
+  moved: 'mv',
+  muted: 'off',
+  deafened: 'off',
+  unmuted: 'on',
+  undeafened: 'on',
+};
+
+/** Wording per kind, in the icons' own terms (🎤 mic, 🎧 sound). */
+const ACTIVITY_TEXT: Record<MumbleActivityKind, string> = {
+  joined: 'joined',
+  left: 'left',
+  moved: 'moved',
+  muted: '🎤 muted',
+  unmuted: '🎤 unmuted',
+  deafened: '🎧 deafened',
+  undeafened: '🎧 undeafened',
+};
+
 /**
  * One activity line: time, who, and what they did.
  *
@@ -1111,7 +1139,7 @@ function applyStateIcon(el: HTMLElement, kind: 'mic' | 'speaker', user: MumbleUs
  */
 function mkActivityRow(e: MumbleActivity): HTMLElement {
   const row = document.createElement('div');
-  row.className = `ev ${e.kind === 'joined' ? 'in' : e.kind === 'left' ? 'out' : 'mv'}`;
+  row.className = `ev ${ACTIVITY_CLASS[e.kind]}`;
   const when = document.createElement('span');
   when.className = 't';
   const at = new Date(e.ts);
@@ -1128,7 +1156,11 @@ function mkActivityRow(e: MumbleActivity): HTMLElement {
     what.textContent = `→ ${e.to ?? ''}`;
     row.title = `${e.name}: ${e.from ?? '?'} → ${e.to ?? '?'}`;
   } else {
-    what.textContent = e.kind === 'joined' ? 'joined' : 'left';
+    what.textContent = ACTIVITY_TEXT[e.kind];
+    if (e.forced) {
+      what.textContent += ' by admin';
+      row.title = `${e.name}: ${ACTIVITY_TEXT[e.kind]} by an admin`;
+    }
   }
   row.append(when, who, what);
   return row;
