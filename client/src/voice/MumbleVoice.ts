@@ -142,7 +142,7 @@ export type MumbleActivityKind =
 
 /**
  * One line of the activity log: somebody arrived on, left, or changed channel,
- * or switched their mic or their sound.
+ * or switched their mic or their sound — the last only within our own channel.
  *
  * Server-wide, not channel-scoped — that is what the join/leave *alerts* are
  * (they only fire for our own channel, because an OS notification for every
@@ -1543,8 +1543,13 @@ export class MumbleVoice {
    * (`logOwnToggle`): every sync re-sends the stored mic/sound state, and the
    * server's echo of that would log a "muted" on each connect that nobody did.
    * An admin muting or deafening US is taken from here like anyone else's.
+   *
+   * Unlike joins, leaves and moves, these are channel-scoped: only people in
+   * our own channel are logged. Whether a stranger elsewhere on the server can
+   * hear or be heard is not something we can notice, so it is noise.
    */
   private logAudioToggles(before: MumbleUserInfo, after: MumbleUserInfo): void {
+    if (after.channel !== this.myChannel) return;
     const self = after.session === this.mySession;
     if (!self) {
       if (before.selfDeaf !== after.selfDeaf) {
