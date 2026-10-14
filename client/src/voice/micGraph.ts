@@ -1,6 +1,7 @@
 /**
- * Microphone capture chain shared by the voice clients: raw mic → gain → gate,
- * with an analyser tap driving both the level meter and the voice-activity gate.
+ * Microphone capture chain shared by the voice clients: raw mic → [filter] →
+ * gain → gate, with an analyser tap driving both the level meter and the
+ * voice-activity gate.
  *
  * Owning the graph (rather than handing the raw track to a voice SDK) is what
  * makes the sensitivity slider and the threshold gate possible: gain is applied
@@ -36,6 +37,19 @@ export interface MicGraphOpts {
   threshold: number;
   onLevel: (level: number) => void;
   onGate?: (open: boolean) => void;
+  /**
+   * A noise filter to put straight after the source, before the gain — it wants
+   * the mic at its natural level, not boosted 20x into the limiter. While one is
+   * in place the browser's own noiseSuppression is switched OFF on the capture:
+   * a neural filter fed WebRTC's already-gated, spectrally-subtracted signal does
+   * worse than one fed the raw mic, and the two would stack their artefacts.
+   *
+   * Built on the graph's own context. If it throws, the graph runs without it
+   * (and with the browser's suppression back on) and `onFilterError` is told —
+   * a mic that will not open because a filter failed would be the worse outcome.
+   */
+  filter?: (ctx: AudioContext) => Promise<AudioNode>;
+  onFilterError?: (e: unknown) => void;
 }
 
 export class MicGraph {
@@ -44,6 +58,8 @@ export class MicGraph {
 
   private raw: MediaStream;
   private source: MediaStreamAudioSourceNode;
+  /** Where the source connects: the filter when there is one, else the gain. */
+  private readonly input: AudioNode;
   private readonly gainNode: GainNode;
   private readonly limiter: DynamicsCompressorNode;
   private readonly analyser: AnalyserNode;
@@ -61,6 +77,7 @@ export class MicGraph {
     private readonly onGate: ((open: boolean) => void) | undefined,
     gain: number,
     threshold: number,
+    private readonly filter: AudioNode | null,
   ) {
     this.raw = raw;
     this.threshold = threshold;
@@ -81,7 +98,9 @@ export class MicGraph {
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 512;
     this.buf = new Float32Array(this.analyser.fftSize);
-    this.source.connect(this.gainNode);
+    this.input = filter ?? this.gainNode;
+    if (filter) filter.connect(this.gainNode);
+    this.source.connect(this.input);
     // Meter/gate tap sits post-gain but pre-limiter, so the level you see is the
     // level the threshold compares against.
     this.gainNode.connect(this.analyser); // tap: a leaf, so it doesn't affect audio
@@ -91,24 +110,33 @@ export class MicGraph {
   }
 
   static async start(opts: MicGraphOpts): Promise<MicGraph> {
-    const raw =
-      opts.stream ??
-      (await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: opts.deviceId ? { exact: opts.deviceId } : undefined,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false, // the sensitivity slider is the manual replacement
-        },
-      }));
-    const ctx = new AudioContext({ sampleRate: 48000 });
+    // With a filter the context comes first: whether the filter could be built
+    // decides how the device is opened (see `filter`).
+    let ctx: AudioContext | null = null;
+    let filter: AudioNode | null = null;
+    if (opts.filter) {
+      ctx = new AudioContext({ sampleRate: 48000 });
+      try {
+        filter = await opts.filter(ctx);
+      } catch (e) {
+        opts.onFilterError?.(e);
+      }
+    }
+    let raw: MediaStream;
+    try {
+      raw = opts.stream ?? (await navigator.mediaDevices.getUserMedia({ audio: micConstraints(opts.deviceId, !filter) }));
+    } catch (e) {
+      void ctx?.close().catch(() => undefined);
+      throw e;
+    }
+    ctx ??= new AudioContext({ sampleRate: 48000 });
     await ctx.resume().catch(() => undefined);
     // Callers encode at a hardcoded 48 kHz, so a denied request would time-warp
     // everything we transmit. Report the granted rate rather than assume it.
     if (ctx.sampleRate !== 48000) {
       console.warn(`[mic] asked for 48000 Hz, got ${ctx.sampleRate} Hz`);
     }
-    return new MicGraph(ctx, raw, opts.onLevel, opts.onGate, opts.gain, opts.threshold);
+    return new MicGraph(ctx, raw, opts.onLevel, opts.onGate, opts.gain, opts.threshold, filter);
   }
 
   /** A track carrying the processed audio, for consumers that want a MediaStream. */
@@ -124,6 +152,11 @@ export class MicGraph {
 
   setThreshold(v: number): void {
     this.threshold = v;
+  }
+
+  /** True when the noise filter is in the chain (asked for AND built). */
+  get filtered(): boolean {
+    return this.filter !== null;
   }
 
   get open(): boolean {
@@ -147,14 +180,7 @@ export class MicGraph {
     if (this.stopped) return;
     let raw: MediaStream;
     try {
-      raw = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: { exact: deviceId },
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false,
-        },
-      });
+      raw = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, !this.filter) });
     } catch {
       return; // keep the working source rather than going silent
     }
@@ -162,7 +188,7 @@ export class MicGraph {
     this.raw.getTracks().forEach((t) => t.stop());
     this.raw = raw;
     this.source = this.ctx.createMediaStreamSource(raw);
-    this.source.connect(this.gainNode);
+    this.source.connect(this.input);
   }
 
   stop(): void {
@@ -176,6 +202,7 @@ export class MicGraph {
     this.raw.getTracks().forEach((t) => t.stop());
     try {
       this.source.disconnect();
+      this.filter?.disconnect();
       this.gainNode.disconnect();
       this.analyser.disconnect();
       this.limiter.disconnect();
@@ -206,6 +233,18 @@ export class MicGraph {
       }
     }, LEVEL_INTERVAL_MS);
   }
+}
+
+/** How a microphone is opened: the browser's echo cancellation always, its noise
+ *  suppression unless our own filter replaces it, and never its AGC — the
+ *  sensitivity slider is the manual replacement. */
+function micConstraints(deviceId: string | undefined, browserNoiseSuppression: boolean): MediaTrackConstraints {
+  return {
+    deviceId: deviceId ? { exact: deviceId } : undefined,
+    echoCancellation: true,
+    noiseSuppression: browserNoiseSuppression,
+    autoGainControl: false,
+  };
 }
 
 /** Clamp an input gain to 0..MAX_MIC_GAIN (1 = unity). */

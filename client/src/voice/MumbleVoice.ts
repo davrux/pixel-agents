@@ -19,6 +19,7 @@ import {
   type MumbleUserInfo,
 } from '../desktop/bridge.js';
 import { MicGraph, clampMicGain } from './micGraph.js';
+import { createDeepFilterNode } from './deepFilter.js';
 import { getAudioSettings, setAudioSettings } from './audioSettings.js';
 import { acceleratorFromEvent, isEditableTarget } from './hotkeys.js';
 
@@ -118,6 +119,8 @@ export interface MumbleVoiceState {
   registered: boolean;
   /** OS notifications when someone joins or leaves our channel. */
   joinAlerts: boolean;
+  /** The DeepFilterNet noise filter is wanted on the mic (voice/deepFilter.ts). */
+  noiseFilter: boolean;
   host: string;
   error?: string;
   notice?: string;
@@ -223,6 +226,7 @@ export class MumbleVoice {
   private micId: string | undefined;
   private speakerId: string | undefined;
   private joinAlerts: boolean;
+  private noiseFilter: boolean;
   /** Mic state to put back when the user un-deafens (see toggleDeafen). */
   private micOnBeforeDeafen: boolean;
   /** The stored hotkeys, for the focused-window fallback below. Refreshed with
@@ -321,6 +325,9 @@ export class MumbleVoice {
     // Join/leave alerts default on — an unattended window is exactly when you
     // want to know someone walked into your channel.
     this.joinAlerts = localStorage.getItem('pa-mb-joinalerts') !== '0';
+    // Off by default: it costs ~10 % of a core and 40 ms of latency, and the
+    // browser's own suppression is already on — this is an upgrade you opt into.
+    this.noiseFilter = localStorage.getItem('pa-mb-denoise') === '1';
     // Device choices are the viewer's, not this client's: one mic, one pair of
     // speakers, shared with meetings through the same store (audioSettings.ts).
     // Read by key here until zone voice went; going through the store is what
@@ -369,6 +376,7 @@ export class MumbleVoice {
       channelName: this.channels.get(this.myChannel)?.name ?? '',
       registered: this.registered,
       joinAlerts: this.joinAlerts,
+      noiseFilter: this.noiseFilter,
       host: this.host,
       error: this.error,
       notice: this.notice,
@@ -1005,6 +1013,10 @@ export class MumbleVoice {
         onGate: (open) => {
           if (!open) this.endSpurt();
         },
+        filter: this.noiseFilter
+          ? (ctx) => createDeepFilterNode(ctx, (reason) => this.noiseFilterFailed(reason))
+          : undefined,
+        onFilterError: (e) => this.noiseFilterFailed((e as Error)?.message ?? String(e)),
       });
       this.mic = mic;
       await this.addWorklet(mic.ctx);
@@ -1349,6 +1361,38 @@ export class MumbleVoice {
     localStorage.setItem('pa-mb-micthresh', String(this.micThreshold));
     this.mic?.setThreshold(this.micThreshold);
     this.emitState();
+  }
+
+  /**
+   * Turn the DeepFilterNet noise filter on or off. A running mic is rebuilt,
+   * because the filter also decides how the device is opened (the browser's own
+   * suppression goes off while ours is on — see MicGraphOpts.filter).
+   */
+  setNoiseFilter(on: boolean): void {
+    if (on === this.noiseFilter) return;
+    this.noiseFilter = on;
+    localStorage.setItem('pa-mb-denoise', on ? '1' : '0');
+    this.clearNotice();
+    this.emitState();
+    if (this.mic) {
+      this.stopMic();
+      void this.startMic();
+    }
+  }
+
+  /** The filter could not start, or stopped mid-call. The mic keeps working —
+   *  without it on a start failure, and rebuilt without it on a later one, since
+   *  a failed filter outputs silence — and the panel says why. The preference is
+   *  left alone: a missing model is fixed by a rebuild, not by forgetting. */
+  private noiseFilterFailed(reason: string): void {
+    this.notice = `Noise filter unavailable: ${reason}`;
+    this.noticeHint = undefined;
+    this.emitState();
+    if (this.mic?.filtered) {
+      this.noiseFilter = false; // this session only; storage keeps the wish
+      this.stopMic();
+      void this.startMic();
+    }
   }
 
   setJoinAlerts(on: boolean): void {

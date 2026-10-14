@@ -139,8 +139,10 @@ jobs:
       # vendor:mediapipe zuerst: die Konferenz-Hintergrundfilter (Blur / virtueller
       # Hintergrund) laden ihren Segmenter aus client/dist/mediapipe — im Desktop-App
       # wird das Bundle lokal über app:// serviert, ein CDN gibt es nicht.
+      # vendor:deepfilter aus demselben Grund: das Modell des Mumble-Rauschfilters
+      # (nur Desktop) liegt in client/dist/deepfilter.
       - name: Build
-        run: pnpm run vendor:mediapipe && pnpm run build:desktop && pnpm --filter @pixel/desktop exec electron-builder --publish never
+        run: pnpm run vendor:mediapipe && pnpm run vendor:deepfilter && pnpm run build:desktop && pnpm --filter @pixel/desktop exec electron-builder --publish never
         shell: bash
 
       - name: Upload als Workflow-Artifact

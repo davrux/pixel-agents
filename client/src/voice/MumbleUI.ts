@@ -44,6 +44,7 @@ import {
 import type { MumbleChannelInfo, MumbleUserInfo } from '../desktop/bridge.js';
 import { MAX_MIC_GAIN } from './micGraph.js';
 import { MumbleSettingsUI } from './MumbleSettingsUI.js';
+import { DEEPFILTER_MISSING_HINT, deepFilterAvailable } from './deepFilter.js';
 import { openPanelMenu, type PanelMenuHandle, type PanelMenuItem } from './panelMenu.js';
 
 export interface MumbleUIHooks {
@@ -59,6 +60,11 @@ export interface MumbleUIHooks {
 /** Per-user volume choices. A dropdown keeps each user on one line, where a
  *  slider needed a second row — a channel with a dozen people has to stay
  *  readable without scrolling. */
+/** Says what the filter does and, as plainly, what it does not: people expect
+ *  "noise filter" to mean "only my voice", and a colleague's voice is speech. */
+const DENOISE_TITLE =
+  'DeepFilterNet: removes background noise (keyboard, fans, traffic) from your mic. Other voices are speech and still get through.';
+
 const VOLUME_STEPS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** A tree row that outlives the snapshot it was built from: the element stays in
@@ -108,6 +114,7 @@ export class MumbleUI {
   private treeTabBtn?: HTMLButtonElement;
   private logTabBtn?: HTMLButtonElement;
   private alertsEl?: HTMLInputElement;
+  private denoiseEl?: HTMLInputElement;
   private mainEl?: HTMLElement;
   private rootEl?: HTMLElement;
   private cfgBtn?: HTMLButtonElement;
@@ -486,6 +493,7 @@ export class MumbleUI {
         <div class="row"><label>Volume</label><input id="pa-mb-vol" type="range" min="0" max="200"></div>
         <div class="row"><label>Threshold</label><input id="pa-mb-thresh" type="range" min="0" max="100"></div>
         <div class="row"><label>Level</label><div id="pa-mb-meter"><div class="lvl"></div><div class="thr"></div></div></div>
+        <label class="chk" title="${DENOISE_TITLE}"><input id="pa-mb-denoise" type="checkbox"> Noise filter</label>
       </div>
       <div id="pa-mb-tabs" class="pa-seg" role="tablist">
         <button class="seg on" id="pa-mb-tab-channels" role="tab" aria-selected="true" aria-controls="pa-mb-tree">Channels</button>
@@ -519,6 +527,13 @@ export class MumbleUI {
     this.treeTabBtn = main.querySelector('#pa-mb-tab-channels')!;
     this.logTabBtn = main.querySelector('#pa-mb-tab-activity')!;
     this.alertsEl = main.querySelector('#pa-mb-alerts')!;
+    this.denoiseEl = main.querySelector('#pa-mb-denoise')!;
+    // A build without the model offers nothing to switch on — and says why.
+    void deepFilterAvailable().then((ok) => {
+      if (ok || !this.denoiseEl) return;
+      this.denoiseEl.disabled = true;
+      this.denoiseEl.parentElement!.title = DEEPFILTER_MISSING_HINT;
+    });
 
     // The settings view. Saving reconnects with the new details — the panel used
     // to be told to do that from the office's Settings panel; now it is next door.
@@ -546,6 +561,7 @@ export class MumbleUI {
     this.threshEl.addEventListener('input', () => voice.setMicThreshold(Number(this.threshEl!.value) / 100));
     this.masterEl.addEventListener('input', () => voice.setMaster(Number(this.masterEl!.value) / 100));
     this.alertsEl.addEventListener('change', () => voice.setJoinAlerts(this.alertsEl!.checked));
+    this.denoiseEl.addEventListener('change', () => voice.setNoiseFilter(this.denoiseEl!.checked));
     this.micSel.addEventListener('change', () => void voice.switchMic(this.micSel!.value));
     this.spkSel.addEventListener('change', () => void voice.switchSpeaker(this.spkSel!.value));
     this.treeTabBtn.onclick = () => this.showTab('channels');
@@ -612,6 +628,7 @@ export class MumbleUI {
     this.meterThr!.style.left = `${Math.round(s.micThreshold * 100)}%`;
     this.masterEl!.value = String(Math.round(s.master * 100));
     this.alertsEl!.checked = s.joinAlerts;
+    this.denoiseEl!.checked = s.noiseFilter;
 
     // The server's own words for a refusal, plus whatever advice the thing we
     // asked for carries — the panel can no longer assume every PermissionDenied

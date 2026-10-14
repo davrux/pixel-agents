@@ -45,6 +45,11 @@ client/public/emulatorjs/
 # WASM + the selfie-segmenter model, vendored via scripts/vendor-mediapipe.mjs.
 client/public/mediapipe/
 
+# DeepFilterNet3 model (desktop Mumble noise filter) — 8 MB, hash-pinned, vendored
+# via scripts/vendor-deepfilter.mjs. The runtime next to it (df_bg.wasm) IS
+# committed: it is built from source by scripts/build-deepfilter-wasm.sh.
+client/public/deepfilter/*.tar.gz
+
 # Zone maps ARE versioned (assets/tiled/zones/*.tmj) — levels are diffable, have
 # a history and can be handed to someone else. That is orthogonal to how a map
 # reaches a server: a bundled map seeds a zone that has none at startup, and only

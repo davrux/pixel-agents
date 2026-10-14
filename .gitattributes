@@ -5,6 +5,7 @@
 *.png binary
 *.jpg binary
 *.ttf binary
+*.wasm binary
 
 # DOS game config files — keep original CRLF line endings for the emulator.
 assets/cfg/*.cfg -text

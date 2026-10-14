@@ -17,6 +17,7 @@
     "build:arcade": "node scripts/build-shareware-bundles.mjs",
     "vendor:emulatorjs": "node scripts/vendor-emulatorjs.mjs",
     "vendor:mediapipe": "node scripts/vendor-mediapipe.mjs",
+    "vendor:deepfilter": "node scripts/vendor-deepfilter.mjs",
     "build:desktop": "pnpm run build && pnpm --filter @pixel/desktop run build",
     "dev:desktop": "pnpm run build && pnpm --filter @pixel/desktop run build && pnpm --filter @pixel/desktop run dev",
     "dist:desktop": "pnpm run build:desktop && pnpm --filter @pixel/desktop run dist",

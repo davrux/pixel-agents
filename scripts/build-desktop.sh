@@ -18,6 +18,10 @@ cd "$(dirname "$0")/.."
 # session chasing a bug in source that the running binary predated.
 rm -f desktop/release/*.AppImage
 
+# The Mumble noise filter's model (desktop-only, served from the bundle over
+# app://). Skips itself when the hash-checked file is already there.
+pnpm run vendor:deepfilter
+
 pnpm run dist:desktop
 
 echo
