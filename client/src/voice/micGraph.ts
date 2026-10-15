@@ -50,6 +50,13 @@ export interface MicGraphOpts {
    */
   filter?: (ctx: AudioContext) => Promise<AudioNode>;
   onFilterError?: (e: unknown) => void;
+  /**
+   * The capture track ended underneath the graph — the device was unplugged, or
+   * the OS took it away. The graph keeps running on a dead source and stays
+   * silent from then on, so this is the caller's cue to reopen a device; nothing
+   * in here will. Not called for a track `stop()` or `switchDevice()` ended.
+   */
+  onEnded?: () => void;
 }
 
 export class MicGraph {
@@ -78,8 +85,10 @@ export class MicGraph {
     gain: number,
     threshold: number,
     private readonly filter: AudioNode | null,
+    private readonly onEnded: (() => void) | undefined,
   ) {
     this.raw = raw;
+    this.watchEnded(raw);
     this.threshold = threshold;
     this.source = ctx.createMediaStreamSource(raw);
     this.gainNode = ctx.createGain();
@@ -136,7 +145,7 @@ export class MicGraph {
     if (ctx.sampleRate !== 48000) {
       console.warn(`[mic] asked for 48000 Hz, got ${ctx.sampleRate} Hz`);
     }
-    return new MicGraph(ctx, raw, opts.onLevel, opts.onGate, opts.gain, opts.threshold, filter);
+    return new MicGraph(ctx, raw, opts.onLevel, opts.onGate, opts.gain, opts.threshold, filter, opts.onEnded);
   }
 
   /** A track carrying the processed audio, for consumers that want a MediaStream. */
@@ -176,19 +185,49 @@ export class MicGraph {
     return this.raw.getAudioTracks()[0]?.getSettings().deviceId ?? '';
   }
 
-  async switchDevice(deviceId: string): Promise<void> {
-    if (this.stopped) return;
+  /** False once the capture track has ended — the graph is then running on
+   *  nothing, and only a new device (switchDevice, or a new graph) brings it back. */
+  get live(): boolean {
+    return this.raw.getAudioTracks().some((t) => t.readyState === 'live');
+  }
+
+  /** Capture from another device. False if it could not be opened — the
+   *  working source is then kept rather than going silent. */
+  async switchDevice(deviceId: string): Promise<boolean> {
+    if (this.stopped) return false;
     let raw: MediaStream;
     try {
       raw = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(deviceId, !this.filter) });
     } catch {
-      return; // keep the working source rather than going silent
+      return false;
+    }
+    if (this.stopped) {
+      raw.getTracks().forEach((t) => t.stop());
+      return false;
     }
     this.source.disconnect();
     this.raw.getTracks().forEach((t) => t.stop());
     this.raw = raw;
+    this.watchEnded(raw);
     this.source = this.ctx.createMediaStreamSource(raw);
     this.source.connect(this.input);
+    return true;
+  }
+
+  /** Report an `ended` on a track this graph still captures from. A track we
+   *  stopped ourselves fires nothing (stop() doesn't dispatch it), and one we
+   *  swapped away from is no longer `raw`, so only a real loss gets through. */
+  private watchEnded(raw: MediaStream): void {
+    if (!this.onEnded) return;
+    for (const track of raw.getAudioTracks()) {
+      track.addEventListener(
+        'ended',
+        () => {
+          if (!this.stopped && this.raw === raw) this.onEnded?.();
+        },
+        { once: true },
+      );
+    }
   }
 
   stop(): void {

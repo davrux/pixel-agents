@@ -46,6 +46,15 @@ const CLOCK_CHECK_MS = 5000;
 /** Report a clock ratio off by more than this. Well outside any sane scheduling
  *  jitter, so a hit means the graph really is rendering at the wrong speed. */
 const CLOCK_TOLERANCE = 0.02;
+/** Devices arrive and leave in bursts — a headset is an input and an output,
+ *  and PipeWire announces each profile separately — so wait for the list to
+ *  settle before rebuilding anything, or one plug-in rebuilds the graphs thrice. */
+const DEVICE_SETTLE_MS = 750;
+/** How often the running graphs are checked for a clock that stopped. */
+const HEALTH_CHECK_MS = 2000;
+/** Consecutive checks without the clock moving before a graph counts as dead.
+ *  Two, so a single late timer cannot rebuild a working graph. */
+const HEALTH_STALL_CHECKS = 2;
 /** A user counts as talking until this long after their last voice packet. */
 const TALK_HOLD_MS = 300;
 const TALK_TICK_MS = 200;
@@ -297,6 +306,18 @@ export class MumbleVoice {
   /** One-shot latch so a wrong-speed output graph is reported, not spammed. */
   private warnedClock = false;
 
+  // Device recovery: see recoverDevices().
+  private deviceSettleTimer: number | null = null;
+  private healthTimer: number | null = null;
+  /** The device lists as last seen, so a devicechange can tell which side moved. */
+  private knownInputs = '';
+  private knownOutputs = '';
+  /** The device the running mic was opened with (undefined = system default) —
+   *  differs from micId while the chosen one is unplugged. */
+  private micOpenedWith: string | undefined;
+  private readonly outClock: ClockWatch = { ctx: null, time: -1, still: 0 };
+  private readonly micClock: ClockWatch = { ctx: null, time: -1, still: 0 };
+
   /** Shared worklet module, added once per AudioContext that needs it. */
   private workletUrl: string | null = null;
   private readonly workletReady = new WeakSet<BaseAudioContext>();
@@ -344,6 +365,11 @@ export class MumbleVoice {
     // not grab them system-wide (Wayland). No double fire: where the grab DID
     // succeed the OS swallows the key and this keydown never happens.
     window.addEventListener('keydown', (e) => this.onHotkey(e));
+    // Unplugging and replugging a device leaves both graphs pointing at what
+    // went away: the mic source on an ended track, the output on a vanished
+    // sink. The picker lists the device again either way, which is exactly why
+    // this looked like it should work. Alive for the page's life, like the above.
+    navigator.mediaDevices?.addEventListener?.('devicechange', () => this.scheduleDeviceRecovery());
   }
 
   /** False in the browser, or without WebCodecs Opus. */
@@ -542,6 +568,7 @@ export class MumbleVoice {
         this.myChannel = me?.channel ?? 0;
         this.registered = me?.userId !== undefined;
         this.startTalkLoop();
+        this.startHealthWatch();
         void this.startPlayback();
         if (this.micOn) void this.startMic();
         void this.pushSelfState();
@@ -718,6 +745,11 @@ export class MumbleVoice {
       } else {
         console.info(`[mumble] output ${ctx.sampleRate} Hz, sink on the context`);
       }
+      // Chromium reports a sink that failed underneath a running context here
+      // (the device was pulled); a fresh context is the only way back.
+      ctx.addEventListener('error', () => {
+        if (this.outCtx === ctx) this.restartPlayback('the output device failed');
+      });
       this.outEl = el;
       this.masterGain = master;
       this.outCtx = ctx;
@@ -787,6 +819,9 @@ export class MumbleVoice {
     this.cancelSinkRetry();
     const ctx = this.outCtx;
     if (!ctx || this.outEl || !this.speakerId) return;
+    // Unplugged: retrying cannot help, and the default device is the right
+    // stand-in. recoverDevices rebuilds the graph when it comes back.
+    if ((await deviceAbsent('audiooutput', this.speakerId)) || this.outCtx !== ctx) return;
     if (await setContextSink(ctx, this.speakerId)) {
       this.sinkRetries = 0;
       return;
@@ -1005,8 +1040,12 @@ export class MumbleVoice {
     if (this.mic || this.startingMic || !this.connected) return;
     this.startingMic = true;
     try {
+      // The chosen mic, unless it is unplugged right now — then the system
+      // default, without forgetting the choice: recoverDevices moves back to it
+      // when it returns. An exact id that is gone would just fail to open.
+      const deviceId = (await deviceAbsent('audioinput', this.micId)) ? undefined : this.micId;
       const mic = await MicGraph.start({
-        deviceId: this.micId,
+        deviceId,
         gain: this.micGain,
         threshold: this.micThreshold,
         onLevel: (l) => this.onMicLevel(l),
@@ -1017,8 +1056,11 @@ export class MumbleVoice {
           ? (ctx) => createDeepFilterNode(ctx, (reason) => this.noiseFilterFailed(reason))
           : undefined,
         onFilterError: (e) => this.noiseFilterFailed((e as Error)?.message ?? String(e)),
+        onEnded: () => this.scheduleDeviceRecovery(),
       });
       this.mic = mic;
+      this.micOpenedWith = deviceId;
+      if (this.error?.startsWith(MIC_ERROR)) this.error = undefined; // recovered
       await this.addWorklet(mic.ctx);
       const node = new AudioWorkletNode(mic.ctx, 'pa-mic-capture', {
         numberOfInputs: 1,
@@ -1044,7 +1086,7 @@ export class MumbleVoice {
       await this.emitDevices();
     } catch (e) {
       this.stopMic();
-      this.error = `mic unavailable: ${(e as Error)?.message ?? e}`;
+      this.error = `${MIC_ERROR}${(e as Error)?.message ?? e}`;
       this.emitState();
     } finally {
       this.startingMic = false;
@@ -1163,6 +1205,19 @@ export class MumbleVoice {
   private teardownAudio(): void {
     this.stopMic();
     this.stopTalkLoop();
+    this.stopHealthWatch();
+    this.stopPlayback();
+    // Both contexts are gone, so the shared module blob can go too; startPlayback
+    // and startMic recreate it on demand.
+    if (this.workletUrl) {
+      URL.revokeObjectURL(this.workletUrl);
+      this.workletUrl = null;
+    }
+  }
+
+  /** Close the output graph. Peers go with it; ensurePeer builds them again on
+   *  the next packet, once startPlayback has published a new context. */
+  private stopPlayback(): void {
     this.cancelSinkRetry();
     this.stopClockWatch();
     for (const session of [...this.peers.keys()]) this.dropPeer(session);
@@ -1175,11 +1230,119 @@ export class MumbleVoice {
     this.masterGain = null;
     void this.outCtx?.close().catch(() => undefined);
     this.outCtx = null;
-    // Both contexts are gone, so the shared module blob can go too; startPlayback
-    // and startMic recreate it on demand.
-    if (this.workletUrl) {
-      URL.revokeObjectURL(this.workletUrl);
-      this.workletUrl = null;
+  }
+
+  // ── device recovery ────────────────────────────────────────────────────────
+
+  private scheduleDeviceRecovery(): void {
+    if (this.deviceSettleTimer !== null) clearTimeout(this.deviceSettleTimer);
+    this.deviceSettleTimer = window.setTimeout(() => {
+      this.deviceSettleTimer = null;
+      void this.recoverDevices();
+    }, DEVICE_SETTLE_MS);
+  }
+
+  /**
+   * Put both graphs back on working devices after the device list changed.
+   *
+   * A context does not follow its device out and back in: the mic's source is
+   * bound to a track that ENDED when the device went, and the output context to
+   * a sink that no longer exists — Chromium neither reopens a returning device
+   * nor re-applies an id that matches the one it already holds. So the graph is
+   * rebuilt, which is what toggling the mic or reconnecting did by hand, and it
+   * is rebuilt only for the side whose device list actually moved.
+   *
+   * While a chosen device is away, the system default stands in (startMic,
+   * applyContextSink); when it comes back, the list moves again and this moves
+   * the graph back onto it.
+   */
+  private async recoverDevices(): Promise<void> {
+    if (!this.connected) return;
+    let devices: MediaDeviceInfo[];
+    try {
+      devices = await navigator.mediaDevices.enumerateDevices();
+    } catch {
+      return;
+    }
+    const inputs = deviceSignature(devices, 'audioinput');
+    const outputs = deviceSignature(devices, 'audiooutput');
+    const inputsMoved = inputs !== this.knownInputs;
+    const outputsMoved = outputs !== this.knownOutputs;
+    this.knownInputs = inputs;
+    this.knownOutputs = outputs;
+
+    if (this.micOn && !this.startingMic) {
+      const mic = this.mic;
+      if (!mic) {
+        void this.startMic(); // it failed to open while the device was gone
+      } else if (!mic.live) {
+        this.rebuildMic('the capture device went away');
+      } else if (inputsMoved) {
+        // A capture on the system default is reopened on any change too: whether
+        // the browser follows the OS default to a returning device is up to the
+        // sound server, and a mic that silently stayed behind is this very bug.
+        const wanted = (await deviceAbsent('audioinput', this.micId)) ? undefined : this.micId;
+        const onDefault = !wanted || wanted === 'default';
+        if ((wanted !== this.micOpenedWith || onDefault) && this.mic === mic) {
+          this.rebuildMic(
+            onDefault ? 'the input devices changed' : wanted ? 'the chosen microphone is back' : 'the chosen microphone went away',
+          );
+        }
+      }
+    }
+    if (outputsMoved && !this.startingPlayback) {
+      if (this.outCtx) this.restartPlayback('the output devices changed');
+      else void this.startPlayback();
+    }
+    void this.emitDevices();
+  }
+
+  private rebuildMic(reason: string): void {
+    console.info(`[mumble] reopening the microphone: ${reason}`);
+    this.stopMic();
+    void this.startMic();
+  }
+
+  private restartPlayback(reason: string): void {
+    if (!this.outCtx || this.startingPlayback) return;
+    console.info(`[mumble] rebuilding the output graph: ${reason}`);
+    this.stopPlayback();
+    void this.startPlayback();
+  }
+
+  /**
+   * The safety net under recoverDevices: a device can fail without the list
+   * changing (a Bluetooth headset switching profile, a sound server restart), and
+   * then the only symptom is a graph whose clock stopped. A context that is
+   * 'running' but not advancing is dead, and a suspended one is resumed.
+   */
+  private startHealthWatch(): void {
+    this.stopHealthWatch();
+    this.healthTimer = window.setInterval(() => this.checkAudioHealth(), HEALTH_CHECK_MS);
+  }
+
+  private stopHealthWatch(): void {
+    if (this.healthTimer !== null) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    if (this.deviceSettleTimer !== null) {
+      clearTimeout(this.deviceSettleTimer);
+      this.deviceSettleTimer = null;
+    }
+  }
+
+  private checkAudioHealth(): void {
+    const out = this.outCtx;
+    if (out && !this.startingPlayback) {
+      if (out.state === 'suspended') void out.resume().catch(() => undefined);
+      else if (clockStalled(out, this.outClock)) this.restartPlayback('its clock stopped');
+    }
+    const mic = this.mic;
+    if (mic && !this.startingMic) {
+      if (!mic.live) this.rebuildMic('the capture track ended');
+      else if (mic.ctx.state === 'suspended') void mic.ctx.resume().catch(() => undefined);
+      else if (clockStalled(mic.ctx, this.micClock)) this.rebuildMic('its clock stopped');
     }
   }
 
@@ -1427,7 +1590,7 @@ export class MumbleVoice {
   async switchMic(deviceId: string): Promise<void> {
     this.micId = deviceId;
     setAudioSettings({ micId: deviceId });
-    await this.mic?.switchDevice(deviceId);
+    if (await this.mic?.switchDevice(deviceId)) this.micOpenedWith = deviceId;
     await this.emitDevices();
   }
 
@@ -1630,6 +1793,8 @@ export class MumbleVoice {
   private async emitDevices(): Promise<void> {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
+      this.knownInputs = deviceSignature(devices, 'audioinput');
+      this.knownOutputs = deviceSignature(devices, 'audiooutput');
       this.onDevices({
         mics: devices.filter((d) => d.kind === 'audioinput'),
         speakers: devices.filter((d) => d.kind === 'audiooutput'),
@@ -1786,6 +1951,62 @@ function buildOpusHead(): Uint8Array {
   view.setInt16(16, 0, true); // output gain
   view.setUint8(18, 0); // channel mapping family
   return head;
+}
+
+/** Prefix of a mic-open failure in `error`, so a later successful open can clear
+ *  its own error and nobody else's. */
+const MIC_ERROR = 'mic unavailable: ';
+
+/** A context's clock as last sampled, for {@link clockStalled}. */
+interface ClockWatch {
+  ctx: BaseAudioContext | null;
+  time: number;
+  still: number;
+}
+
+/** True once a running context's clock has not moved for HEALTH_STALL_CHECKS
+ *  samples in a row. A new context restarts the count. */
+function clockStalled(ctx: BaseAudioContext, w: ClockWatch): boolean {
+  if (w.ctx !== ctx) {
+    w.ctx = ctx;
+    w.time = ctx.currentTime;
+    w.still = 0;
+    return false;
+  }
+  const now = ctx.currentTime;
+  w.still = ctx.state === 'running' && now === w.time ? w.still + 1 : 0;
+  w.time = now;
+  if (w.still < HEALTH_STALL_CHECKS) return false;
+  w.still = 0;
+  return true;
+}
+
+/** What identifies one side of the device list. The label is part of it, so a
+ *  change of system default ('Default - Headset' → 'Default - Speakers') counts
+ *  as a change even though the 'default' id stays the same. */
+function deviceSignature(devices: MediaDeviceInfo[], kind: MediaDeviceKind): string {
+  return devices
+    .filter((d) => d.kind === kind)
+    .map((d) => `${d.deviceId}\t${d.label}`)
+    .sort()
+    .join('\n');
+}
+
+/**
+ * Whether a chosen device is known to be unplugged right now. False when nothing
+ * is chosen, for the 'default' pseudo-device, and whenever the list cannot say —
+ * before permission the ids are blank, and "can't tell" must keep the choice
+ * rather than quietly swap it for the default.
+ */
+async function deviceAbsent(kind: MediaDeviceKind, deviceId: string | undefined): Promise<boolean> {
+  if (!deviceId || deviceId === 'default') return false;
+  try {
+    const list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === kind);
+    if (list.some((d) => d.deviceId === '')) return false;
+    return !list.some((d) => d.deviceId === deviceId);
+  } catch {
+    return false;
+  }
 }
 
 async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> {
