@@ -55,6 +55,9 @@ const HEALTH_CHECK_MS = 2000;
 /** Consecutive checks without the clock moving before a graph counts as dead.
  *  Two, so a single late timer cannot rebuild a working graph. */
 const HEALTH_STALL_CHECKS = 2;
+/** Health checks between attempts to open a mic that is on but failed to open
+ *  (every ~10 s) — the device may be back without the list saying so yet. */
+const MIC_RETRY_CHECKS = 5;
 /** A user counts as talking until this long after their last voice packet. */
 const TALK_HOLD_MS = 300;
 const TALK_TICK_MS = 200;
@@ -317,6 +320,8 @@ export class MumbleVoice {
   private micOpenedWith: string | undefined;
   private readonly outClock: ClockWatch = { ctx: null, time: -1, still: 0 };
   private readonly micClock: ClockWatch = { ctx: null, time: -1, still: 0 };
+  private pollingDevices = false;
+  private micRetryIn = MIC_RETRY_CHECKS;
 
   /** Shared worklet module, added once per AudioContext that needs it. */
   private workletUrl: string | null = null;
@@ -1332,7 +1337,48 @@ export class MumbleVoice {
     }
   }
 
+  /**
+   * Compare the device list against the last one seen, and recover if it moved.
+   *
+   * `devicechange` alone is not enough, and docking stations are where it shows:
+   * Chromium on Linux takes the event from udev, while the devices themselves
+   * come from the sound server, which can publish them after the event has
+   * fired. One enumeration then lands mid-flap — often with nothing in it, which
+   * is the empty picker — and no second event ever arrives to correct it.
+   * Asking again on the health cadence makes the event an accelerator rather
+   * than the only way back.
+   */
+  private async pollDevices(): Promise<void> {
+    if (this.pollingDevices || this.deviceSettleTimer !== null) return;
+    this.pollingDevices = true;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const moved =
+        deviceSignature(devices, 'audioinput') !== this.knownInputs ||
+        deviceSignature(devices, 'audiooutput') !== this.knownOutputs;
+      if (moved && this.connected) {
+        console.info('[mumble] the device list changed without a devicechange event; recovering');
+        this.scheduleDeviceRecovery();
+      }
+    } catch {
+      /* enumeration failed — try again next check */
+    } finally {
+      this.pollingDevices = false;
+    }
+  }
+
   private checkAudioHealth(): void {
+    void this.pollDevices();
+    // A mic that is on but did not open (the device was gone at the time) is
+    // retried now and then, in case it came back without the list moving.
+    if (this.micOn && this.connected && !this.mic && !this.startingMic) {
+      if (--this.micRetryIn <= 0) {
+        this.micRetryIn = MIC_RETRY_CHECKS;
+        void this.startMic();
+      }
+    } else {
+      this.micRetryIn = MIC_RETRY_CHECKS;
+    }
     const out = this.outCtx;
     if (out && !this.startingPlayback) {
       if (out.state === 'suspended') void out.resume().catch(() => undefined);
