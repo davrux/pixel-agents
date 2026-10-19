@@ -1024,7 +1024,9 @@ export class MatrixStore {
     // inline. So the newest thread reply competes for the preview, marked as
     // one, and thread notification counts are added to the room's own. Reading
     // the room does not clear a thread's count, so the badge correctly stays up
-    // until the thread itself has been read.
+    // until the thread itself has been read. `getRoomUnreadNotificationCount`,
+    // not `getUnreadNotificationCount`: the latter already includes every
+    // thread, so adding `threadCounts` to it counted each unread reply twice.
     const threadCounts = this.threadUnread(room);
     // Only the winner is classified: `rooms()` runs this for every room on every
     // sync tick, and mapping every thread's last reply just to throw all but one
@@ -1055,9 +1057,9 @@ export class MatrixStore {
       encrypted: room.hasEncryptionStateEvent(),
       joinedCount: room.getJoinedMemberCount(),
       invitedCount: room.getInvitedMemberCount(),
-      unread: room.getUnreadNotificationCount(sdk.NotificationCountType.Total) + threadCounts.unread,
+      unread: room.getRoomUnreadNotificationCount(sdk.NotificationCountType.Total) + threadCounts.unread,
       highlight:
-        room.getUnreadNotificationCount(sdk.NotificationCountType.Highlight) + threadCounts.highlight,
+        room.getRoomUnreadNotificationCount(sdk.NotificationCountType.Highlight) + threadCounts.highlight,
       lastTs,
       preview,
       inviterId,
@@ -1593,15 +1595,29 @@ export class MatrixStore {
    * no badge on it.
    *
    * The receipt's `thread_id` is the SDK's to fill in (`sendReadReceipt` derives
-   * it from the event), so this differs from `markRead` only in which event it
-   * points at. The debounce is keyed by thread id, which cannot collide with a
-   * room id: one starts `!`, the other `$`.
+   * it from the event), which is why the event has to be chosen with care: the
+   * SDK files a REDACTION of a thread message (a deleted reply, a removed
+   * reaction) into the thread's timeline, but its receipt logic
+   * (`threadIdForReceipt`) has no relation to follow on a redaction and calls it
+   * "main". A receipt on one would mark the room's main timeline and leave the
+   * thread unread for good — and `lastSentRead` would refuse to send the same
+   * id again. So the receipt goes on the newest real reply, or the root when
+   * there is none. The debounce is keyed by thread id, which cannot collide with
+   * a room id: one starts `!`, the other `$`.
    */
   markThreadRead(roomId: string, rootId: string): void {
     const thread = this.client?.getRoom(roomId)?.getThread(rootId);
     if (!thread) return;
     const events = thread.events;
-    this.sendReadUpTo(roomId, rootId, events[events.length - 1]);
+    let target: MatrixEvent | undefined;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i]!;
+      if (ev.getId() === rootId || ev.isRelation(sdk.THREAD_RELATION_TYPE.name)) {
+        target = ev;
+        break;
+      }
+    }
+    this.sendReadUpTo(roomId, rootId, target);
   }
 
   /** Debounced "I have read up to this event". `key` is what the debounce and
@@ -1616,8 +1632,15 @@ export class MatrixStore {
     const timer = setTimeout(() => {
       this.readTimers.delete(key);
       if (this.lastSentRead.get(key) === lastEventId) return;
-      this.lastSentRead.set(key, lastEventId);
-      void client.sendReadReceipt(last).catch(() => {});
+      // Remembered only once the server has it: a refused or dropped receipt
+      // (network, rate limit) must be sent again on the next render, or the
+      // room stays unread until somebody writes something new.
+      void client
+        .sendReadReceipt(last)
+        .then(() => {
+          if (this.client === client) this.lastSentRead.set(key, lastEventId);
+        })
+        .catch(() => {});
       // The fully-read marker is a room-level concept only — there is no
       // per-thread m.fully_read — so a thread moves the receipt and nothing
       // else.
@@ -1711,20 +1734,24 @@ export class MatrixStore {
    * Counters only — no event mapping, no previews — because the room header
    * repaints on every sync tick and asks this each time. `threads()` is the one
    * that builds summaries, and only the threads LIST calls it.
+   *
+   * Every thread the server reported a count for, not only the ones with a
+   * `Thread` object: a thread whose root and replies are both outside the loaded
+   * window has no object until the threads list fetches it, and summing over
+   * `getThreads()` left exactly that thread out of the 🧵 button while the room
+   * badge still counted it — unread, with nothing in the chat to click. The SDK
+   * keeps that map private, so it is read as the difference between the total
+   * (which includes every thread) and the main timeline's own count.
    */
   threadUnread(roomOrId: Room | string): { unread: number; highlight: number } {
     const room = typeof roomOrId === 'string' ? this.client?.getRoom(roomOrId) : roomOrId;
-    let unread = 0;
-    let highlight = 0;
-    if (!room) return { unread, highlight };
-    for (const thread of room.getThreads()) {
-      unread += room.getThreadUnreadNotificationCount(thread.id, sdk.NotificationCountType.Total);
-      highlight += room.getThreadUnreadNotificationCount(
-        thread.id,
-        sdk.NotificationCountType.Highlight,
-      );
-    }
-    return { unread, highlight };
+    if (!room) return { unread: 0, highlight: 0 };
+    const threadsOnly = (type: sdk.NotificationCountType): number =>
+      room.getUnreadNotificationCount(type) - room.getRoomUnreadNotificationCount(type);
+    return {
+      unread: threadsOnly(sdk.NotificationCountType.Total),
+      highlight: threadsOnly(sdk.NotificationCountType.Highlight),
+    };
   }
 
   /**
