@@ -2,7 +2,7 @@
 
 `cat_0.png`, `cat_1.png` — and identically `dog_*.png`, `bird_*.png`. One file is
 one pet variant, and every bundled one has a name: `dog_0` **Emma** (beagle),
-`dog_1` **Balu**, `cat_0` **Loui** (tuxedo), `cat_1` **Daisy** (tabby), `bird_0`
+`dog_1` **DackelPomm** (red dachshund), `cat_0` **Loui** (tuxedo), `cat_1` **Daisy** (tabby), `bird_0`
 **Rudi** (the green-headed drake, a mallard), `bird_1` **Frieda**. The display names live in
 `PET_NAMES` (`server/src/assetOverrides.ts`), which fills them in the same place
 bundled skins get theirs from `CHAR_NAMES`, so no UI shows the slot id; they are

@@ -3,7 +3,7 @@
  *
  * Kept per pet SLOT (`dog_0`, `cat_1`) and not per instance: an instance lives ten minutes and then
  * despawns, so counting one would produce a board of strangers. A slot is what has a name — Emma,
- * Balu, Loui, Daisy, Rudi, Frieda — and the name is resolved for DISPLAY only (see
+ * DackelPomm, Loui, Daisy, Rudi, Frieda — and the name is resolved for DISPLAY only (see
  * `assetOverrides`), never stored, because a name is presentation and an id is identity.
  *
  * Per ZONE, because a board hangs in a room and a zone chooses which animals live in it. A world

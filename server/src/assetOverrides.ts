@@ -174,7 +174,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // Fixed, like CHAR_NAMES above — a pet's name is what a zone's pet is picked by.
   const PET_NAMES: Record<string, string> = {
     dog_0: 'Emma',
-    dog_1: 'Balu',
+    dog_1: 'DackelPomm',
     cat_0: 'Loui',
     cat_1: 'Daisy',
     bird_0: 'Rudi',
