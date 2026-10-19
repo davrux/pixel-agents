@@ -1583,62 +1583,110 @@ export class MatrixStore {
 
   markRead(roomId: string): void {
     const room = this.client?.getRoom(roomId);
-    if (!room) return;
-    const live = room.getLiveTimeline().getEvents();
-    this.sendReadUpTo(roomId, roomId, live[live.length - 1]);
+    if (room) this.sendReadUpTo(room, roomId);
   }
 
   /**
    * The same for one thread. A thread carries its own read receipt and its own
    * notification count, so reading the room does not clear a thread and vice
    * versa — which is the whole reason a thread can sit unread under a room with
-   * no badge on it.
-   *
-   * The receipt's `thread_id` is the SDK's to fill in (`sendReadReceipt` derives
-   * it from the event), which is why the event has to be chosen with care: the
-   * SDK files a REDACTION of a thread message (a deleted reply, a removed
-   * reaction) into the thread's timeline, but its receipt logic
-   * (`threadIdForReceipt`) has no relation to follow on a redaction and calls it
-   * "main". A receipt on one would mark the room's main timeline and leave the
-   * thread unread for good — and `lastSentRead` would refuse to send the same
-   * id again. So the receipt goes on the newest real reply, or the root when
-   * there is none. The debounce is keyed by thread id, which cannot collide with
-   * a room id: one starts `!`, the other `$`.
+   * no badge on it. The debounce is keyed by thread id, which cannot collide
+   * with a room id: one starts `!`, the other `$`.
    */
   markThreadRead(roomId: string, rootId: string): void {
-    const thread = this.client?.getRoom(roomId)?.getThread(rootId);
-    if (!thread) return;
-    const events = thread.events;
-    let target: MatrixEvent | undefined;
-    for (let i = events.length - 1; i >= 0; i--) {
-      const ev = events[i]!;
-      if (ev.getId() === rootId || ev.isRelation(sdk.THREAD_RELATION_TYPE.name)) {
-        target = ev;
-        break;
-      }
-    }
-    this.sendReadUpTo(roomId, rootId, target);
+    const room = this.client?.getRoom(roomId);
+    if (room?.getThread(rootId)) this.sendReadUpTo(room, rootId);
   }
 
-  /** Debounced "I have read up to this event". `key` is what the debounce and
-   *  the dedupe are keyed by — a room id for the main timeline, a thread id for
-   *  a thread — so the two can never cancel each other's timer. */
-  private sendReadUpTo(roomId: string, key: string, last: MatrixEvent | undefined): void {
+  /**
+   * The event a receipt for `key` (a room id for the main timeline, a thread id
+   * for a thread) has to point at: the newest one in that context.
+   *
+   * For a thread that is the newest real reply, or the root when there is none
+   * — not simply the last event. The receipt's `thread_id` is the SDK's to fill
+   * in (`threadIdForReceipt`), and the SDK files a REDACTION of a thread message
+   * (a deleted reply, a removed reaction) into the thread's timeline while its
+   * receipt logic, having no relation to follow on a redaction, calls it "main".
+   * A receipt on one would mark the room's main timeline and leave the thread
+   * unread for good.
+   */
+  private readTarget(room: Room, key: string): MatrixEvent | undefined {
+    if (key === room.roomId) {
+      const live = room.getLiveTimeline().getEvents();
+      return live[live.length - 1];
+    }
+    const events = room.getThread(key)?.events ?? [];
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i]!;
+      if (ev.getId() === key || ev.isRelation(sdk.THREAD_RELATION_TYPE.name)) return ev;
+    }
+    return undefined;
+  }
+
+  /**
+   * Zero the local notification counts for `key`, once its newest event is
+   * known to be read.
+   *
+   * The server's counts are not enough on their own. In an encrypted room the
+   * SDK keeps the totals itself — it counts each reply as it DECRYPTS, and only
+   * lets a sync overwrite that when the server says zero — and a sync only says
+   * so when something changed for the room. A receipt the server already had
+   * changes nothing, so a count the SDK raised locally (a reply decrypted again
+   * after a restart or a thread fetch, before its receipt was known) was never
+   * cleared: the chat read as unread however often it was opened. The SDK
+   * concedes the same with `fixupRoomNotifications`, which covers rooms and
+   * only messages we sent ourselves.
+   *
+   * Only while `target` is still the newest event: a reply that arrived while
+   * the receipt was in flight is unread, and its count must survive.
+   */
+  private clearLocalUnread(room: Room, key: string, targetId: string): void {
+    if (this.readTarget(room, key)?.getId() !== targetId) return;
+    const { Total, Highlight } = sdk.NotificationCountType;
+    if (key === room.roomId) {
+      if (room.getRoomUnreadNotificationCount(Total) > 0) room.setUnreadNotificationCount(Total, 0);
+      if (room.getRoomUnreadNotificationCount(Highlight) > 0) room.setUnreadNotificationCount(Highlight, 0);
+    } else {
+      if (room.getThreadUnreadNotificationCount(key, Total) > 0) {
+        room.setThreadUnreadNotificationCount(key, Total, 0);
+      }
+      if (room.getThreadUnreadNotificationCount(key, Highlight) > 0) {
+        room.setThreadUnreadNotificationCount(key, Highlight, 0);
+      }
+    }
+  }
+
+  /** Debounced "I have read up to the newest event of `key`" — a room id for
+   *  the main timeline, a thread id for a thread — so the two can never cancel
+   *  each other's timer. */
+  private sendReadUpTo(room: Room, key: string): void {
     const client = this.client;
-    const lastEventId = last?.getId();
-    if (!client || !last || !lastEventId) return;
+    if (!client || !this.readTarget(room, key)?.getId()) return;
+    const roomId = room.roomId;
     const existing = this.readTimers.get(key);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       this.readTimers.delete(key);
-      if (this.lastSentRead.get(key) === lastEventId) return;
+      // Re-read now rather than at schedule time: the debounce exists so that
+      // a burst of renders ends in one receipt for the newest event.
+      const last = this.readTarget(room, key);
+      const lastEventId = last?.getId();
+      if (!last || !lastEventId) return;
+      // Already acknowledged by the server: nothing to send, but a count the
+      // SDK raised locally since then is still ours to clear.
+      if (this.lastSentRead.get(key) === lastEventId) {
+        this.clearLocalUnread(room, key, lastEventId);
+        return;
+      }
       // Remembered only once the server has it: a refused or dropped receipt
       // (network, rate limit) must be sent again on the next render, or the
       // room stays unread until somebody writes something new.
       void client
         .sendReadReceipt(last)
         .then(() => {
-          if (this.client === client) this.lastSentRead.set(key, lastEventId);
+          if (this.client !== client) return;
+          this.lastSentRead.set(key, lastEventId);
+          this.clearLocalUnread(room, key, lastEventId);
         })
         .catch(() => {});
       // The fully-read marker is a room-level concept only — there is no
