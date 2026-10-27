@@ -195,7 +195,7 @@ export class MatrixUI {
    *  signature of what it is currently showing. The room view re-renders on
    *  every timeline event, so the rail is rebuilt only when what it would draw
    *  actually changed — same trick as `paintAvatarSlot`, for the same reason:
-   *  rebuilding it per event would recreate ten avatar squares (and their
+   *  rebuilding it per event would recreate up to RAIL_MAX avatar squares (and their
    *  <img> elements) several times a second while a room is busy. */
   private railEl!: HTMLElement;
   private railKey = '';
@@ -1946,11 +1946,11 @@ export class MatrixUI {
     this.typingEl.textContent = text;
   }
 
-  /** How many chats the fast-switch rail keeps. A rail is a shortcut to the
-   *  conversations that are live right now, not a second room list — past
-   *  about a screenful of squares in a 26rem column, ◀ and the real list
-   *  (which has names, previews and a filter) is the faster way to find one. */
-  private static readonly RAIL_MAX = 10;
+  /** How many chats the fast-switch rail keeps. It scrolls, Discord-style, so
+   *  the cap is not a screenful: it bounds the DOM (one avatar square per
+   *  chat) and how far down the rail is still quicker than ◀ and the real list
+   *  (which has names, previews and a filter). */
+  private static readonly RAIL_MAX = 100;
 
   /** The rail: joined chats — people and groups alike, invites excluded since
    *  there is nothing to switch *to* until one is accepted — newest message
@@ -1981,6 +1981,18 @@ export class MatrixUI {
     if (this.railKey === key) return;
     this.railKey = key;
     this.railEl.replaceChildren(...shown.map((r) => this.buildRailButton(r, openRoomId)));
+    // With a scrolling rail the open room can sit below the fold — bring it
+    // into view, but only as far as needed so a rail scrolled by hand stays put.
+    // Done by hand rather than scrollIntoView, which would also scroll the
+    // panel's overflow:hidden ancestors.
+    const on = this.railEl.querySelector<HTMLElement>('.mx-rail-b.on');
+    if (on) {
+      const rail = this.railEl;
+      const top = on.offsetTop - rail.offsetTop;
+      const bottom = top + on.offsetHeight;
+      if (top < rail.scrollTop) rail.scrollTop = top;
+      else if (bottom > rail.scrollTop + rail.clientHeight) rail.scrollTop = bottom - rail.clientHeight;
+    }
   }
 
   private buildRailButton(room: MxRoom, openRoomId: string): HTMLButtonElement {

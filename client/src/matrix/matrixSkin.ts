@@ -718,8 +718,8 @@ export function injectMatrixSkin(): void {
    padding box a clipping box, so a badge poking past it would be cut off (or
    worse, add a horizontal scrollbar to a 2.6rem column).
 
-   The rail is as tall as the window, so its ten squares only ever overflow on
-   a genuinely short viewport — but a hidden scrollbar there would truncate the
+   The rail holds up to a hundred squares (MatrixUI.RAIL_MAX), so it scrolls
+   like Discord's server column — and a hidden scrollbar would truncate the
    stack with nothing to say so. Hence a thin one, styled both ways (Firefox
    honours scrollbar-width/-color, Chrome the ::-webkit- pseudos), narrow
    enough that the column it costs is affordable. */
