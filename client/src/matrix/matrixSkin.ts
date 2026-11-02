@@ -476,6 +476,13 @@ export function injectMatrixSkin(): void {
 }
 .mx-rich hr{border:0;border-top:2px solid #0a0908;margin:0.5rem 0}
 .mx-rich a{color:#4998c0}
+/* A user permalink is a mention (ours, Element's, anyone's) — drawn as a chip
+   so a name reads as addressing someone rather than as a web link. */
+.mx-rich a[href^="https://matrix.to/#/@"],.mx-rich a[href^="https://matrix.to/#/%40"]{
+  display:inline-block;padding:0 0.35rem;border-radius:0.35rem;
+  background:#262422;color:#f1efec;text-decoration:none;font-weight:600;
+  box-shadow:inset 0 0 0 1px #4998c0;
+}
 .mx-rich del{color:#818586}
 /* Inline code: an inset chip, breakable so a long identifier can't push the
    column wider. */
@@ -685,6 +692,7 @@ export function injectMatrixSkin(): void {
      get their own line instead of being squeezed in beside the send button */
   display:flex;flex-wrap:wrap;align-items:flex-end;gap:0.5rem;
   border-top:2px solid #0a0908;background:#1c1a19;padding:0.5rem 0.6rem;flex:0 0 auto;
+  position:relative; /* the anchor for .mx-mentions */
 }
 .mx-input{resize:none;line-height:1.5;max-height:7.5rem;flex:1;min-width:0}
 /* The 😊/📎/➤ column beside the input. Bottom-aligned with it (the container's
@@ -692,6 +700,24 @@ export function injectMatrixSkin(): void {
 .mx-composer-btns{display:flex;flex-direction:column;gap:0.3rem;flex:0 0 auto}
 .mx-composer-btns .pa-b{width:100%}
 .mx-composer .muted{flex-basis:100%}
+/* @-mention suggestions (mentionList.ts). Floats over the bottom of the
+   timeline instead of taking a row in the composer, so opening and closing it
+   never moves the text box the caret is in. */
+.mx-mentions{
+  position:absolute;left:0.6rem;right:0.6rem;bottom:calc(100% + 0.25rem);z-index:5;
+  max-height:14rem;overflow-y:auto;padding:0.25rem;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;
+  box-shadow:inset 0 2px 0 #292725, inset 0 -3px 0 #030303, 0 12px 28px rgba(0,0,0,.55);
+}
+.mx-mentions[hidden]{display:none}
+.mx-mention-row{
+  display:flex;align-items:center;gap:0.5rem;min-width:0;padding:0.25rem 0.35rem;
+  border:2px solid transparent;border-radius:0.45rem;cursor:pointer;
+}
+.mx-mention-row[aria-selected="true"]{background:#37342f;border-color:#0a0908}
+.mx-mention-row .mx-av{width:1.5rem;height:1.5rem;font-size:0.6rem;border-radius:0.3rem}
+.mx-mention-row .nm{flex:1;min-width:0;color:#f1efec;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-mention-row small{flex:0 1 auto;max-width:45%;color:#818586;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Upload progress / failure. Full-width row under the composer controls —
    a picture send has no local echo to fail into until the bytes are up. */
 .mx-upload{flex-basis:100%;font-size:0.8rem;color:#adb0b2}

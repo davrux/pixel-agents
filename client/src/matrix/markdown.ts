@@ -12,7 +12,9 @@
  *
  * Supported: fenced code (``` with an optional language), inline `code`,
  * **bold**, *italic*, ~~strikethrough~~, [text](url), bare URLs, > quotes,
- * `-`/`*`/`+` and `1.` lists, `#`..`######` headings, and `---` rules.
+ * `-`/`*`/`+` and `1.` lists, `#`..`######` headings, `---` rules, and
+ * @-mentions — the caller resolves who each `@Name` is (mentions.ts) and this
+ * file only turns those exact tokens into matrix.to links.
  *
  * Two invariants:
  *
@@ -23,6 +25,8 @@
  *    ordinary message stays a plain `m.text` instead of carrying a redundant
  *    `formatted_body` copy of itself.
  */
+
+import { mentionHref, mentionTokenRe, type MxMention } from './mentions.js';
 
 /** Escape for HTML text content and quoted attribute values. The only escaper
  *  in this file; every interpolation below goes through it or through a value
@@ -71,8 +75,16 @@ function linkifyEscaped(text: string): string {
  *  message about "3 apples" could collide with a placeholder. */
 const CODE_SENTINEL = '\u0000';
 const LINK_SENTINEL = '\u0001';
+const MENTION_SENTINEL = '\u0002';
 
-function inline(src: string): string {
+/** The mentions a message makes, prepared once per `toHtml`: the matcher for
+ *  their tokens, and what each token links to. */
+interface MentionLinks {
+  re: RegExp;
+  byToken: Map<string, MxMention>;
+}
+
+function inline(src: string, mentions: MentionLinks | null): string {
   const spans: string[] = [];
   // `` … `` before ` … `, and the double form matches lazily *across* single
   // backticks — that is the whole reason the double form exists, so
@@ -93,6 +105,19 @@ function inline(src: string): string {
     return `${LINK_SENTINEL}${links.length - 1}${LINK_SENTINEL}`;
   });
 
+  // Mentions after links (a `[@Alice](url)` label is the author's own link)
+  // and before autolinking and emphasis, so a name with `_` or `*` in it
+  // reaches the link text intact.
+  const pills: string[] = [];
+  if (mentions) {
+    text = text.replace(mentions.re, (token) => {
+      const m = mentions.byToken.get(token);
+      if (!m) return token;
+      pills.push(`<a href="${esc(mentionHref(m.userId))}">${esc(m.name)}</a>`);
+      return `${MENTION_SENTINEL}${pills.length - 1}${MENTION_SENTINEL}`;
+    });
+  }
+
   text = linkifyEscaped(text);
 
   // Emphasis, longest marker first. The surrounding character classes keep
@@ -106,6 +131,7 @@ function inline(src: string): string {
 
   // Splice the extracted HTML back in. These strings were built above and are
   // already escaped, which is exactly why this happens last.
+  text = text.replace(new RegExp(`${MENTION_SENTINEL}(\\d+)${MENTION_SENTINEL}`, 'g'), (_a, i: string) => pills[Number(i)] ?? '');
   text = text.replace(new RegExp(`${LINK_SENTINEL}(\\d+)${LINK_SENTINEL}`, 'g'), (_a, i: string) => links[Number(i)] ?? '');
   return text.replace(new RegExp(`${CODE_SENTINEL}(\\d+)${CODE_SENTINEL}`, 'g'), (_a, i: string) => spans[Number(i)] ?? '');
 }
@@ -139,10 +165,14 @@ function hasMarkup(src: string): boolean {
 
 /**
  * Translate composer text to `formatted_body` HTML, or null when it contains
- * nothing to format.
+ * nothing to format. `mentions` (from `findMentions`) are linked wherever their
+ * token appears outside code; a message that mentions anyone always gets HTML,
+ * because the link is the mention for every client that draws pills.
  */
-export function toHtml(src: string): string | null {
-  if (!hasMarkup(src)) return null;
+export function toHtml(src: string, mentions: readonly MxMention[] = []): string | null {
+  if (mentions.length === 0 && !hasMarkup(src)) return null;
+  const re = mentionTokenRe(mentions.map((m) => m.token));
+  const ml: MentionLinks | null = re ? { re, byToken: new Map(mentions.map((m) => [m.token, m])) } : null;
   // Remove the sentinel characters `inline` relies on before they can be
   // confused with ones we inserted. They carry no meaning in a chat message.
   const clean = src.replace(/[\u0000-\u0002]/g, '');
@@ -187,7 +217,7 @@ export function toHtml(src: string): string | null {
     const heading = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
       const level = heading[1]!.length;
-      out.push(`<h${level}>${inline(heading[2]!.trim())}</h${level}>`);
+      out.push(`<h${level}>${inline(heading[2]!.trim(), ml)}</h${level}>`);
       i++;
       continue;
     }
@@ -199,7 +229,7 @@ export function toHtml(src: string): string | null {
         quoted.push(lines[i]!.replace(/^\s{0,3}>\s?/, ''));
         i++;
       }
-      out.push(`<blockquote>${quoted.map((q) => inline(q)).join('<br />')}</blockquote>`);
+      out.push(`<blockquote>${quoted.map((q) => inline(q, ml)).join('<br />')}</blockquote>`);
       continue;
     }
 
@@ -214,8 +244,8 @@ export function toHtml(src: string): string | null {
       while (i < lines.length) {
         const b = /^\s{0,3}[-*+]\s+(.*)$/.exec(lines[i]!);
         const n = /^\s{0,3}(\d{1,9})[.)]\s+(.*)$/.exec(lines[i]!);
-        if (ordered && n) items.push(inline(n[2]!));
-        else if (!ordered && b) items.push(inline(b[1]!));
+        if (ordered && n) items.push(inline(n[2]!, ml));
+        else if (!ordered && b) items.push(inline(b[1]!, ml));
         else break;
         i++;
       }
@@ -234,7 +264,7 @@ export function toHtml(src: string): string | null {
     }
     while (para.length && para[para.length - 1]!.trim() === '') para.pop();
     while (para.length && para[0]!.trim() === '') para.shift();
-    if (para.length) out.push(`<p>${para.map((p) => inline(p)).join('<br />')}</p>`);
+    if (para.length) out.push(`<p>${para.map((p) => inline(p, ml)).join('<br />')}</p>`);
   }
 
   const html = out.join('');

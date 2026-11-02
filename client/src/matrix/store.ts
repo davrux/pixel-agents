@@ -83,6 +83,7 @@ import { notifyDesktop } from '../desktop/bridge.js';
 import { createMatrixCrypto, type MatrixCrypto } from './crypto.js';
 import { MatrixMedia, type MxAttachmentContent, type MxFileContent, type MxImageContent } from './media.js';
 import { toHtml } from './markdown.js';
+import { findMentions, type MentionCandidate } from './mentions.js';
 
 const READ_DEBOUNCE_MS = 1000;
 
@@ -1960,13 +1961,23 @@ export class MatrixStore {
     // `body` stays the user's literal text — it is what every client without an
     // HTML renderer shows, so it must never become the generated markup.
     const content: Record<string, unknown> = { msgtype: 'm.text', body };
-    const formatted = toHtml(body);
+    const mentions = findMentions(body, this.mentionCandidates(roomId));
+    const formatted = toHtml(body, mentions);
     if (formatted) {
       content.format = 'org.matrix.custom.html';
       content.formatted_body = formatted;
     }
     if (replyToEventId) {
       content['m.relates_to'] = { 'm.in_reply_to': { event_id: replyToEventId } };
+    }
+    if (mentions.length > 0) {
+      // Intentional mentions (MSC3952): once `m.mentions` is present, a
+      // receiving server stops guessing from the body, so the person replied
+      // to has to be named here too or the reply would stop pinging them.
+      const ids = new Set(mentions.map((m) => m.userId));
+      const repliedTo = replyToEventId ? this.client?.getRoom(roomId)?.findEventById(replyToEventId)?.getSender() : undefined;
+      if (repliedTo && repliedTo !== this.userId) ids.add(repliedTo);
+      content['m.mentions'] = { user_ids: [...ids] };
     }
     try {
       // The thread relation itself is the SDK's to write (`sendMessage`'s
@@ -2000,8 +2011,10 @@ export class MatrixStore {
     if (!client || !target) throw new MatrixError(0, '', 'That message is no longer loaded.');
     // Same as send(): the saved edit supersedes any standing advertisement.
     this.notifyTyping(roomId, false);
-    const msgtype = (target.getContent() as { msgtype?: unknown }).msgtype;
-    const formatted = toHtml(body);
+    const old = target.getContent() as { msgtype?: unknown; 'm.mentions'?: { user_ids?: unknown } };
+    const msgtype = old.msgtype;
+    const mentions = findMentions(body, this.mentionCandidates(roomId));
+    const formatted = toHtml(body, mentions);
     const newContent: Record<string, unknown> = {
       msgtype: typeof msgtype === 'string' && EDITABLE_MSGTYPES.has(msgtype) ? msgtype : 'm.text',
       body,
@@ -2010,6 +2023,7 @@ export class MatrixStore {
       newContent.format = 'org.matrix.custom.html';
       newContent.formatted_body = formatted;
     }
+    if (mentions.length > 0) newContent['m.mentions'] = { user_ids: [...new Set(mentions.map((m) => m.userId))] };
     const content: Record<string, unknown> = {
       ...newContent,
       body: `* ${body}`,
@@ -2017,6 +2031,12 @@ export class MatrixStore {
       'm.relates_to': { rel_type: 'm.replace', event_id: eventId },
     };
     if (formatted) content.formatted_body = `* ${formatted}`;
+    if (mentions.length > 0) {
+      // The edit event itself pings only who the edit ADDED — the spec's rule,
+      // so fixing a typo does not notify everyone the message named again.
+      const before = Array.isArray(old['m.mentions']?.user_ids) ? (old['m.mentions'].user_ids as unknown[]) : [];
+      content['m.mentions'] = { user_ids: mentions.map((m) => m.userId).filter((id, i, a) => !before.includes(id) && a.indexOf(id) === i) };
+    }
     try {
       // `threadId` routes the local echo into the right timeline; the relation
       // is already `m.replace`, so the SDK leaves it alone (an edit relates to
@@ -2135,6 +2155,50 @@ export class MatrixStore {
     } catch {
       // failure surfaces as the .failed row again
     }
+  }
+
+  // ---- mentions -------------------------------------------------------------
+
+  /** Joined members who could be @-mentioned here, ourselves excluded — from
+   *  whatever member state is loaded. Rooms lazy-load members, so the panel
+   *  calls `loadMentionMembers` the first time a mention is typed and re-asks
+   *  when it resolves (it arrives as a `rooms` event). */
+  mentionCandidates(roomId: string): MentionCandidate[] {
+    const room = this.client?.getRoom(roomId);
+    if (!room) return [];
+    return room
+      .getMembersWithMembership('join')
+      .filter((m) => m.userId !== this.userId)
+      .map((m) => ({ userId: m.userId, name: m.name, avatarMxc: m.getMxcAvatarUrl() ?? null }));
+  }
+
+  /** Make sure the full member list is here; the result lands through the
+   *  usual RoomStateEvent → `rooms` path, so this returns nothing. */
+  loadMentionMembers(roomId: string): void {
+    void this.client?.getRoom(roomId)?.loadMembersIfNeeded().catch(() => {
+      /* the list just stays as complete as it was */
+    });
+  }
+
+  /** Senders of the loaded window, newest first, each once — who a mention
+   *  most likely means. A thread's own speakers come first in a thread. */
+  recentSenders(roomId: string, threadId?: string): string[] {
+    const room = this.client?.getRoom(roomId);
+    if (!room) return [];
+    // Walked from the end, so the thread's events go last to be read first.
+    const events = [
+      ...room.getLiveTimeline().getEvents(),
+      ...(threadId ? room.getThread(threadId)?.liveTimeline.getEvents() ?? [] : []),
+    ];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (let i = events.length - 1; i >= 0; i--) {
+      const s = events[i]!.getSender();
+      if (!s || seen.has(s) || s === this.userId) continue;
+      seen.add(s);
+      out.push(s);
+    }
+    return out;
   }
 
   // ---- room actions ---------------------------------------------------------

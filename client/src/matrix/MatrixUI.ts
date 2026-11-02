@@ -72,6 +72,8 @@ import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { describeFile, fmtBytes, fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
 import { openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
 import { openEmojiPicker, type EmojiPickerHandle } from './emojiPicker.js';
+import { mentionQueryAt, mentionText, rankCandidates, type MentionCandidate } from './mentions.js';
+import { MentionList } from './mentionList.js';
 import { copyImage, copyText } from './clipboard.js';
 import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
 import { readNotifyPrefs, writeNotifyPrefs } from './storage.js';
@@ -236,6 +238,11 @@ export class MatrixUI {
   /** The open emoji picker (composer insert or react-with-any) — one at a
    *  time, same rule as the message menu. */
   private emojiPicker: EmojiPickerHandle | null = null;
+  /** The @-mention suggestions above the composer, and the rooms whose full
+   *  member list has already been asked for (rooms lazy-load members, and a
+   *  mention list of only the people who happened to speak is no list). */
+  private mentionList!: MentionList;
+  private readonly mentionMembersAsked = new Set<string>();
   private emojiBtn!: HTMLButtonElement;
   private attachBtn!: HTMLButtonElement;
   private attachInput!: HTMLInputElement;
@@ -463,6 +470,13 @@ export class MatrixUI {
       }),
       // Deliberately NOT renderRoomView: someone typing repaints one strip,
       // not the rail, the timeline and the header.
+      // Members joining, leaving, renaming or finishing their lazy load arrive
+      // as `rooms`, a new speaker as `timeline` — either can change who the
+      // open mention list should offer, so it re-asks rather than going stale.
+      this.store.on('rooms', () => this.refreshMentionsIfOpen()),
+      this.store.on('timeline', (roomId) => {
+        if (roomId === this.openRoomId) this.refreshMentionsIfOpen();
+      }),
       this.store.on('typing', (roomId) => {
         if (this.openRoomId === roomId && this.stack[this.stack.length - 1]?.view === 'room') {
           this.paintTyping(roomId);
@@ -490,6 +504,9 @@ export class MatrixUI {
   private teardownStore(): void {
     for (const unsub of this.storeUnsubs) unsub();
     this.storeUnsubs = [];
+    // Keyed by this store's rooms; the next account starts with none asked.
+    this.mentionMembersAsked.clear();
+    this.mentionList?.hide();
     // The rail's squares hold blob: URLs from this store's media cache, which
     // `destroy()` below revokes — keeping them would paint broken avatars if
     // the same account signs back in and the rail's signature happens to match.
@@ -1650,7 +1667,27 @@ export class MatrixUI {
     this.composerTextarea = document.createElement('textarea');
     this.composerTextarea.className = 'pa-input mx-input';
     this.composerTextarea.rows = 1;
+    this.mentionList = new MentionList(
+      (c) => mkAvatar(c.userId, c.name, this.picture(c.avatarMxc)),
+      (c) => this.pickMention(c),
+    );
     this.composerTextarea.addEventListener('keydown', (ev) => {
+      // An open mention list owns the keys that navigate it; everything else
+      // (typing more of the name, a space, backspace) falls through and the
+      // list follows along via `input`.
+      if (this.mentionList.open && !ev.isComposing) {
+        let handled = true;
+        if (ev.key === 'ArrowDown') this.mentionList.move(1);
+        else if (ev.key === 'ArrowUp') this.mentionList.move(-1);
+        else if ((ev.key === 'Enter' && !ev.shiftKey) || (ev.key === 'Tab' && !ev.shiftKey)) handled = this.mentionList.pickActive();
+        else if (ev.key === 'Escape') this.mentionList.hide();
+        else handled = false;
+        if (handled) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          return;
+        }
+      }
       if (ev.key === 'Enter' && !ev.shiftKey) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1667,6 +1704,7 @@ export class MatrixUI {
     this.composerTextarea.addEventListener('input', () => {
       this.autoGrow(this.composerTextarea);
       this.saveDraft();
+      this.refreshMentions();
       // Every keystroke reports, the store coalesces (see notifyTyping). An
       // emptied box withdraws right away; an abandoned draft is left to the
       // advertisement's own server-side timeout.
@@ -1756,7 +1794,15 @@ export class MatrixUI {
     const composerBtns = document.createElement('div');
     composerBtns.className = 'mx-composer-btns';
     composerBtns.append(this.emojiBtn, this.attachBtn, this.composerSendBtn);
+    // Moving the caret into or out of an `@name` opens or closes the list just
+    // as typing does; leaving the box closes it.
+    this.composerTextarea.addEventListener('click', () => this.refreshMentions());
+    this.composerTextarea.addEventListener('keyup', (ev) => {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) this.refreshMentions();
+    });
+    this.composerTextarea.addEventListener('blur', () => this.mentionList.hide());
     composer.append(
+      this.mentionList.el,
       this.composerCtxEl,
       this.composerTextarea,
       composerBtns,
@@ -2068,6 +2114,7 @@ export class MatrixUI {
    *  Called from every path that changes which of the two the composer is
    *  pointed at, so a switch can never leave the previous one's text behind. */
   private loadDraft(): void {
+    this.mentionList.hide();
     const rid = this.openRoomId;
     try {
       this.composerTextarea.value = rid
@@ -2102,6 +2149,7 @@ export class MatrixUI {
       if (editing) this.toast('An edited message cannot be empty — delete it instead.');
       return;
     }
+    this.mentionList.hide();
     const replyTo = this.replyingTo?.eventId;
     // An edit borrowed the box, so saving it hands the box back to whatever
     // draft was in it; a normal send empties it (and its stored draft).
@@ -2258,6 +2306,54 @@ export class MatrixUI {
   private closeEmojiPicker(): void {
     this.emojiPicker?.close();
     this.emojiPicker = null;
+  }
+
+  // ==================================================================
+  // @-mentions
+  // ==================================================================
+
+  /** Re-derive the mention list from the box: is the caret in an `@query`,
+   *  and who matches it right now. Cheap enough to run on every keystroke —
+   *  a member scan and a sort of at most a room's worth of names. Who each
+   *  `@Name` finally means is decided at send time (mentions.ts), so nothing
+   *  here has to be remembered. */
+  private refreshMentions(): void {
+    const ta = this.composerTextarea;
+    const rid = this.openRoomId;
+    const store = this.store;
+    const caret = ta.selectionStart;
+    const q =
+      rid && store && ta.style.display !== 'none' && caret === ta.selectionEnd && document.activeElement === ta
+        ? mentionQueryAt(ta.value, caret)
+        : null;
+    if (!q || !rid || !store) {
+      this.mentionList.hide();
+      return;
+    }
+    if (!this.mentionMembersAsked.has(rid)) {
+      this.mentionMembersAsked.add(rid);
+      store.loadMentionMembers(rid);
+    }
+    const items = rankCandidates(store.mentionCandidates(rid), q.query, store.recentSenders(rid, this.openThreadId ?? undefined));
+    if (items.length === 0) this.mentionList.hide();
+    else this.mentionList.show(items);
+  }
+
+  private refreshMentionsIfOpen(): void {
+    if (this.mentionList?.open) this.refreshMentions();
+  }
+
+  /** Replace the `@query` at the caret with the picked person's `@Name `. */
+  private pickMention(c: MentionCandidate): void {
+    const ta = this.composerTextarea;
+    const caret = ta.selectionStart;
+    const q = mentionQueryAt(ta.value, caret);
+    this.mentionList.hide();
+    if (!q) return;
+    ta.setRangeText(mentionText(c), q.start, caret, 'end');
+    this.autoGrow(ta);
+    this.saveDraft();
+    ta.focus();
   }
 
   private insertIntoComposer(text: string): void {
