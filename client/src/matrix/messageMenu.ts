@@ -1,6 +1,7 @@
 /**
  * Matrix chat panel: the per-message options menu (react / reply / reply in
- * thread / edit / delete).
+ * thread / edit / delete), and the popover shell it is built on
+ * (`openAnchoredMenu`), which the user card behind a mention reuses.
  *
  * One small popover, opened from a row's ⋯ button and anchored to it. It owns
  * nothing but itself: what it may offer is decided by the caller (see
@@ -65,11 +66,35 @@ export interface MessageMenuHandle {
 const GAP = 4;
 const EDGE = 6;
 
-export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
+/** What `openAnchoredMenu` hands its `fill`: the menu element, and the two
+ *  ways to put a focusable entry in it. */
+export interface MenuBuilder {
+  menu: HTMLElement;
+  /** A full-width `icon label` row that closes the menu and runs `run`. */
+  addRow(icon: string, label: string, run: () => void, danger?: boolean): void;
+  /** Register an entry built by the caller: arrow keys reach it, and a click
+   *  on it should go through `pick`. */
+  addItem(el: HTMLElement): void;
+  pick(run: () => void): void;
+}
+
+/**
+ * The popover shell every small menu in this panel shares: placement beside an
+ * anchor inside the panel root, following it while the timeline scrolls,
+ * dismissal on an outside press / Escape / Tab, and arrow-key focus through its
+ * entries. What goes IN it is the caller's (`fill`).
+ */
+export function openAnchoredMenu(spec: {
+  anchor: HTMLElement;
+  container: HTMLElement;
+  label: string;
+  fill(b: MenuBuilder): void;
+  onClose(): void;
+}): MessageMenuHandle {
   const menu = document.createElement('div');
   menu.className = 'mx-menu';
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'Message actions');
+  menu.setAttribute('aria-label', spec.label);
 
   let closed = false;
   /** Set by an entry so `close()` leaves focus wherever that entry's handler
@@ -99,34 +124,6 @@ export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
 
   const items: HTMLElement[] = [];
 
-  if (spec.can.react) {
-    const row = document.createElement('div');
-    row.className = 'mx-menu-emoji';
-    for (const key of QUICK_REACTIONS) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'mx-menu-e';
-      btn.textContent = key;
-      btn.title = `React ${key}`;
-      btn.setAttribute('aria-label', `React ${key}`);
-      btn.setAttribute('role', 'menuitem');
-      btn.addEventListener('click', () => pick(() => spec.onReact(key)));
-      row.appendChild(btn);
-      items.push(btn);
-    }
-    const other = document.createElement('button');
-    other.type = 'button';
-    other.className = 'mx-menu-e other';
-    other.textContent = '＋';
-    other.title = 'React with any emoji';
-    other.setAttribute('aria-label', 'React with any emoji');
-    other.setAttribute('role', 'menuitem');
-    other.addEventListener('click', () => pick(() => spec.onReactOther()));
-    row.appendChild(other);
-    items.push(other);
-    menu.appendChild(row);
-  }
-
   const addRow = (icon: string, label: string, run: () => void, danger = false): void => {
     const row = document.createElement('button');
     row.type = 'button';
@@ -138,12 +135,7 @@ export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
     items.push(row);
   };
 
-  if (spec.can.copy) addRow('⧉', 'Copy text', () => spec.onCopy());
-  if (spec.can.copyImage) addRow('⧉', 'Copy image', () => spec.onCopyImage());
-  if (spec.can.reply) addRow('↩', 'Reply', () => spec.onReply());
-  if (spec.can.thread) addRow('🧵', 'Reply in thread', () => spec.onReplyInThread());
-  if (spec.can.edit) addRow('✎', 'Edit', () => spec.onEdit());
-  if (spec.can.remove) addRow('🗑', 'Delete', () => spec.onDelete(), true);
+  spec.fill({ menu, addRow, addItem: (el) => items.push(el), pick });
 
   const onOutside = (e: Event): void => {
     const t = e.target as Node | null;
@@ -219,4 +211,49 @@ export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
   items[0]?.focus();
 
   return { close };
+}
+
+export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
+  return openAnchoredMenu({
+    anchor: spec.anchor,
+    container: spec.container,
+    label: 'Message actions',
+    onClose: () => spec.onClose(),
+    fill: ({ menu, addRow, addItem, pick }) => {
+      if (spec.can.react) {
+        const row = document.createElement('div');
+        row.className = 'mx-menu-emoji';
+        for (const key of QUICK_REACTIONS) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'mx-menu-e';
+          btn.textContent = key;
+          btn.title = `React ${key}`;
+          btn.setAttribute('aria-label', `React ${key}`);
+          btn.setAttribute('role', 'menuitem');
+          btn.addEventListener('click', () => pick(() => spec.onReact(key)));
+          row.appendChild(btn);
+          addItem(btn);
+        }
+        const other = document.createElement('button');
+        other.type = 'button';
+        other.className = 'mx-menu-e other';
+        other.textContent = '＋';
+        other.title = 'React with any emoji';
+        other.setAttribute('aria-label', 'React with any emoji');
+        other.setAttribute('role', 'menuitem');
+        other.addEventListener('click', () => pick(() => spec.onReactOther()));
+        row.appendChild(other);
+        addItem(other);
+        menu.appendChild(row);
+      }
+
+      if (spec.can.copy) addRow('⧉', 'Copy text', () => spec.onCopy());
+      if (spec.can.copyImage) addRow('⧉', 'Copy image', () => spec.onCopyImage());
+      if (spec.can.reply) addRow('↩', 'Reply', () => spec.onReply());
+      if (spec.can.thread) addRow('🧵', 'Reply in thread', () => spec.onReplyInThread());
+      if (spec.can.edit) addRow('✎', 'Edit', () => spec.onEdit());
+      if (spec.can.remove) addRow('🗑', 'Delete', () => spec.onDelete(), true);
+    },
+  });
 }

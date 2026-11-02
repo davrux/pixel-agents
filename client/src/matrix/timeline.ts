@@ -26,6 +26,7 @@ import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { fileContentOf, imageContentOf, isPlayableVideo, type MxFileContent, type MxImageContent } from './media.js';
 import { hasFormattedBody, renderFormattedBody } from './richHtml.js';
 import { copyText } from './clipboard.js';
+import { userIdFromPermalink } from './mentions.js';
 
 /** Escape text to HTML. Copied verbatim from `client/src/ui/chatUI.ts` (module-
  *  private there) plus `'` -> `&#39;`, so the helper is also safe inside a
@@ -201,6 +202,9 @@ export interface TimelineHooks {
   /** The row's ⋯ button was activated: open the message menu (react / reply /
    *  edit / delete) for this event, anchored to `anchor`. */
   onOpenActions(ev: MxEvent, anchor: HTMLElement): void;
+  /** A mention (a matrix.to user link) was clicked — show that person here
+   *  instead of sending the reader to matrix.to in a browser. */
+  onOpenUser(userId: string, anchor: HTMLElement): void;
   /** A reaction chip was activated — add my reaction with that key, or take it
    *  away again if it is already mine. */
   onToggleReaction(eventId: string, key: string): void;
@@ -1175,6 +1179,15 @@ export class TimelineView {
       if (action) this.hooks.onDecryptAction(action);
       return;
     }
+    // A mention is a link to matrix.to only so that every client can draw it;
+    // what it means is "this person", so it opens them in-app like Element's
+    // pill does. Any other link (a room, an event, the web) is left alone.
+    const link = t.closest('a[href]') as HTMLAnchorElement | null;
+    const userId = link ? userIdFromPermalink(link.href) : null;
+    if (link && userId) {
+      e.preventDefault();
+      this.hooks.onOpenUser(userId, link);
+    }
   };
 
   private readonly onKeydown = (e: KeyboardEvent): void => {
@@ -1208,6 +1221,12 @@ export class TimelineView {
     this.emptyEl.textContent = 'No messages yet — say hello.';
 
     this.el.addEventListener('click', this.onClick);
+    // A middle click would open the mention's matrix.to link in the browser
+    // (in the desktop app: the system browser), which is never what it means.
+    this.el.addEventListener('auxclick', (e) => {
+      const link = (e.target as HTMLElement | null)?.closest('a[href]') as HTMLAnchorElement | null;
+      if (link && userIdFromPermalink(link.href)) e.preventDefault();
+    });
     this.el.addEventListener('keydown', this.onKeydown);
     this.el.addEventListener('scroll', this.onScroll, { passive: true });
 

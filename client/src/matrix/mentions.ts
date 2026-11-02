@@ -170,3 +170,23 @@ export function findMentions(body: string, members: readonly MentionCandidate[])
 export function mentionHref(userId: string): string {
   return `https://matrix.to/#/${userId}`;
 }
+
+/** The user a matrix.to permalink names, or null when it names anything else
+ *  (a room, an event) or is not one. Accepts the encoded form (`%40`) other
+ *  clients write as well as our own. */
+export function userIdFromPermalink(href: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== 'matrix.to' || !url.hash.startsWith('#/')) return null;
+  let id: string;
+  try {
+    id = decodeURIComponent(url.hash.slice(2).split('?')[0]!);
+  } catch {
+    return null;
+  }
+  return /^@[^:\s/]+:[^\s/]+$/.test(id) ? id : null;
+}

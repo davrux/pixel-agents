@@ -481,7 +481,7 @@ export function injectMatrixSkin(): void {
 .mx-rich a[href^="https://matrix.to/#/@"],.mx-rich a[href^="https://matrix.to/#/%40"]{
   display:inline-block;padding:0 0.35rem;border-radius:0.35rem;
   background:#262422;color:#f1efec;text-decoration:none;font-weight:600;
-  box-shadow:inset 0 0 0 1px #4998c0;
+  box-shadow:inset 0 0 0 1px #4998c0;cursor:pointer;
 }
 .mx-rich del{color:#818586}
 /* Inline code: an inset chip, breakable so a long identifier can't push the
@@ -818,6 +818,10 @@ export function injectMatrixSkin(): void {
   box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
 }
 .mx-menu-row:hover{background:#37342f}
+.mx-menu-user{display:flex;align-items:center;gap:0.5rem;min-width:0;padding:0.15rem 0.2rem 0.3rem}
+.mx-menu-user .who{min-width:0;display:flex;flex-direction:column;gap:0.05rem}
+.mx-menu-user .nm{color:#f5f3f0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-menu-user small{color:#818586;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mx-menu-row.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a, inset 0 -3px 0 #45111a}
 
 /* ---- emoji picker (emojiPicker.ts) -------------------------------------------

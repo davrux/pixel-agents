@@ -70,7 +70,7 @@ import {
 } from './media.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { describeFile, fmtBytes, fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
-import { openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
+import { openAnchoredMenu, openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
 import { openEmojiPicker, type EmojiPickerHandle } from './emojiPicker.js';
 import { mentionQueryAt, mentionText, rankCandidates, type MentionCandidate } from './mentions.js';
 import { MentionList } from './mentionList.js';
@@ -1647,6 +1647,7 @@ export class MatrixUI {
         this.store ? this.store.videoUrl(content) : Promise.reject(new Error('Not connected.')),
       onOpenVideo: (content, url) => openVideoViewer(content.body, url),
       onOpenActions: (ev, anchor) => this.openMessageActions(ev, anchor),
+      onOpenUser: (userId, anchor) => this.openUserCard(userId, anchor),
       onToggleReaction: (eventId, key) => void this.handleToggleReaction(eventId, key),
       onJumpToReply: (eventId) => {
         if (!this.timelineView.revealEvent(eventId)) {
@@ -2242,6 +2243,69 @@ export class MatrixUI {
         this.msgMenu = null;
         this.msgMenuAnchor = null;
         this.timelineView.setMenuOpenRow(null);
+      },
+    });
+  }
+
+  /**
+   * The card behind a clicked mention — this panel's version of the user info
+   * Element opens from a pill: who it is, and the three things one does from
+   * there. It shares the message menu's slot, so opening either closes the
+   * other and every view change that closes one closes both.
+   */
+  private openUserCard(userId: string, anchor: HTMLElement): void {
+    const rid = this.openRoomId;
+    const store = this.store;
+    if (!rid || !store) return;
+    if (this.msgMenu) {
+      const same = this.msgMenuAnchor === anchor;
+      this.closeMessageActions();
+      if (same) return;
+    }
+    const name = store.displayName(rid, userId);
+    const self = userId === store.userId;
+    const composerUsable = store.cryptoState !== 'unavailable' && this.composerTextarea.style.display !== 'none';
+    this.msgMenuAnchor = anchor;
+    this.msgMenu = openAnchoredMenu({
+      anchor,
+      container: this.root,
+      label: name,
+      fill: ({ menu, addRow }) => {
+        const head = document.createElement('div');
+        head.className = 'mx-menu-user';
+        head.appendChild(mkAvatar(userId, name, this.picture(store.memberAvatarMxc(rid, userId))));
+        const who = document.createElement('div');
+        who.className = 'who';
+        const nm = document.createElement('div');
+        nm.className = 'nm';
+        nm.textContent = name;
+        const id = document.createElement('small');
+        id.textContent = userId;
+        who.append(nm, id);
+        head.appendChild(who);
+        menu.appendChild(head);
+        if (!self) addRow('💬', 'Message', () => this.openDm(userId));
+        if (composerUsable) {
+          addRow('@', 'Mention', () => {
+            // A non-member has no name this room can resolve at send time, so
+            // they are mentioned by MXID, which always resolves.
+            const token = name === userId ? userId : `@${name}`;
+            const ta = this.composerTextarea;
+            const before = ta.value.slice(0, ta.selectionStart ?? ta.value.length);
+            this.insertIntoComposer(`${before && !/\s$/.test(before) ? ' ' : ''}${token} `);
+          });
+        }
+        addRow('⧉', 'Copy user ID', () => {
+          void copyText(userId).then(
+            () => this.toast('Copied to clipboard.'),
+            (e: unknown) => this.toast(e instanceof Error ? e.message : "Couldn't copy."),
+          );
+          this.refocusComposer();
+        });
+      },
+      onClose: () => {
+        this.msgMenu = null;
+        this.msgMenuAnchor = null;
       },
     });
   }
