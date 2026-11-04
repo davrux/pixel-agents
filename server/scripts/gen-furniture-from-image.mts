@@ -15,8 +15,8 @@
  * below, because each of them would only take something away.
  *
  * It is not a pack importer: a pack is many pieces and the judgement is where
- * one ends and the next begins (gen-metro-furniture.mts, and the
- * tiled-asset-import skill). Here there is one piece and the judgement is its
+ * one ends and the next begins (see the tiled-asset-import skill). Here there
+ * is one piece and the judgement is its
  * SIZE, so the interesting flags are --size and --erase.
  *
  * What it does, in order:

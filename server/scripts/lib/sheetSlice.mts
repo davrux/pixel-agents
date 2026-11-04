@@ -1,7 +1,7 @@
 /**
  * Slicing an art pack's sprite sheet into individual, tile-aligned items.
  *
- * Extracted from gen-metro-furniture.mts so a second importer can slice the same
+ * Extracted from the metro pack importer so a second importer can slice the same
  * way rather than carry its own copy: the two rules below are what make a sliced
  * item usable as furniture at all, and two implementations of them would drift.
  *

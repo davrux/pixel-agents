@@ -99,8 +99,8 @@ export function pngToSpriteData(
  *
  * The piece COUNT comes from the image's own height rather than being fixed at
  * WALL_BITMASK_COUNT, because a set may carry extra hand-painted-only pieces
- * after the 16 adjacency ones — the metro set's north-wall faces, see
- * server/scripts/gen-metro-source-art.mts. Indices 0-15 are always the
+ * after the 16 adjacency ones — the metro set's north-wall faces. Indices
+ * 0-15 are always the
  * bitmask pieces; anything past that is reachable only via an explicitly
  * authored piece (see WallEdges.latticePiece).
  */

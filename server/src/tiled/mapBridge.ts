@@ -290,7 +290,7 @@ export function importTmjToLayout(
     return gid > 0 && resolveGid(gid)?.class === 'FurnitureTile';
   };
   // Same reasoning as isFurnitureTileObject: an image, being a real GID-
-  // backed tile object from images.tsj now (see bake-images-tiled.mts), is
+  // backed tile object from images.tsj now, is
   // recognized by its tile's ImageTile class — not by a custom `type` on the
   // object, which a plain "Insert Tile" placement never sets either.
   const isImageTileObject = (o: Record<string, unknown>): boolean => {
@@ -744,8 +744,8 @@ export function importTmjToLayout(
     // name. Adding a tile in Tiled's Tileset editor that points at a PNG is the
     // natural way to place a picture, and Tiled writes no custom property for
     // it — so requiring `imageId` silently dropped exactly that placement. The
-    // file name is a perfectly good id, and it is what bake-images-tiled.mts
-    // names its own tiles after anyway.
+    // file name is a perfectly good id, and it is what images.tsj names its
+    // own tiles after anyway.
     const imageId =
       (typeof props.imageId === 'string' && props.imageId ? props.imageId : '') ||
       (typeof resolvedTile?.props.imageId === 'string' ? resolvedTile.props.imageId : '') ||
@@ -754,8 +754,8 @@ export function importTmjToLayout(
     const height = Number(obj.height) || TILE_SIZE;
     // Prefer the tile's own declared `image` path — a mapper can add a tile
     // straight in Tiled's Tileset editor (Edit Tileset → Add Tiles) pointing
-    // at whatever file they picked, entirely bypassing bake-images-tiled.mts
-    // and its png/src/images/<imageId>.png convention; that convention is only a
+    // at whatever file they picked, entirely bypassing the
+    // png/src/images/<imageId>.png convention; that convention is only a
     // fallback for the cases with no such tile at all (a bare `type: 'Image'`
     // object with no gid). readImageFile resolves both against assets/tiled
     // itself, never zone-relative (see zoneImport.ts).

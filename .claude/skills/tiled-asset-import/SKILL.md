@@ -14,9 +14,10 @@ silently kills every placement in a saved map.
 Read this before importing. For a **sheet** you write no script at all:
 `scripts/import-sheet.sh` does it, and each pack gets a small wrapper carrying its
 provenance (`import-overworld-pack.sh`, `import-road-sheet.sh`). For a **collection**
-— art to be cut apart into per-tile files — `server/scripts/gen-metro-outdoor.mts`
-and `gen-metro-furniture.mts` are the worked examples, since where one piece ends and
-the next begins is a judgement no flag can carry.
+— art to be cut apart into per-tile files — you write your own
+`server/scripts/gen-*.mts`, on top of `server/scripts/lib/sheetSlice.mts`, which
+carries the shared slicing rules; where one piece ends and the next begins is a
+judgement no flag can carry.
 
 ---
 
@@ -250,7 +251,7 @@ So verify mechanically, and say what you verified:
   `server/scripts/gen-*.mts`, because the cutting is judgement. Anything a human runs
   gets a `.sh` wrapper in `scripts/` (see `scripts/push-zones.sh` for the house
   style), and every importer takes `--dry-run` — looking must never be a side effect,
-  which one accidental run of `bake-images-tiled` taught us the hard way.
+  which one accidental run of a since-deleted baker taught us the hard way.
 - **Ids are identity.** A set's `--id-prefix`, `--id-style` and tile size are fixed
   once anything is placed from it: they decide the ids, the ids decide the gids, and
   the gids are what every map stored.

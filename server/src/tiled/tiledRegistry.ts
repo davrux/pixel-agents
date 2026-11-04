@@ -43,7 +43,8 @@ export interface RegistryTile {
   /** This tile's own `image` path (relative to assets/tiled/), for a
    *  "Collection of Images" tile (see images.tsj/ImageTile) — e.g. a tile a
    *  mapper added directly in Tiled's Tileset editor, pointing at whatever
-   *  file they picked, not necessarily one baked by bake-images-tiled.mts.
+   *  file they picked, not necessarily one following the
+   *  png/src/images/<id>.png convention.
    *  Undefined for tiles from a single-image (grid) tileset, where the path
    *  lives on the tileset itself instead. */
   image?: string;

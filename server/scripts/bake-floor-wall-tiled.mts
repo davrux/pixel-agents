@@ -170,9 +170,9 @@ const BASE_FLOOR_PATTERN_FILES = Array.from({ length: 11 }, (_, p) => `floor_${p
 
 /** The metro floor set's own patterns — a separate list, not an extension of
  *  the base ones: these are cropped from the MetroCity Interior pack rather
- *  than hand-drawn for this project (see
- *  server/scripts/gen-metro-source-art.mts, which writes them and owns their
- *  order). */
+ *  than hand-drawn for this project. The files under png/src/floors/ ARE the
+ *  source now — the one-time cropping script is gone — so this list owns
+ *  their order. */
 const METRO_FLOOR_PATTERN_FILES = Array.from({ length: 7 }, (_, p) => `metro_${p}.png`);
 
 function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: PaletteSwatch[]): void {
@@ -236,7 +236,7 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   const tiles: SpriteData[] = [];
   // One row per piece the source actually has — the 16 adjacency pieces plus
   // whatever hand-painted-only ones follow them (the metro set's north-wall
-  // faces, see parseWallPng and gen-metro-source-art.mts).
+  // faces, see parseWallPng).
   raw.forEach((piece, index) => {
     tiles.push(piece);
     for (const sw of pal) {

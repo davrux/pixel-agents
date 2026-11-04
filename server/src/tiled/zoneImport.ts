@@ -1,9 +1,8 @@
 /**
- * Shared logic behind server/scripts/tiled-import-zone.mts (one zone) and
- * tiled-import-all-zones.mts (every zones/*.tmj file) — factored out so
- * neither script duplicates the actual (read → import → save) sequence, and
- * so the batch script can do the expensive one-time setup (asset bundle,
- * registry, ZoneMapStore) once instead of per file.
+ * Shared logic behind tiled-import-all-zones.mts (every zones/*.tmj file) —
+ * factored out so the actual (read → import → save) sequence stays separate
+ * from the expensive one-time setup (asset bundle, registry, ZoneMapStore),
+ * which the script does once instead of per file.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -87,8 +86,8 @@ export function resolveZoneId(tmjPath: string, filename: string): string {
  *  one, so this replaces whatever was there. Placed images resolve against assets/tiled
  *  itself, never zone-relative — either the referenced tile's own `image`
  *  path (any file a mapper added directly via Tiled's Tileset editor), or
- *  the png/src/images/<id>.png convention bake-images-tiled.mts writes, as a
- *  fallback for a bare (non-tile) Image object (see mapBridge.ts). A
+ *  the png/src/images/<id>.png convention, as a fallback for a bare
+ *  (non-tile) Image object (see mapBridge.ts). A
  *  'spawnPoint' tile action (see Action) sets the zone's own arrival point
  *  the same way the in-game "Arrival point" click flow does — the FIRST one
  *  found wins if a mapper accidentally places more than one. */
