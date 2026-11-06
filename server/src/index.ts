@@ -51,7 +51,7 @@ import { oidcConfig } from './oidc/config.js';
 import { registerOidcAuth } from './oidc/routes.js';
 import { registerAdminApi } from './adminApi.js';
 import { registerArtApi } from './artApi.js';
-import { registerArtSaveApi } from './artSaveApi.js';
+import { META_HEADER as ART_SHEET_HEADER, registerArtSaveApi } from './artSaveApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
@@ -218,6 +218,15 @@ async function main(): Promise<void> {
   // than worked around at each route, and the override point is the library's own
   // (see the comment on getCorsHeaders in @colyseus/core's matchmaker/controller).
   delete (matchMaker.controller.DEFAULT_CORS_HEADERS as Record<string, string>)['Access-Control-Allow-Credentials'];
+  // The same listener also ANSWERS every preflight, before express runs — so neither `cors()`
+  // nor `desktopCors` ever decides an OPTIONS here, and this list is the whole allow-list for
+  // request headers. A custom header a client sends cross-origin must be named in it, or the
+  // desktop app (app://) is refused before its request is sent: saving art failed exactly so,
+  // because `POST /art/*` carries the sheet's metadata in `X-Pixel-Sheet`. Allowing a header
+  // NAME grants nothing — the route still authorizes from the bearer, and with no
+  // Allow-Credentials no cookie travels. Pinned against a real boot in matchmaking.int.test.ts.
+  const colyseusCors = matchMaker.controller.DEFAULT_CORS_HEADERS as Record<string, string>;
+  colyseusCors['Access-Control-Allow-Headers'] = `${colyseusCors['Access-Control-Allow-Headers']}, ${ART_SHEET_HEADER}`;
   // Narrow cross-origin headers for the desktop bearer path (Authorization
   // allowed, no credentialed cookies) — see desktopCors. Applied before the
   // routes so preflight and actual responses carry the contract.

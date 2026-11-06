@@ -234,3 +234,31 @@ test('a valid bearer session is admitted to the world room', async () => {
   const token = await mintToken('matchmaking-int-user');
   assert.equal(await joinOutcome(await joinUrl(token)), 'accepted');
 });
+
+// Colyseus answers EVERY preflight itself, before express sees it: its transport prepends a
+// `request` listener that ends any OPTIONS with `matchMaker.controller.DEFAULT_CORS_HEADERS`
+// (@colyseus/core router/index). So express's `cors()` and `desktopCors` never decide a
+// preflight on this server, and a header missing from that list is refused for every route —
+// which is how saving art from the desktop app (app:// → POST /art/avatar with `X-Pixel-Sheet`)
+// failed in production while every express-level test stayed green. Only a real boot shows it.
+test('a cross-origin preflight for an art save allows the sheet header, without credentials', async () => {
+  for (const path of ['/art/avatar', '/art/asset/character/x']) {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'app://bundle',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization,content-type,x-pixel-sheet',
+      },
+    });
+    assert.equal(res.status, 204, path);
+    const allowed = (res.headers.get('access-control-allow-headers') ?? '')
+      .split(',')
+      .map((h) => h.trim().toLowerCase());
+    for (const h of ['authorization', 'content-type', 'x-pixel-sheet']) {
+      assert.ok(allowed.includes(h), `${path}: preflight must allow ${h}, got ${allowed.join(', ')}`);
+    }
+    // The AC-012 contract still holds: no cross-origin cookie surface.
+    assert.equal(res.headers.get('access-control-allow-credentials'), null, path);
+  }
+});
