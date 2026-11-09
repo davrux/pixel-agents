@@ -35,8 +35,10 @@ import { validSheetMeta } from './art/characterDataGuard.js';
 import { MAX_SHEET_PNG_BYTES, sheetFromPng } from './art/sheetPng.js';
 import { userStore } from './userStore.js';
 
-/** The metadata a sheet cannot carry, as JSON in a header — see `sheetRowFrom`. */
-const META_HEADER = 'x-pixel-sheet';
+/** The metadata a sheet cannot carry, as JSON in a header — see `sheetRowFrom`. Exported because
+ *  a custom header must also be allowed in the cross-origin preflight (index.ts), or the desktop
+ *  app — which saves from app:// — is refused before the request is ever sent. */
+export const META_HEADER = 'x-pixel-sheet';
 /** Bound on that header. A spec with every track named is a few hundred bytes; anything
  *  approaching this is not a sheet's metadata, and headers are parsed before any limit of ours. */
 const MAX_META_BYTES = 4096;
