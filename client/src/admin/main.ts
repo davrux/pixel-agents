@@ -410,7 +410,7 @@ async function renderUsers(): Promise<void> {
   card.innerHTML = `<h2>Accounts · ${users.length}</h2>`;
   const wrap = el('div', 'table-wrap');
   const table = el('table');
-  table.innerHTML = '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>2FA</th><th>Status</th><th>Actions</th></tr></thead>';
   const tbody = el('tbody');
   for (const u of users) tbody.appendChild(userRow(u));
   table.appendChild(tbody);
@@ -436,6 +436,7 @@ function userRow(u: AdminUser): HTMLTableRowElement {
   tr.appendChild(roleTd);
 
   tr.appendChild(el('td', 'muted', u.hasPassword ? 'set' : '—'));
+  tr.appendChild(el('td', 'muted', u.totp ? 'on' : '—'));
   tr.appendChild(el('td', u.disabled ? 'status-off' : 'muted', u.disabled ? '⛔ disabled' : 'active'));
 
   const actTd = el('td');
@@ -461,6 +462,20 @@ function userRow(u: AdminUser): HTMLTableRowElement {
     if (res.ok) { toast(`"${u.userId}" ${disabling ? 'disabled' : 're-enabled'}.`); void renderUsers(); }
     else fail(disabling ? 'Disable' : 'Enable', res.error);
   };
+  // Lost phone and lost recovery codes: removing the second factor is the way back. Only shown
+  // when there is one; the server only ever removes it, never sets it.
+  const totpBtn = el('button', 'act danger', 'Reset 2FA');
+  totpBtn.onclick = async () => {
+    if (
+      !(await confirmDialog(`Turn off two-factor sign-in for "${u.userId}"? Their password alone will sign them in until they set it up again.`, {
+        confirmLabel: 'Reset 2FA',
+        danger: true,
+      }))
+    )
+      return;
+    const res = await adminApi.updateUser(u.userId, { resetTotp: true });
+    if (res.ok) { toast(`Two-factor sign-in reset for "${u.userId}".`); void renderUsers(); } else fail('Reset 2FA', res.error);
+  };
   const delBtn = el('button', 'act danger', 'Delete');
   delBtn.onclick = async () => {
     if (
@@ -473,7 +488,7 @@ function userRow(u: AdminUser): HTMLTableRowElement {
     const res = await adminApi.deleteUser(u.userId);
     if (res.ok) { toast(`Deleted "${u.userId}".`); void renderUsers(); } else fail('Delete', res.error);
   };
-  actTd.append(pwBtn, toggleBtn, delBtn);
+  actTd.append(pwBtn, ...(u.totp ? [totpBtn] : []), toggleBtn, delBtn);
   tr.appendChild(actTd);
   return tr;
 }

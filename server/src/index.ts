@@ -50,6 +50,7 @@ import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js'
 import { oidcConfig } from './oidc/config.js';
 import { registerOidcAuth } from './oidc/routes.js';
 import { registerAdminApi } from './adminApi.js';
+import { registerTotpApi } from './totpApi.js';
 import { registerArtApi } from './artApi.js';
 import { META_HEADER as ART_SHEET_HEADER, registerArtSaveApi } from './artSaveApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
@@ -125,6 +126,15 @@ const DESKTOP_CORS_PATHS = new Set([
   '/auth/oauth/link/start',
   '/auth/oauth/link/poll',
   '/auth/oauth/link/disconnect',
+  // Two-factor sign-in: the desktop's second sign-in step, and the profile's setup routes. Same
+  // contract as above — each resolves the caller (ticket or bearer) and acts on that account only.
+  '/desktop/token/totp',
+  '/account/totp',
+  '/account/totp/setup',
+  '/account/totp/enable',
+  '/account/totp/cancel',
+  '/account/totp/disable',
+  '/account/totp/recovery',
   '/health',
 ]);
 
@@ -304,6 +314,7 @@ async function main(): Promise<void> {
     registerOidcAuth(app);
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
+    registerTotpApi(app); // two-factor sign-in from the profile; every route resolves its own session
     console.log(
       `[server] login required (${[ADMIN_TOKEN ? '--token / PIXEL_ADMIN_TOKEN set' : null, OIDC ? `OIDC: ${OIDC.issuer}` : null]
         .filter(Boolean)

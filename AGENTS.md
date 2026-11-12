@@ -1603,6 +1603,24 @@ background only.)
   log in nobody can join at all, and the server binds to loopback rather than
   serving an ungated app to the network. Agents authenticate the feed with their
   owner's token.
+- **Two-factor sign-in (TOTP) guards the PASSWORD, and every first factor goes through one
+  door** (`afterFirstFactor` in `auth.ts`). `/login`, `/register` presenting the admin token for an
+  existing account, and `/desktop/token` all end there, so a new credential path cannot forget the
+  code. The OIDC callback deliberately does not: the provider runs its own MFA, and asking twice
+  would make its policy meaningless rather than stricter. For the same reason an account with no
+  password cannot enrol. Four rules, each tested in `totp.int.test.ts`:
+  **the second step carries a ticket, never the password** (`mfaTickets.ts`: in memory, 5 min,
+  5 tries, spent on use; the account comes from the ticket, and wrong codes count on the same
+  per-account throttle as wrong passwords); **a step is accepted once** (`last_step`, updated
+  conditionally so two concurrent logins with one code cannot both pass); **changing the factor
+  needs the password, and removing it needs the factor too** (`reauthenticate`, which shares the
+  login throttle so a hijacked session is not a side door for password guessing); and **an admin
+  can only REMOVE someone's 2FA** (`resetTotp`), never set it. Recovery codes are stored as
+  SHA-256 (random, ~49 bits — nothing to slow down) and shown once. `user_totp` cascades with the
+  account and is on `KEEP_TABLES`, because a world reset must not silently turn 2FA off. The
+  secret itself is stored plain, like the agent token: there is no server key to encrypt it with.
+  An older desktop build gets a 401 whose `error` tells it to update; no `PROTOCOL_VERSION` bump,
+  since no synced field or room message changed.
 - **Single sign-on is additive, never a replacement** (`server/src/oidc/`). An
   OpenID Connect provider (Zitadel) is a second way into an account, configured
   through `PIXEL_OIDC_*`; the admin token stays the break-glass path, because a

@@ -61,6 +61,7 @@ export const LIVE_TABLES: readonly string[] = [
   'sessions',
   'settings',
   'user_prefs',
+  'user_totp',
   'users',
   'zone_acl',
   'zone_admins',

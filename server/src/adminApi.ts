@@ -24,6 +24,7 @@ import { getArcadeCatalog } from './arcadeCatalog.js';
 import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
 import { oidcConfig, envOidcConfig } from './oidc/config.js';
 import { getQuotesText, loadQuotes, MAX_QUOTE_LEN, MAX_QUOTES_TEXT, setQuotesText } from './quotes.js';
+import { totpStore } from './totpStore.js';
 import {
   CALLBACK_PATH,
   MAX_LABEL_LEN,
@@ -93,6 +94,7 @@ export function registerAdminApi(app: Express): void {
     role: u.role,
     hasPassword: u.hasPassword,
     disabled: u.disabled,
+    totp: totpStore.isEnabled(u.userId),
   });
 
   // Who the caller is — the admin site has no other way to know its own
@@ -129,7 +131,7 @@ export function registerAdminApi(app: Express): void {
     const id = normalizeLoginId(req.params.id);
     const target = userStore.get(id);
     if (!target) return void res.status(404).json({ error: 'not found' });
-    const body = (req.body ?? {}) as { role?: unknown; password?: unknown; disabled?: unknown };
+    const body = (req.body ?? {}) as { role?: unknown; password?: unknown; disabled?: unknown; resetTotp?: unknown };
 
     if (body.role !== undefined) {
       if (!isRole(body.role)) return void res.status(400).json({ error: 'invalid role' });
@@ -148,6 +150,9 @@ export function registerAdminApi(app: Express): void {
       appStore.deleteSessionsForUser(id);
       controlBus.emit(KICK_EVENT, id);
     }
+    // Lost phone AND lost recovery codes: the one way back is an admin. Removal only — an admin
+    // can never SET somebody's second factor, which would be choosing a credential for them.
+    if (body.resetTotp === true) totpStore.disable(id);
     if (body.disabled !== undefined) {
       const disabled = !!body.disabled;
       if (disabled) {

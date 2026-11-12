@@ -90,6 +90,7 @@ import { CharacterEditor, AGENT_TRACKS, PET_TRACKS, skinLabel } from '../editor/
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { spriteThumbCanvas, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
+import { TotpSettings, TOTP_SETTINGS_HTML } from '../ui/totpSettings.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 import { renderZonePasswordWidget } from '../shared/zonePasswordWidget.js';
@@ -4632,6 +4633,7 @@ export class OfficeScene extends Phaser.Scene {
       <div id="pa-account">
         <div class="row"><label for="pa-pw">New password</label><input id="pa-pw" type="password" maxlength="64" placeholder="min 6 chars" autocomplete="new-password"></div>
         <div class="row"><button id="pa-pw-set">Change password</button></div>
+        ${TOTP_SETTINGS_HTML}
         <div id="pa-agent-token">
           <div class="row"><label for="pa-token">Agent token</label><input id="pa-token" type="text" readonly></div>
           <div class="row"><button id="pa-token-copy">Copy</button><button id="pa-token-new">Regenerate</button></div>
@@ -4746,6 +4748,7 @@ export class OfficeScene extends Phaser.Scene {
       await alertDialog('Password changed.');
     };
     panel.querySelector<HTMLButtonElement>('#pa-sso-connect')!.onclick = () => void this.toggleSsoLink();
+    this.totpSettings = new TotpSettings(panel);
     panel.querySelector<HTMLButtonElement>('#pa-token-copy')!.onclick = () => {
       void navigator.clipboard?.writeText(this.agentToken);
     };
@@ -5226,6 +5229,9 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
+  /** Settings → Account → Two-factor sign-in (ui/totpSettings.ts). */
+  private totpSettings: TotpSettings | null = null;
+
   /** Latest answer from `/auth/oauth/link/status`, so the button knows which action it is. */
   private ssoLink: { enabled: boolean; label: string; linked: boolean; canDisconnect: boolean; reason: string | null } | null = null;
   /** Set while a connect flow is waiting on the provider tab; also the cancel switch. */
@@ -5372,6 +5378,8 @@ export class OfficeScene extends Phaser.Scene {
     // than derived: whether a provider exists, whether this account is already connected, and
     // whether disconnecting would leave no way in.
     if (this.myUserId) void this.refreshSsoLink();
+    // Two-factor sign-in: the same reasoning — the server knows whether it is on.
+    if (this.myUserId) void this.totpSettings?.refresh();
     // Identity line: login id + admin badge (logged-in users only).
     const info = this.settingsPanel.querySelector<HTMLDivElement>('#pa-userinfo');
     if (info) {

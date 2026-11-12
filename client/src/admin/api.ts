@@ -14,6 +14,8 @@ export interface AdminUser {
   role: Role;
   hasPassword: boolean;
   disabled: boolean;
+  /** Two-factor sign-in is on. */
+  totp: boolean;
 }
 export interface AdminZone {
   id: string;
@@ -170,7 +172,7 @@ export const adminApi = {
   listUsers: () => req<{ users: AdminUser[] }>('GET', '/admin/users'),
   createUser: (loginId: string, password: string, role: Role) =>
     req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role }),
-  updateUser: (id: string, patch: { role?: Role; password?: string; disabled?: boolean }) =>
+  updateUser: (id: string, patch: { role?: Role; password?: string; disabled?: boolean; resetTotp?: boolean }) =>
     req<{ user: AdminUser }>('PATCH', `/admin/users/${encodeURIComponent(id)}`, patch),
   deleteUser: (id: string) => req<{ ok: true }>('DELETE', `/admin/users/${encodeURIComponent(id)}`),
 

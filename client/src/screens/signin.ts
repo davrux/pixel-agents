@@ -141,8 +141,9 @@ function ensureStyles(): void {
   document.head.appendChild(style);
 }
 
-/** Which screen the overlay is currently showing — see `applyMode`. */
-type Mode = 'signin' | 'register';
+/** Which screen the overlay is currently showing — see `applyMode`. `totp` is the second step of a
+ *  sign-in, for an account with two-factor on. */
+type Mode = 'signin' | 'register' | 'totp';
 
 interface SignInElements {
   overlay: HTMLDivElement;
@@ -154,6 +155,10 @@ interface SignInElements {
   passwordInput: HTMLInputElement;
   tokenLabel: HTMLLabelElement;
   tokenInput: HTMLInputElement;
+  loginLabel: HTMLLabelElement;
+  passwordLabel: HTMLLabelElement;
+  codeLabel: HTMLLabelElement;
+  codeInput: HTMLInputElement;
   errorEl: HTMLParagraphElement;
   submit: HTMLButtonElement;
   serverEl: HTMLParagraphElement;
@@ -243,6 +248,23 @@ function buildOverlay(): SignInElements {
   tokenInput.setAttribute('autocomplete', 'off');
   tokenInput.setAttribute('aria-describedby', 'pa-signin-err');
 
+  // Second step only (an account with two-factor on): shown in place of login id and password.
+  const codeLabel = document.createElement('label');
+  codeLabel.htmlFor = 'pa-signin-code';
+  codeLabel.textContent = 'Authentication code';
+  codeLabel.hidden = true;
+
+  const codeInput = document.createElement('input');
+  codeInput.id = 'pa-signin-code';
+  codeInput.type = 'text';
+  codeInput.name = 'code';
+  codeInput.inputMode = 'numeric';
+  codeInput.maxLength = 16;
+  codeInput.placeholder = '123456 or a recovery code';
+  codeInput.setAttribute('autocomplete', 'one-time-code');
+  codeInput.setAttribute('aria-describedby', 'pa-signin-err');
+  codeInput.hidden = true;
+
   const errorEl = document.createElement('p');
   errorEl.className = 'err';
   errorEl.id = 'pa-signin-err';
@@ -296,6 +318,8 @@ function buildOverlay(): SignInElements {
     passwordInput,
     tokenLabel,
     tokenInput,
+    codeLabel,
+    codeInput,
     errorEl,
     submit,
     serverEl,
@@ -314,6 +338,10 @@ function buildOverlay(): SignInElements {
     passwordInput,
     tokenLabel,
     tokenInput,
+    loginLabel,
+    passwordLabel,
+    codeLabel,
+    codeInput,
     errorEl,
     submit,
     serverEl,
@@ -332,21 +360,33 @@ function buildOverlay(): SignInElements {
  */
 function applyMode(el: SignInElements, mode: Mode): void {
   const registering = mode === 'register';
-  el.titleEl.textContent = registering ? 'Create account' : 'Sign in';
+  const totp = mode === 'totp';
+  el.titleEl.textContent = registering ? 'Create account' : totp ? 'Two-factor sign-in' : 'Sign in';
   el.hintEl.textContent = registering
     ? "Pick a login id and password, and enter the server's admin token. The account it creates is an admin."
-    : 'Enter your login id and password.';
+    : totp
+      ? 'Enter the 6-digit code from your authenticator app — or one of your recovery codes.'
+      : 'Enter your login id and password.';
   el.tokenLabel.hidden = !registering;
   el.tokenInput.hidden = !registering;
+  el.loginLabel.hidden = totp;
+  el.loginInput.hidden = totp;
+  el.passwordLabel.hidden = totp;
+  el.passwordInput.hidden = totp;
+  el.codeLabel.hidden = !totp;
+  el.codeInput.hidden = !totp;
+  el.oauthBtn.hidden = el.oauthBtn.hidden || totp;
+  el.oauthOr.hidden = el.oauthOr.hidden || totp;
   el.passwordInput.placeholder = registering ? `at least ${MIN_PASSWORD_LEN} characters` : 'password';
   renderServerLine(el.serverEl, mode);
-  el.submit.textContent = registering ? 'Create account' : 'Sign in';
-  el.toggleMode.textContent = registering ? 'Back to sign in' : 'Create an account';
+  el.submit.textContent = registering ? 'Create account' : totp ? 'Verify' : 'Sign in';
+  el.toggleMode.textContent = registering || totp ? 'Back to sign in' : 'Create an account';
   el.passwordInput.setAttribute('autocomplete', registering ? 'new-password' : 'current-password');
 }
 
-/** Outcome of the token exchange: a token to store, or an inline error message. */
-type TokenResult = { token: string } | { error: string };
+/** Outcome of the token exchange: a token to store, an inline error message, or — for an account
+ *  with two-factor on — a ticket for the second step (`requestTotpToken`). */
+type TokenResult = { token: string } | { error: string } | { ticket: string };
 
 /**
  * Exchange credentials for a bearer token at the configured server. Sends the
@@ -380,7 +420,10 @@ async function requestToken(
   }
 
   if (res.status === 401) {
-    const data = (await res.json().catch(() => null)) as { error?: unknown } | null;
+    const data = (await res.json().catch(() => null)) as { error?: unknown; totpRequired?: unknown; ticket?: unknown } | null;
+    // The password was right and the account asks for a code too. The server's `error` on this
+    // answer is written for builds that predate the second step, so it is not shown here.
+    if (data?.totpRequired === true && typeof data.ticket === 'string' && data.ticket !== '') return { ticket: data.ticket };
     const message = typeof data?.error === 'string' ? data.error : NETWORK_ERROR_MESSAGE;
     return { error: message };
   }
@@ -390,6 +433,31 @@ async function requestToken(
   const data = (await res.json().catch(() => null)) as { token?: unknown } | null;
   if (typeof data?.token !== 'string' || data.token === '') return { error: NETWORK_ERROR_MESSAGE };
   return { token: data.token };
+}
+
+/**
+ * The second step: trade the ticket from the password step plus an authenticator (or recovery) code
+ * for the bearer. `restart` means the ticket is gone (expired, or too many wrong codes) and the
+ * password has to be entered again.
+ */
+async function requestTotpToken(ticket: string, code: string): Promise<{ token: string } | { error: string; restart: boolean }> {
+  let res: Response;
+  try {
+    res = await fetch(`${getServerHttpOrigin()}/desktop/token/totp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket, code }),
+      cache: 'no-store',
+    });
+  } catch {
+    return { error: NETWORK_ERROR_MESSAGE, restart: false };
+  }
+  const data = (await res.json().catch(() => null)) as { token?: unknown; error?: unknown; ticketAlive?: unknown } | null;
+  if (res.ok && typeof data?.token === 'string' && data.token !== '') return { token: data.token };
+  return {
+    error: typeof data?.error === 'string' ? data.error : NETWORK_ERROR_MESSAGE,
+    restart: res.ok || data?.ticketAlive !== true,
+  };
 }
 
 /** What the server says about its identity provider, or null when it has none. */
@@ -454,7 +522,10 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * mid-login, so one failed poll must not throw the sign-in away. `cancelled` is checked between
  * polls so the Cancel button takes effect without waiting for the deadline.
  */
-async function awaitPairing(pairing: Pairing, cancelled: () => boolean): Promise<TokenResult | { cancelled: true }> {
+async function awaitPairing(
+  pairing: Pairing,
+  cancelled: () => boolean,
+): Promise<{ token: string } | { error: string } | { cancelled: true }> {
   const intervalMs = Math.max(1000, pairing.intervalSeconds * 1000);
   const deadline = Date.now() + pairing.expiresInSeconds * 1000;
   while (Date.now() < deadline) {
@@ -494,6 +565,8 @@ export function showSignInScreen(): Promise<void> {
     applyMode(el, mode);
     /** Set while a provider sign-in is in flight; cleared by Cancel or by its outcome. */
     let waitingForProvider = false;
+    /** The second-step ticket while in `totp` mode — what stands in for the password there. */
+    let ticket: string | null = null;
 
     const setError = (message: string): void => {
       errorEl.textContent = message;
@@ -505,6 +578,7 @@ export function showSignInScreen(): Promise<void> {
       loginInput.disabled = loading;
       passwordInput.disabled = loading;
       tokenInput.disabled = loading;
+      el.codeInput.disabled = loading;
       submit.disabled = loading;
       changeServer.disabled = loading;
       el.toggleMode.disabled = loading;
@@ -512,7 +586,7 @@ export function showSignInScreen(): Promise<void> {
       oauthBtn.disabled = loading && !waitingForProvider;
       // `devTools` is deliberately left enabled: an in-flight sign-in is exactly
       // when you want to open the console and watch the request.
-      if (loading) submit.textContent = mode === 'register' ? 'Creating account…' : 'Signing in…';
+      if (loading) submit.textContent = mode === 'register' ? 'Creating account…' : mode === 'totp' ? 'Verifying…' : 'Signing in…';
       else applyMode(el, mode);
     };
 
@@ -522,15 +596,44 @@ export function showSignInScreen(): Promise<void> {
     const setMode = (next: Mode): void => {
       mode = next;
       if (next === 'signin') tokenInput.value = '';
+      if (next !== 'totp') {
+        ticket = null;
+        el.codeInput.value = '';
+        void refreshProvider(); // applyMode hid the provider button for the code step
+      }
       clearError();
       applyMode(el, mode);
-      (next === 'register' && loginInput.value !== '' ? tokenInput : loginInput).focus();
+      if (next === 'totp') el.codeInput.focus();
+      else (next === 'register' && loginInput.value !== '' ? tokenInput : loginInput).focus();
     };
-    el.toggleMode.onclick = () => setMode(mode === 'register' ? 'signin' : 'register');
+    el.toggleMode.onclick = () => setMode(mode === 'signin' ? 'register' : 'signin');
 
     devTools.onclick = () => void desktop().toggleDevTools();
 
+    const submitCode = async (): Promise<void> => {
+      clearError();
+      if (!ticket) return setMode('signin');
+      setLoading(true);
+      const result = await requestTotpToken(ticket, el.codeInput.value);
+      if ('error' in result) {
+        setLoading(false);
+        if (result.restart) {
+          setMode('signin');
+          passwordInput.value = '';
+          passwordInput.focus();
+        }
+        setError(result.error);
+        if (!result.restart) {
+          el.codeInput.select();
+          el.codeInput.focus();
+        }
+        return;
+      }
+      if (!(await storeTokenAndFinish(result.token))) el.codeInput.focus();
+    };
+
     const submitCredentials = async (): Promise<void> => {
+      if (mode === 'totp') return submitCode();
       clearError();
       const loginId = normalizeLoginId(loginInput.value);
       if (loginId === '') {
@@ -552,6 +655,12 @@ export function showSignInScreen(): Promise<void> {
         setLoading(false);
         setError(result.error);
         loginInput.focus();
+        return;
+      }
+      if ('ticket' in result) {
+        setLoading(false);
+        ticket = result.ticket;
+        setMode('totp');
         return;
       }
       if (!(await storeTokenAndFinish(result.token))) loginInput.focus();
@@ -588,8 +697,8 @@ export function showSignInScreen(): Promise<void> {
     /** Show or hide the provider button for whichever server is configured right now. */
     const refreshProvider = async (): Promise<void> => {
       const info = await fetchProviderInfo();
-      oauthBtn.hidden = info === null;
-      oauthOr.hidden = info === null;
+      oauthBtn.hidden = info === null || mode === 'totp';
+      oauthOr.hidden = info === null || mode === 'totp';
       if (info) oauthBtn.textContent = `Sign in with ${info.label}`;
     };
 
@@ -640,6 +749,7 @@ export function showSignInScreen(): Promise<void> {
     // screen persists the new URL and updates the configured origin before it
     // resolves, so the credentials entered next go to the right server.
     const changeServerFlow = async (): Promise<void> => {
+      if (mode === 'totp') setMode('signin'); // a ticket belongs to the server that issued it
       clearError();
       overlay.remove();
       await showConnectionScreen();
