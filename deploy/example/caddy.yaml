@@ -1,0 +1,90 @@
+# Caddy for the single-host example: one TLS front door for BOTH services.
+#
+# This is livekit/caddyl4 — Caddy plus the layer4 plugin — and the layer4 app is
+# what makes one host possible at all. LiveKit's TURN relay needs TLS on a port a
+# browser will dial, and the only port every corporate firewall lets out is 443;
+# so TURN and the two web services have to share it. Layer 4 reads the SNI of the
+# incoming TLS handshake and sends each name somewhere else:
+#
+#   pixels.example.com        -> 127.0.0.1:6161   the game server
+#   livekit.example.com       -> 127.0.0.1:7880   the LiveKit websocket
+#   livekit-turn.example.com  -> 127.0.0.1:5349   TURN over TLS
+#
+# All three names must resolve to THIS host (A and AAAA) before the first start,
+# or Caddy cannot complete the ACME challenge for them.
+logging:
+  logs:
+    default:
+      level: INFO
+storage:
+  module: file_system
+  root: /data
+apps:
+  tls:
+    certificates:
+      # One certificate per name, obtained and renewed automatically. The
+      # challenge runs over TLS-ALPN-01 on 443 — which the layer4 `tls` handler
+      # below answers — so port 80 is NOT required for certificates.
+      automate:
+        - pixels.example.com
+        - livekit.example.com
+        - livekit-turn.example.com
+  http:
+    servers:
+      redirect:
+        # Convenience only: sends http:// to https://. automatic_https is off so
+        # this server never tries to claim 443, which belongs to layer4.
+        # Closing port 80 costs you this redirect and nothing else.
+        listen: [":80"]
+        automatic_https:
+          disable: true
+        routes:
+          - handle:
+              - handler: static_response
+                status_code: 308
+                headers:
+                  Location: ["https://{http.request.host}{http.request.uri}"]
+  layer4:
+    servers:
+      main:
+        listen: [":443"]
+        routes:
+          # TURN first, and deliberately with NO alpn policy: this is not HTTP,
+          # it is the TURN protocol inside TLS. Caddy terminates the TLS here and
+          # hands LiveKit plaintext on 5349 (livekit.yaml sets external_tls: true
+          # to say so), which is why 5349 stays closed at the firewall.
+          - match:
+              - tls:
+                  sni:
+                    - "livekit-turn.example.com"
+            handle:
+              - handler: tls
+              - handler: proxy
+                upstreams:
+                  - dial: ["localhost:5349"]
+          # The LiveKit websocket. http/1.1 only — a websocket upgrade is an
+          # HTTP/1.1 mechanism, and offering h2 here breaks the client.
+          - match:
+              - tls:
+                  sni:
+                    - "livekit.example.com"
+            handle:
+              - handler: tls
+                connection_policies:
+                  - alpn: ["http/1.1"]
+              - handler: proxy
+                upstreams:
+                  - dial: ["localhost:7880"]
+          # pixel-agents. Same reasoning: Colyseus and the agent feed are
+          # websockets on the same port as the page.
+          - match:
+              - tls:
+                  sni:
+                    - "pixels.example.com"
+            handle:
+              - handler: tls
+                connection_policies:
+                  - alpn: ["http/1.1"]
+              - handler: proxy
+                upstreams:
+                  - dial: ["localhost:6161"]

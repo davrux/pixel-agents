@@ -115,6 +115,12 @@ microphone and screen sharing need a secure context, so `https://localhost:2567`
 is the default), and a database from a former default location is adopted if one
 is found. A deployment sets the variable and gets none of that.
 
+**Putting it on a server** is [`deploy/example/`](deploy/example/README.md): one
+host, one `docker compose up -d`, with pixel-agents and a self-hosted LiveKit
+behind a single TLS front door. It covers the DNS names, the ports (including
+the UDP range WebRTC needs), the one key pair both sides have to agree on, and
+why they share port 443 at all.
+
 ## Controls
 
 | | |

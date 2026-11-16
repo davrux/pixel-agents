@@ -1,0 +1,97 @@
+# pixel-agents + LiveKit on ONE host — a complete, runnable example.
+#
+#   cp .env.example .env && $EDITOR .env     # secrets
+#   $EDITOR caddy.yaml livekit.yaml          # your three hostnames
+#   docker compose up -d
+#
+# See README.md for the whole procedure. No secrets in this file — everything
+# sensitive comes from .env, which docker compose loads on its own and which
+# .gitignore already excludes.
+#
+# Three of the four services use host networking, each for its own reason:
+# LiveKit needs a 10 000-port UDP range, Caddy needs 443 on both IP families,
+# and Redis is there to be reached on loopback. pixel-agents is the exception —
+# it binds 127.0.0.1 only, so the single public door is Caddy.
+
+# Names the compose project, so the volumes below are predictable rather than
+# named after whatever this directory happens to be called.
+name: pixel-agents
+
+services:
+  caddy:
+    image: livekit/caddyl4
+    container_name: caddy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./caddy.yaml:/etc/caddy.yaml:ro
+      - caddy-data:/data
+    command: run --config /etc/caddy.yaml --adapter yaml
+
+  pixel-agents:
+    image: ${GHCR_IMAGE:-ghcr.io/davrux/pixel-agents:latest}
+    container_name: pixel-agents
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      # On a small box, cap V8 below physical RAM: a runaway leak then ends in a
+      # clean OOM and a restart instead of GC-thrashing the machine into swap.
+      NODE_OPTIONS: --max-old-space-size=768
+      PIXEL_ADMIN_TOKEN: ${PIXEL_ADMIN_TOKEN:?set PIXEL_ADMIN_TOKEN in .env}
+      # Public — this one is sent to the browser. Must be the TURN-less LiveKit
+      # hostname from caddy.yaml, over wss.
+      LIVEKIT_URL: ${LIVEKIT_URL:?set LIVEKIT_URL in .env}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env}
+      # Empty = no wipe. Read the warning in .env.example before filling this in.
+      PIXEL_RESET_WORLD: ${PIXEL_RESET_WORLD:-}
+    ports:
+      # Loopback only. Caddy reaches it over the host's own stack; nothing else
+      # can. The image itself listens on 0.0.0.0:6161 inside the container.
+      - "127.0.0.1:6161:6161"
+    volumes:
+      # The SQLite world. Everything a deployment accumulates lives here —
+      # accounts, maps, avatars — so this is the volume to back up.
+      - pixel-data:/data
+
+  livekit:
+    image: livekit/livekit-server
+    container_name: livekit
+    restart: unless-stopped
+    network_mode: host
+    # depends_on only waits for Redis to START, not to be ready — LiveKit exits
+    # if it cannot reach it, and `restart` brings it straight back. That is the
+    # whole recovery path; it costs a few seconds on a cold boot.
+    depends_on:
+      - redis
+    environment:
+      # "APIkey: secret", in that exact form. Keeping it out of livekit.yaml is
+      # what lets that file stay in git.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?}: ${LIVEKIT_API_SECRET:?}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    command: --config /etc/livekit.yaml
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./redis.conf:/etc/redis.conf:ro
+    command: redis-server /etc/redis.conf
+
+# NOT here: coturn. The production stack (../docker-compose.prod.yml) runs one
+# for the arcade's IPX multiplayer, and on a single host it would collide with
+# LiveKit — both want 3478/udp, and both use host networking. Arcade multiplayer
+# falls back to STUN-only without it; if you need the relay, give coturn another
+# port or a second host.
+volumes:
+  # Deliberately NOT given a global `name:`. Compose scopes them to the project
+  # above, so they are pixel-agents_pixel-data and pixel-agents_caddy-data. The
+  # production stack (../docker-compose.prod.yml) does pin a global `pixel-data`
+  # on purpose, to keep its world across deploys — and that is exactly why this
+  # example must not use the same one: both on a single host would silently
+  # share one SQLite world.
+  pixel-data:
+  caddy-data:
