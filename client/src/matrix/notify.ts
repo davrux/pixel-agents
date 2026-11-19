@@ -1,6 +1,6 @@
 /**
- * Desktop notifications for chat: decides whether an arriving message deserves
- * one, and words it.
+ * Desktop notifications for chat: decides whether an arriving message (or an
+ * invitation — see `invite`) deserves one, and words it.
  *
  * Deliberately knows nothing about the SDK, the DOM, or Electron — `store.ts`
  * extracts a `NotifyCandidate` from a `MatrixEvent` (it is the only place
@@ -70,6 +70,15 @@ export interface NotifyCandidate {
   /** The message text, used only when the `showBody` preference is on. */
   preview: string;
   kind: NotifyKind;
+}
+
+/** One invitation worth announcing. Every string here is remote. */
+export interface InviteCandidate {
+  roomName: string;
+  /** Display name of whoever invited us, or '' when the homeserver did not say. */
+  inviterName: string;
+  /** The inviter marked it as a direct chat. */
+  isDm: boolean;
 }
 
 export interface NotifierHooks {
@@ -203,6 +212,34 @@ export class MatrixNotifier {
       });
     }
     this.arm();
+  }
+
+  /**
+   * Announce one invitation. The store calls this once per invite, on the
+   * transition into "invited" — that transition is the dedupe, since an invite's
+   * stripped state carries no event id to key on.
+   *
+   * Not gathered like messages are: an invite is one event per room by nature,
+   * so there is no burst to fold. And push rules are not consulted — the spec's
+   * default (`.m.rule.invite_for_me`) notifies, and evaluating a stripped state
+   * event against the rule set is not something the SDK offers.
+   *
+   * Sent whenever notifications are on, unless the reader has the panel open in
+   * a focused app: there the invite appears in front of them (the pinned block
+   * in the room list, the ✉ square in the rail).
+   */
+  invite(c: InviteCandidate): void {
+    if (!this.hooks.prefs().enabled) return;
+    const at = this.hooks.attention();
+    if (at.panelOpen && at.appFocused) return;
+    const who = clean(c.inviterName, MAX_TITLE_CHARS);
+    const room = clean(c.roomName, MAX_TITLE_CHARS);
+    // A DM invite's room name is usually the inviter already, so the name is
+    // not repeated in the body — same reasoning as bodyFor.
+    let body: string;
+    if (c.isDm) body = who && who !== room ? `${who} wants to chat with you` : 'Wants to chat with you';
+    else body = who ? `${who} invited you` : 'You were invited';
+    this.hooks.send(room || who || 'Matrix', body);
   }
 
   /** Fire everything gathered so far. */

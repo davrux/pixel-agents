@@ -213,6 +213,10 @@ export interface MxRoom {
   lastTs: number; // 0 when no event known
   preview: string; // one-line plain-text preview, '' when none
   inviterId: string; // invites only, else ''
+  /** The inviter's display name, for the "Alice invited you" line — resolved
+   *  here because an invite's member list is only the stripped state the
+   *  homeserver chose to send, and the MXID is the honest fallback. */
+  inviterName: string; // invites only, else ''
   inviteIsDirect: boolean; // invites only
   /** mxc:// of the room's picture, or for a DM without one, the other
    *  person's. null when there is nothing to show (the UI falls back to its

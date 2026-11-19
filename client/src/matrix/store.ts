@@ -346,6 +346,11 @@ export class MatrixStore {
    *  not pop notifications. */
   private readonly awaitingDecrypt = new Set<string>();
 
+  /** Rooms we were invited to since the last sync finished, waiting to be
+   *  announced. Drained on every sync event and cleared on stop, so it never
+   *  holds more than one sync's worth. */
+  private readonly newInvites = new Set<string>();
+
   private readonly notifier: MatrixNotifier;
 
   constructor(o: MatrixStoreOpts) {
@@ -488,6 +493,7 @@ export class MatrixStore {
   private wireClient(client: MatrixClient): void {
     const onSync = (state: SyncState, _prevState: SyncState | null, data?: { error?: unknown }): void => {
       this.applySyncState(state, data);
+      this.announceNewInvites();
     };
     client.on(ClientEvent.Sync, onSync);
     this.unsubs.push(() => client.off(ClientEvent.Sync, onSync));
@@ -517,8 +523,19 @@ export class MatrixStore {
     const onRoomsDirty = (): void => this.markRoomsDirty();
     client.on(RoomEvent.Name, onRoomsDirty);
     this.unsubs.push(() => client.off(RoomEvent.Name, onRoomsDirty));
-    client.on(RoomEvent.MyMembership, onRoomsDirty);
-    this.unsubs.push(() => client.off(RoomEvent.MyMembership, onRoomsDirty));
+    const onMyMembership = (room: Room, membership: string, prevMembership?: string): void => {
+      this.markRoomsDirty();
+      // Only noted here, announced after the sync that carried it (see
+      // announceNewInvites): the SDK emits this from the middle of
+      // `room.recalculate()`, before the room has a name.
+      if (membership === 'invite' && prevMembership !== 'invite') {
+        if (this.everPrepared) this.newInvites.add(room.roomId);
+      } else {
+        this.newInvites.delete(room.roomId);
+      }
+    };
+    client.on(RoomEvent.MyMembership, onMyMembership);
+    this.unsubs.push(() => client.off(RoomEvent.MyMembership, onMyMembership));
     client.on(RoomStateEvent.Update, onRoomsDirty);
     this.unsubs.push(() => client.off(RoomStateEvent.Update, onRoomsDirty));
 
@@ -726,6 +743,7 @@ export class MatrixStore {
     // both confusing and (with message text on) a leak past the wipe.
     this.notifier.reset();
     this.awaitingDecrypt.clear();
+    this.newInvites.clear();
   }
 
   /** client.stopClient() + listener/timer cleanup. Crypto store untouched,
@@ -847,8 +865,9 @@ export class MatrixStore {
     if (sender === this.userId) return;
     if (ev.getType() !== sdk.EventType.RoomMessage) return;
     if (ev.isRedacted()) return;
-    // A room you have left (or only been invited to) keeps its timeline; an
-    // invite is the room list's business, not a notification's.
+    // A room you have left (or only been invited to) keeps its timeline. The
+    // invite itself is announced once, by announceNewInvites — not per message
+    // somebody writes into a room you have not joined.
     if (room.getMyMembership() !== 'join') return;
 
     // The homeserver's own verdict, which already encodes mutes, keyword rules
@@ -872,6 +891,40 @@ export class MatrixStore {
       preview: typeof content.body === 'string' ? content.body : '',
       kind,
     });
+  }
+
+  /**
+   * Announce the invites that arrived with the sync that just finished.
+   *
+   * An invite used to be "the room list's business" and nothing else, which
+   * meant it was visible in exactly one place — and a reader sitting in a chat,
+   * or with the panel closed, got a badge that pointed at no message.
+   *
+   * Deferred to the sync event rather than sent from `RoomEvent.MyMembership`:
+   * the SDK raises that from inside `room.recalculate()`, before the room's
+   * name is computed — checked against the SDK with a simulated sync, where
+   * `room.name` is still the bare room id at that point and the real name by
+   * the time the sync event fires.
+   * Invites replayed by the initial sync never get here (`everPrepared` gates
+   * the collection), so a restart does not re-announce what was already known.
+   */
+  private announceNewInvites(): void {
+    if (this.newInvites.size === 0) return;
+    const ids = Array.from(this.newInvites);
+    this.newInvites.clear();
+    for (const roomId of ids) {
+      const room = this.client?.getRoom(roomId);
+      // Accepted, declined or withdrawn before the sync finished.
+      if (!room || room.getMyMembership() !== 'invite') continue;
+      const ownEvent = room.currentState.getStateEvents(sdk.EventType.RoomMember, this.userId);
+      const inviterId = ownEvent?.getSender() ?? '';
+      const ownContent = (ownEvent?.getContent() as { is_direct?: boolean } | undefined) ?? undefined;
+      this.notifier.invite({
+        roomName: room.name,
+        inviterName: inviterId ? room.getMember(inviterId)?.name ?? inviterId : '',
+        isDm: ownContent?.is_direct === true,
+      });
+    }
   }
 
   // ---- decryption classification (see file header) -----------------------
@@ -1000,6 +1053,7 @@ export class MatrixStore {
     const ownContent = (ownEvent?.getContent() as { is_direct?: boolean } | undefined) ?? undefined;
     const inviterId = membership === 'invite' ? ownEvent?.getSender() ?? '' : '';
     const inviteIsDirect = membership === 'invite' && ownContent?.is_direct === true;
+    const inviterName = inviterId ? room.getMember(inviterId)?.name ?? inviterId : '';
 
     let lastTs = 0;
     let preview = '';
@@ -1064,6 +1118,7 @@ export class MatrixStore {
       lastTs,
       preview,
       inviterId,
+      inviterName,
       inviteIsDirect,
       avatarMxc: this.roomAvatarMxc(room),
     };

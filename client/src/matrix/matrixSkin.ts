@@ -208,6 +208,19 @@ export function injectMatrixSkin(): void {
 
 .mx-room.unread .nm{color:#f5f3f0;font-weight:600}
 .mx-room.here .nm{color:#e7da00}
+/* A pending invitation, pinned above the room list. The label takes the
+   highlight colour so the block reads as "this is new" before any row is read;
+   the row's second line says who is asking and is kept in the compact layout
+   (below), where an ordinary preview is dropped. */
+#pa-mx .grouplbl.mx-inv-lbl{color:#e7da00}
+.mx-room.mx-invite .nm{color:#f5f3f0;font-weight:600}
+.mx-room.mx-invite .mx-prev{color:#adb0b2}
+/* Text on one line each, the two answers on a third, indented to start under
+   the name (the avatar's 2.1rem plus the row's 0.55rem gap). */
+.mx-room.mx-invite{flex-wrap:wrap}
+.mx-room.mx-invite .nm{white-space:nowrap}
+.mx-inv-acts{flex:0 0 100%;display:flex;gap:0.5rem;padding-left:2.65rem;box-sizing:border-box}
+.mx-inv-acts .pa-b{flex:1}
 .mx-room-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.1rem;overflow:hidden}
 #pa-mx .pa-list-row small{flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mx-badge{
@@ -791,6 +804,21 @@ export function injectMatrixSkin(): void {
   background:#adb0b2;box-shadow:0 0 0 2px #141312;
 }
 .mx-rail-dot.hl{background:#c51a1b}
+/* The invitations square (MatrixUI.buildRailInvites): not a chat, so not an
+   avatar — primary red, because it is the one square that asks for an answer,
+   and never dimmed like an idle chat is. Its count sits where the unread dot
+   does and obeys the same rule about staying inside the rail's padding. */
+.mx-rail-inv{opacity:1}
+.mx-rail-inv .mx-av{
+  background:#c51a1b;color:#fff;font-size:1rem;
+  box-shadow:inset 0 2px 0 #e2585a, inset 0 -3px 0 #5c0f10;
+}
+.mx-rail-count{
+  position:absolute;top:-0.2rem;right:-0.2rem;
+  min-width:0.95rem;height:0.95rem;padding:0 0.15rem;box-sizing:border-box;border-radius:0.5rem;
+  background:#f1efec;color:#0a0908;font-size:0.6rem;font-weight:600;line-height:0.95rem;text-align:center;
+  box-shadow:0 0 0 2px #141312;
+}
 
 /* ---- message options menu (messageMenu.ts) ----------------------------------
    A panel-shaped popover, positioned by script inside #pa-mx. Panel tokens
@@ -952,6 +980,7 @@ export function injectMatrixSkin(): void {
 /* The room list's second line costs every row twice its height to preview a
    message the timeline shows in full the moment you open the room. */
 .pa-compact .mx-prev{display:none}
+.pa-compact .mx-room.mx-invite .mx-prev{display:block}
 /* The rail keeps its squares (see the note above: no box changes here) and
    gives back its gutters instead — the marker moves in with them. */
 .pa-compact .mx-rail{padding:0.35rem 0.2rem 0.35rem 0.4rem;gap:0.3rem}
