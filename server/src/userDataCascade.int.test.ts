@@ -43,6 +43,7 @@ const { ZoneStore } = await import('./zoneStore.js');
 const { meetingRoomStore } = await import('./meetingRoomStore.js');
 const { arcadeSaves } = await import('./arcadeSaveStore.js');
 const { oauthIdentityStore } = await import('./oidc/identityStore.js');
+const { totpStore } = await import('./totpStore.js');
 const { PREF_KINDS, USER_CHILD_TABLES } = await import('./schema/tables.js');
 const { DEFAULT_ZONE } = await import('@pixel/shared');
 const { Direction } = await import('@pixel/shared/office/types.js');
@@ -137,6 +138,7 @@ test('deleting an account leaves nothing of it behind, in any table', () => {
   zones.aclAdd(DEFAULT_ZONE, id);
   meetingRoomStore.create(id, 60_000, { label: 'Mine' });
   oauthIdentityStore.link('oidc', `subject-of-${id}`, id);
+  totpStore.beginEnrolment(id);
   // And one for the bystander, so this proves a DELETE aimed at one account, not a truncate.
   appStore.setCharPref(other, 'char_4');
   const bystanderSession = appStore.createSession(other);

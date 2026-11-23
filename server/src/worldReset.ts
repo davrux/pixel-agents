@@ -46,6 +46,9 @@ const KEEP_TABLES = new Set([
   // definition: wiping it would leave the accounts standing but make the next OIDC login
   // provision a SECOND account for the same person.
   'oauth_identities',
+  // Two-factor enrolment. Wiping it would silently turn 2FA OFF for every account while their
+  // passwords survive — a reset of the world must not be a downgrade of anybody's login.
+  'user_totp',
 ]);
 
 /** Asset rows that survive: a user's own avatar belongs to their account, the

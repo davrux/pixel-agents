@@ -27,6 +27,8 @@ import { userStore, normalizeLoginId, isValidPassword, MIN_PASSWORD_LEN } from '
 import { secretEquals } from './secretCompare.js';
 import { oidcButtonVisible, oidcAutoRedirect, oidcLabel } from './oidc/presentation.js';
 import { providerLogoutUrl } from './oidc/logout.js';
+import { totpStore } from './totpStore.js';
+import { issueMfaTicket, mfaTicketUser, noteMfaTicketFail, consumeMfaTicket } from './mfaTickets.js';
 
 const VIEWER_COOKIE = 'pixel_stream_sid';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -207,6 +209,25 @@ export function loginPageHtml(err = ''): string {
 }
 /** Local alias, so the many call sites below read as they did. */
 const loginHtml = loginPageHtml;
+
+/**
+ * The second step of a password sign-in for an account with two-factor on. It carries the TICKET,
+ * never the password: the ticket names the account and can be exchanged for a session only with a
+ * valid code (see mfaTickets.ts).
+ */
+function totpPageHtml(ticket: string, err = ''): string {
+  return authPageHtml({
+    title: 'Two-factor sign-in',
+    action: '/login/totp',
+    err,
+    fields: `<input type="hidden" name="ticket" value="${escapeHtml(ticket)}">
+<label for="c">Authentication code</label>
+<input id="c" name="code" type="text" inputmode="numeric" placeholder="123456" maxlength="16" autofocus autocomplete="one-time-code">
+<div class="hint">The 6-digit code from your authenticator app — or one of your recovery codes.</div>`,
+    submit: 'Verify',
+    footer: '<a href="/login">Start over</a>',
+  });
+}
 
 /** Minimal escaping for the one operator-provided string these pages interpolate. */
 function escapeHtml(s: string): string {
@@ -400,6 +421,63 @@ function verifyCredentials(body: Record<string, unknown>, adminToken: string | n
   return String(body.token ?? '') !== '' ? verifyRegistration(body, adminToken) : verifyLogin(body);
 }
 
+/**
+ * After a password (or the admin token) proved who the caller is: either the sign-in is complete,
+ * or the account has two-factor on and the caller gets a ticket for the second step instead of a
+ * session. Every credential path that ends in a session goes through here, so a new one cannot
+ * forget the second factor — the OIDC callback deliberately does NOT (the provider runs its own
+ * MFA, and asking twice would make the provider's policy meaningless rather than stricter).
+ */
+type FirstFactor = { userId: string } | { ticket: string };
+function afterFirstFactor(userId: string): FirstFactor {
+  return totpStore.isEnabled(userId) ? { ticket: issueMfaTicket(userId) } : { userId };
+}
+
+/**
+ * Exchange a ticket plus a code for the account. Wrong codes count against the same per-account
+ * throttle as wrong passwords (keyed by the ACCOUNT from the ticket, never by anything the caller
+ * typed), and against the ticket itself.
+ */
+function verifySecondFactor(body: Record<string, unknown>): AuthResult & { ticketAlive?: boolean } {
+  const ticket = String(body.ticket ?? '').slice(0, 64);
+  const userId = mfaTicketUser(ticket);
+  if (!userId) return { error: 'That sign-in expired — enter your password again.', status: 401, ticketAlive: false };
+  if (loginThrottled(userId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429, ticketAlive: true };
+  if (!totpStore.verify(userId, body.code).ok) {
+    noteLoginFail(userId);
+    noteMfaTicketFail(ticket);
+    return { error: 'That code is not right.', status: 401, ticketAlive: mfaTicketUser(ticket) !== undefined };
+  }
+  consumeMfaTicket(ticket);
+  // Re-checked: the account may have been disabled in the minutes since the password step.
+  if (userStore.get(userId)?.disabled) return { error: 'This account has been disabled.', status: 403 };
+  loginFails.delete(userId);
+  return { userId };
+}
+
+/**
+ * Prove it is really the owner sitting at a signed-in session, before a change to how the account
+ * signs in (turning two-factor on or off, new recovery codes). A stolen cookie must not be enough
+ * to lock the owner out, or to strip the second factor it was stolen around.
+ *
+ * Shares the per-account throttle with /login, so the settings routes are not a side door for
+ * guessing a password with a hijacked session. Returns an error to show, or null when it passed.
+ * `code` is checked (and consumed) only when given — callers pass it exactly when 2FA is on.
+ */
+export function reauthenticate(userId: string, password: unknown, code?: unknown): { error: string; status: number } | null {
+  if (loginThrottled(userId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
+  const pw = String(password ?? '').slice(0, 256);
+  if (!userStore.verifyPassword(userId, pw)) {
+    noteLoginFail(userId);
+    return { error: 'Your password is not right.', status: 403 };
+  }
+  if (code !== undefined && !totpStore.verify(userId, code).ok) {
+    noteLoginFail(userId);
+    return { error: 'That code is not right.', status: 403 };
+  }
+  return null;
+}
+
 /** Register login + the HTML auth gate. `adminToken` may be null: a deployment that
  *  authenticates only through its identity provider has no local token, and then account
  *  creation is refused rather than offered (see verifyRegistration). */
@@ -422,6 +500,20 @@ export function registerAuth(app: Express, adminToken: string | null): void {
   app.post('/login', (req: Request, res: Response) => {
     const result = verifyLogin((req.body ?? {}) as Record<string, unknown>);
     if ('error' in result) return void res.status(result.status ?? 401).type('html').send(loginHtml(result.error));
+    const next = afterFirstFactor(result.userId);
+    if ('ticket' in next) return void res.status(200).type('html').send(totpPageHtml(next.ticket));
+    return setSession(req, res, next.userId);
+  });
+
+  // The second step. Authorizes itself: the ticket is the proof of the password step, and the
+  // account comes from the ticket, never from the body.
+  app.post('/login/totp', (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const result = verifySecondFactor(body);
+    if ('error' in result) {
+      const page = result.ticketAlive ? totpPageHtml(String(body.ticket ?? '').slice(0, 64), result.error) : loginHtml(result.error);
+      return void res.status(result.status ?? 401).type('html').send(page);
+    }
     return setSession(req, res, result.userId);
   });
 
@@ -439,7 +531,11 @@ export function registerAuth(app: Express, adminToken: string | null): void {
     if ('error' in result) {
       return void res.status(result.status ?? 401).type('html').send(registerHtml(result.error, adminToken !== null));
     }
-    return setSession(req, res, result.userId);
+    // Presenting the admin token for an EXISTING account signs into it — so it is a first factor
+    // like any other, and an account with two-factor on still asks for its code.
+    const next = afterFirstFactor(result.userId);
+    if ('ticket' in next) return void res.status(200).type('html').send(totpPageHtml(next.ticket));
+    return setSession(req, res, next.userId);
   });
 
   // Desktop token issuance: same credentials as /login, but returns the opaque
@@ -448,8 +544,27 @@ export function registerAuth(app: Express, adminToken: string | null): void {
   app.post('/desktop/token', express.json(), (req: Request, res: Response) => {
     const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
     if ('error' in result) return void res.status(result.status ?? 401).json({ error: result.error });
-    const sid = appStore.createSession(result.userId);
+    const next = afterFirstFactor(result.userId);
+    if ('ticket' in next) {
+      // 401 with the ticket: a build that knows about two-factor asks for the code and calls
+      // /desktop/token/totp; an older build simply shows `error`, which therefore says what to do.
+      return void res.status(401).json({
+        error: 'Two-factor sign-in is on for this account — update the app to enter your code.',
+        totpRequired: true,
+        ticket: next.ticket,
+      });
+    }
+    const sid = appStore.createSession(next.userId);
     return void res.status(200).json({ token: sid });
+  });
+
+  // The desktop's second step: the same exchange as /login/totp, answered with a bearer.
+  app.post('/desktop/token/totp', express.json({ limit: '2kb' }), (req: Request, res: Response) => {
+    const result = verifySecondFactor((req.body ?? {}) as Record<string, unknown>);
+    if ('error' in result) {
+      return void res.status(result.status ?? 401).json({ error: result.error, ticketAlive: result.ticketAlive === true });
+    }
+    return void res.status(200).json({ token: appStore.createSession(result.userId) });
   });
 
   // Desktop sign-out: revoke the bearer session by sid. Idempotent — always 204,

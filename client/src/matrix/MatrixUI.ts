@@ -99,7 +99,7 @@ type ViewName =
   | 'join'
   | 'encryption'
   | 'notifications';
-type RoomsTab = 'people' | 'groups' | 'invites';
+type RoomsTab = 'people' | 'groups';
 
 interface ViewFrame {
   view: ViewName;
@@ -439,8 +439,7 @@ export class MatrixUI {
         if (this.stack[this.stack.length - 1]?.view === 'rooms') this.renderRoomsView();
       }),
       this.store.on('rooms', () => {
-        const invites = this.store?.rooms().filter((r) => r.membership === 'invite').length ?? 0;
-        this.hooks.onUnreadChange((this.store?.totalUnread() ?? 0) + invites);
+        this.hooks.onUnreadChange((this.store?.totalUnread() ?? 0) + this.inviteCount());
         const top = this.stack[this.stack.length - 1];
         if (top?.view === 'rooms') this.renderRoomsView();
         // Freshly created/joined rooms (handleCreateGroup/handleJoin) open the
@@ -1350,7 +1349,6 @@ export class MatrixUI {
     if (!this.store) return;
     const all = this.store.rooms();
     const { people, groups, invites } = this.classify(all);
-    if (invites.length === 0 && this.roomsTab === 'invites') this.roomsTab = 'people';
 
     this.roomsSegEl.innerHTML = '';
     const mkSeg = (tab: RoomsTab, label: string, count: number) => {
@@ -1365,11 +1363,15 @@ export class MatrixUI {
     };
     this.roomsSegEl.appendChild(mkSeg('people', 'People', people.length));
     this.roomsSegEl.appendChild(mkSeg('groups', 'Groups', groups.length));
-    if (invites.length > 0) this.roomsSegEl.appendChild(mkSeg('invites', 'Invites', invites.length));
 
     const term = this.roomsFilterText;
-    const pool = this.roomsTab === 'people' ? people : this.roomsTab === 'groups' ? groups : invites;
+    const pool = this.roomsTab === 'people' ? people : groups;
     const filtered = this.sortRooms(pool.filter((r) => this.matchesFilter(r, term)));
+    // Invitations are pinned above whichever tab is showing. They used to be a
+    // third tab, which appeared only while one was pending and was therefore
+    // the one place nobody had a habit of looking: the dock badge counted the
+    // invite, and both lists it led to showed nothing new.
+    const pinned = invites.filter((r) => this.matchesFilter(r, term));
 
     this.roomsListEl.innerHTML = '';
 
@@ -1381,6 +1383,32 @@ export class MatrixUI {
         this.roomsListEl.appendChild(skel);
       }
       return;
+    }
+
+    if (pinned.length > 0) {
+      const lbl = document.createElement('div');
+      lbl.className = 'grouplbl mx-inv-lbl';
+      lbl.textContent = pinned.length === 1 ? 'Invitation' : `Invitations (${pinned.length})`;
+      this.roomsListEl.appendChild(lbl);
+      for (const room of pinned) {
+        this.roomsListEl.appendChild(this.buildRoomRow(room));
+        const err = this.inviteError.get(room.roomId);
+        if (err) {
+          const e = document.createElement('div');
+          e.className = 'mx-err';
+          e.textContent = err;
+          this.roomsListEl.appendChild(e);
+        }
+      }
+      // An invitation is something to show, so "No rooms yet." under it would
+      // contradict the row above.
+      if (filtered.length === 0) return;
+      // Says where the pinned block ends; the tab above already names the list,
+      // but not from halfway down it.
+      const rest = document.createElement('div');
+      rest.className = 'grouplbl';
+      rest.textContent = this.roomsTab === 'people' ? 'People' : 'Groups';
+      this.roomsListEl.appendChild(rest);
     }
 
     if (filtered.length === 0) {
@@ -1403,21 +1431,30 @@ export class MatrixUI {
       return;
     }
 
-    for (const room of filtered) {
-      this.roomsListEl.appendChild(this.buildRoomRow(room));
-      const err = this.inviteError.get(room.roomId);
-      if (err) {
-        const e = document.createElement('div');
-        e.className = 'mx-err';
-        e.textContent = err;
-        this.roomsListEl.appendChild(e);
-      }
+    for (const room of filtered) this.roomsListEl.appendChild(this.buildRoomRow(room));
+  }
+
+  /** The second line of an invite row: who is asking. Remote text, so it only
+   *  ever reaches the DOM through textContent. */
+  private inviteLine(room: MxRoom): string {
+    const who = room.inviterName;
+    if (room.inviteIsDirect) {
+      // An unnamed DM is named after the other person, so repeating the name
+      // under itself would read like a bug.
+      return who && who !== room.name ? `${who} wants to chat with you` : 'Wants to chat with you';
     }
+    return who ? `Invited by ${who}` : 'You were invited';
+  }
+
+  private inviteCount(): number {
+    return this.store?.rooms().filter((r) => r.membership === 'invite').length ?? 0;
   }
 
   private buildRoomRow(room: MxRoom): HTMLElement {
+    const invite = room.membership === 'invite';
     const row = document.createElement('div');
     row.className = 'pa-list-row mx-room';
+    if (invite) row.classList.add('mx-invite');
     if (room.unread > 0) row.classList.add('unread');
     if (this.openRoomId === room.roomId) row.classList.add('here');
 
@@ -1435,7 +1472,10 @@ export class MatrixUI {
 
     const prev = document.createElement('div');
     prev.className = 'mx-prev';
-    prev.textContent = room.preview;
+    // An invite has no timeline to preview; what its second line can say is who
+    // sent it, which is the one thing needed to decide.
+    prev.textContent = invite ? this.inviteLine(room) : room.preview;
+    if (invite) prev.title = prev.textContent;
     main.appendChild(prev);
 
     row.appendChild(main);
@@ -1452,7 +1492,7 @@ export class MatrixUI {
     }
     row.appendChild(small);
 
-    if (room.membership === 'invite') {
+    if (invite) {
       const busy = this.inviteBusy.has(room.roomId);
       const acceptBtn = document.createElement('button');
       acceptBtn.className = 'pa-b primary';
@@ -1470,7 +1510,13 @@ export class MatrixUI {
         ev.stopPropagation();
         void this.handleDeclineInvite(room.roomId);
       });
-      row.append(acceptBtn, declineBtn);
+      // On a line of their own (the row wraps — see .mx-invite): beside the
+      // text, two buttons leave a 20rem column about six characters for the
+      // name and none for who is asking.
+      const acts = document.createElement('div');
+      acts.className = 'mx-inv-acts';
+      acts.append(acceptBtn, declineBtn);
+      row.appendChild(acts);
     } else {
       const badge = document.createElement('div');
       badge.className = 'mx-badge' + (room.highlight > 0 ? ' hl' : '');
@@ -1496,14 +1542,22 @@ export class MatrixUI {
     this.inviteBusy.add(roomId);
     this.inviteError.delete(roomId);
     this.renderRoomsView();
+    let accepted = false;
     try {
       await this.store.acceptInvite(roomId);
+      accepted = true;
     } catch (e) {
       this.inviteError.set(roomId, this.errText(e));
     } finally {
       this.inviteBusy.delete(roomId);
-      this.renderRoomsView();
     }
+    // Straight into the chat, like handleJoin: accepting is "show me this", and
+    // without it the row just vanishes from the pinned block and turns up in
+    // whichever tab it belongs to, which may not be the one on screen. Only if
+    // the list is still what is showing — the join is a round trip, and somebody
+    // who opened another chat meanwhile must not be pulled out of it.
+    if (accepted && this.stack[this.stack.length - 1]?.view === 'rooms') this.openRoomView(roomId);
+    else this.renderRoomsView();
   }
 
   private async handleDeclineInvite(roomId: string): Promise<void> {
@@ -1999,16 +2053,23 @@ export class MatrixUI {
    *  (which has names, previews and a filter). */
   private static readonly RAIL_MAX = 100;
 
-  /** The rail: joined chats — people and groups alike, invites excluded since
-   *  there is nothing to switch *to* until one is accepted — newest message
-   *  first, avatars only with the name on the tooltip.
+  /** The rail: joined chats — people and groups alike — newest message first,
+   *  avatars only with the name on the tooltip.
+   *
+   *  An invite is not a chat to switch to, so pending ones are not squares of
+   *  their own; they are ONE square at the top (buildRailInvites) that leads to
+   *  the list, where they can be answered. Leaving them out altogether is what
+   *  made an invite invisible from inside a chat, which is where the panel
+   *  reopens.
    *
    *  The open room is always among them even when it has dropped past the cap,
    *  because a rail that doesn't show where you are reads as broken (and its
    *  ▍marker would be nowhere). */
   private renderRail(openRoomId: string): void {
     if (!this.store) return;
-    const joined = this.store.rooms().filter((r) => r.membership === 'join');
+    const all = this.store.rooms();
+    const invites = all.filter((r) => r.membership === 'invite').length;
+    const joined = all.filter((r) => r.membership === 'join');
     joined.sort((a, b) => b.lastTs - a.lastTs);
     const max = MatrixUI.RAIL_MAX;
     let shown = joined.slice(0, max);
@@ -2019,15 +2080,20 @@ export class MatrixUI {
       if (open) shown = [...shown.slice(0, max - 1), open];
     }
     // One square is the room you are already in — nothing to switch to, and in
-    // a 20rem column the rail's width is worth more than that.
-    this.railEl.hidden = shown.length < 2;
+    // a 20rem column the rail's width is worth more than that. A pending invite
+    // is worth it, though: the rail is then the only sign of one in this view.
+    this.railEl.hidden = shown.length < 2 && invites === 0;
 
-    const key = shown
-      .map((r) => [r.roomId, r.name, r.avatarMxc ?? '', r.unread, r.highlight, r.roomId === openRoomId].join('\u0001'))
-      .join('\n');
+    const key =
+      `${invites}\n` +
+      shown
+        .map((r) => [r.roomId, r.name, r.avatarMxc ?? '', r.unread, r.highlight, r.roomId === openRoomId].join('\u0001'))
+        .join('\n');
     if (this.railKey === key) return;
     this.railKey = key;
-    this.railEl.replaceChildren(...shown.map((r) => this.buildRailButton(r, openRoomId)));
+    const squares: HTMLElement[] = shown.map((r) => this.buildRailButton(r, openRoomId));
+    if (invites > 0) squares.unshift(this.buildRailInvites(invites));
+    this.railEl.replaceChildren(...squares);
     // With a scrolling rail the open room can sit below the fold — bring it
     // into view, but only as far as needed so a rail scrolled by hand stays put.
     // Done by hand rather than scrollIntoView, which would also scroll the
@@ -2040,6 +2106,32 @@ export class MatrixUI {
       if (top < rail.scrollTop) rail.scrollTop = top;
       else if (bottom > rail.scrollTop + rail.clientHeight) rail.scrollTop = bottom - rail.clientHeight;
     }
+  }
+
+  /** The one square that stands for every pending invitation. It goes back to
+   *  the room list — where they are pinned on top with Accept and Decline —
+   *  rather than answering anything from here: a 2rem square has no room to say
+   *  who is asking, and that is what the decision needs. */
+  private buildRailInvites(count: number): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.className = 'mx-rail-b mx-rail-inv';
+    const label = count === 1 ? '1 invitation — show' : `${count} invitations — show`;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+
+    const sq = document.createElement('div');
+    sq.className = 'mx-av';
+    sq.setAttribute('aria-hidden', 'true');
+    sq.textContent = '✉️';
+    btn.appendChild(sq);
+
+    const n = document.createElement('span');
+    n.className = 'mx-rail-count';
+    n.textContent = count > 9 ? '9+' : String(count);
+    btn.appendChild(n);
+
+    btn.addEventListener('click', () => this.goRoot());
+    return btn;
   }
 
   private buildRailButton(room: MxRoom, openRoomId: string): HTMLButtonElement {

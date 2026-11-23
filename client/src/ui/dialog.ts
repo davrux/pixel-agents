@@ -276,3 +276,89 @@ export function passwordPromptDialog(
     input.focus();
   });
 }
+
+/** One input of a {@link formDialog}. */
+export interface FormField {
+  name: string;
+  label: string;
+  type?: 'text' | 'password';
+  autocomplete?: string;
+  inputMode?: 'numeric' | 'text';
+  placeholder?: string;
+  maxLength?: number;
+}
+
+/**
+ * A modal with several labelled inputs (and optionally an element above them, such as a QR code).
+ * Resolves to the values by field name, or null on cancel / Esc / backdrop click.
+ *
+ * `error` is shown under the message: callers that validate on the server re-open the dialog with
+ * the server's reason rather than inventing a second error surface.
+ */
+export function formDialog(
+  message: string,
+  fields: readonly FormField[],
+  opts: { confirmLabel?: string; cancelLabel?: string; danger?: boolean; error?: string; extra?: HTMLElement } = {},
+): Promise<Record<string, string> | null> {
+  const { overlay, box } = buildModal(message);
+  if (opts.extra) box.appendChild(opts.extra);
+  if (opts.error) {
+    const err = document.createElement('p');
+    err.className = 'msg';
+    err.style.color = '#f6cdd4';
+    err.textContent = opts.error;
+    box.appendChild(err);
+  }
+  const inputs = new Map<string, HTMLInputElement>();
+  for (const f of fields) {
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    const label = document.createElement('label');
+    label.textContent = f.label;
+    const input = document.createElement('input');
+    input.type = f.type ?? 'text';
+    input.style.flex = '1';
+    input.style.minWidth = '0';
+    input.style.marginBottom = '0';
+    if (f.autocomplete) input.autocomplete = f.autocomplete as AutoFill;
+    if (f.inputMode) input.inputMode = f.inputMode;
+    if (f.placeholder) input.placeholder = f.placeholder;
+    if (f.maxLength) input.maxLength = f.maxLength;
+    // The text-input rule above is keyed to type=text; a password field needs the same look.
+    input.className = 'pa-form-input';
+    label.htmlFor = input.id = `pa-form-${f.name}`;
+    row.append(label, input);
+    box.appendChild(row);
+    inputs.set(f.name, input);
+  }
+  const style = document.createElement('style');
+  style.textContent = `#pa-modal input.pa-form-input{background:#262422;border:2px solid #0a0908;color:#f1efec;
+    border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.6rem;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}`;
+  box.appendChild(style);
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  const cancel = document.createElement('button');
+  cancel.textContent = opts.cancelLabel ?? 'Cancel';
+  const ok = document.createElement('button');
+  ok.textContent = opts.confirmLabel ?? 'OK';
+  ok.className = opts.danger ? 'danger' : 'ok';
+  foot.append(cancel, ok);
+  box.appendChild(foot);
+
+  const values = (): Record<string, string> => Object.fromEntries([...inputs].map(([k, el]) => [k, el.value]));
+  return new Promise<Record<string, string> | null>((resolve) => {
+    const done = (v: Record<string, string> | null): void => {
+      close();
+      resolve(v);
+    };
+    const close = openModal(
+      overlay,
+      () => done(null),
+      () => done(values()),
+    );
+    cancel.onclick = () => done(null);
+    ok.onclick = () => done(values());
+    inputs.values().next().value?.focus();
+  });
+}

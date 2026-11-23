@@ -196,6 +196,27 @@ export const USER_CHILD_TABLES: readonly ChildTable[] = [
     `,
   },
   {
+    table: 'user_totp',
+    column: 'user_id',
+    holds: 'the authenticator-app secret, its last used step and hashed recovery codes (2FA)',
+    ddl: `
+      CREATE TABLE IF NOT EXISTS user_totp (
+        user_id TEXT PRIMARY KEY ${CASCADE},
+        -- Base32, as the authenticator app holds it. A row with enabled = 0 is an enrolment in
+        -- progress: the secret was shown but no code has proved the app has it yet.
+        secret TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        -- The last 30-second step a code was accepted for; only later steps are accepted, so a
+        -- code seen over a shoulder cannot be replayed inside its validity window.
+        last_step INTEGER NOT NULL DEFAULT -1,
+        -- JSON array of SHA-256 hex digests, one per unused recovery code.
+        recovery TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL
+      )`,
+    // An integer compared with ">" — under TEXT affinity '10' < '9' and replay protection breaks.
+    requireType: { column: 'last_step', type: 'INTEGER' },
+  },
+  {
     table: 'user_prefs',
     column: 'user_id',
     holds: 'pinned skins and viewer settings',

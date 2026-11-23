@@ -214,6 +214,11 @@ const PUBLIC_ROUTES = new Map([
   ['GET /logout', 'drops the session it was sent with; nothing to authorize'],
   ['POST /desktop/token', 'same credentials as /login, issues the bearer (throttled)'],
   ['POST /desktop/signout', 'revokes the presented bearer; idempotent by design'],
+  // Two-factor second step (auth.ts verifySecondFactor). On the way IN, so no session: it
+  // authorizes on the one-time ticket the password step issued (5 min TTL, 5 tries, spent on
+  // use), takes the account FROM the ticket, and counts wrong codes on the /login throttle.
+  ['POST /login/totp', 'second sign-in step: ticket from the password step + a valid code (throttled)'],
+  ['POST /desktop/token/totp', 'same second step as /login/totp, answered with a bearer'],
   // OIDC login (oidc/routes.ts). All five are on the way IN, so none of them can have a session
   // to check — what each authorizes on instead:
   ['GET /auth/oauth/config', 'says only whether a provider button exists and what it is called'],
