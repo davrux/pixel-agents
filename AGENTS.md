@@ -347,6 +347,31 @@ Three decisions inside it:
   room (`takeScuffleResults`) — the engine writes to no database, and reading it per pet would count
   every fight twice.
 
+**A television shows what a player put on it, and the client is what decodes the file**
+(`{ kind: 'tvScreen' }`, the `CRT_TV` tile, `shared/office/tvScreen.ts`). Walking up opens a
+dialog — not a file chooser straight away, because a browser opens one only from a real click and
+an arrival is a server message. Five decisions:
+
+- **The browser decodes, the server checks a PNG.** Any format a browser opens, plus our own GIF
+  decoder (`client/src/media/gifDecode.ts` — `drawImage` of an animated `<img>` gives Firefox the
+  FIRST frame, by spec), is packed into one grid of frames (`tvGrid`) at most 128×96 × 48 frames;
+  a longer GIF is thinned evenly with its delays summed, so it still plays to the end. The upload
+  then goes through `screenFromPng`, beside `sheetFromPng` and with the same order (byte cap,
+  header, declared grid, THEN decode, then re-encode). No GIF or JPEG decoder exists server-side.
+  `mmo-readiness` checks every `…FromPng` in that file on its own.
+- **The upload names no television.** The room issues a ticket on ARRIVAL (`tvTickets.ts`: TTL,
+  cap, spent on success) and `POST /tv/screen` honours it only for the account it was issued to.
+  "You change a television by standing in front of it" therefore holds server-side.
+- **Keyed by anchor TILE, not uid.** Every import mints new placement uids, so a uid key would
+  blank every screen on every push. A television that moves or disappears loses its picture
+  (`syncTvScreens` deletes the row — up to 3 MB nothing can reach).
+- **Synced as a URL, fetched as a capability.** `RoomState.tvScreens` (protocol 31) carries
+  `/tv/<zone>/<col,row>/<hash>` plus frame size and delays; the GET answers only the CURRENT hash,
+  so a private zone's screen cannot be read by guessing a tile. The frame phase is client-side.
+- **One texture per picture, outside the atlas** (`render/tvScreens.ts`), the uploaded-image
+  exception: replaced pictures would otherwise strand frames in shared pages. Removed when no
+  television shows it; drawn "contain", letterboxed in black, with LINEAR filtering.
+
 **A flight answers itself; only a cornered animal asks the pathfinder.** `pathAwayFrom` (shared by
 the `flee` reaction and the loser's retreat) used to filter all 2634 walkable tiles of a real map,
 sort them by distance from the hunter and ask A* whether the best eight were reachable — 172 µs per

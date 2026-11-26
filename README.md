@@ -331,6 +331,7 @@ the set of properties changes.
 | `actionUrl` | string | `iframe` only, must be `https://`. |
 | `actionPose` | enum | `appliance` only: `coffee`, `drink` or `pet_feed` — which decides the pose adopted there and who may use it at all. |
 | `meetingRoomName` | string | `meetingRoom` only: what the room is called. |
+| `actionScreen` | string | `tvScreen` only: where the glass is, `x,y,w,h` in the art's own pixels (unscaled, unturned). Empty = the whole piece. A resized placement scales it along. |
 
 Placements additionally take `name`, `approachSides` (a flags enum — **empty
 means "every open side", not "none"**) and `approachThrough` (this item may be
@@ -464,6 +465,7 @@ and the bubble shows the later one.
 | `raceStart` | a slot on the starting grid, in `actionSlot` order (0 = pole). Pole also carries `actionDir`, the bearing the field sets off in | `actionSlot`, `actionDir` |
 | `raceFinish` | the line that ends a point-to-point race. A track that has one is a sprint rather than laps | — |
 | `raceRecords` | a board showing this track's records — a property of the PLACEMENT, so one whiteboard becomes the timing screen and the others stay whiteboards | — |
+| `tvScreen` | a television: whoever walks up may put a picture or an animated GIF on it, and everyone in the zone sees it until it is changed or switched off. The **CRT television** (`CRT_TV`) in `furniture-electronics` carries it by default; any monitor can be given it per placement. The picture belongs to the piece's anchor TILE, so it survives a map push as long as the television is not moved (a moved or removed one loses its picture). A turned placement shows nothing | `actionScreen` |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).
@@ -567,7 +569,7 @@ nothing custom about it.
 |---|---|
 | `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
-| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `petScores`, `portal`, `toggle`, `spawnPoint`, `talkingObject`, `raceGate`, `raceStart`, `raceFinish`, `raceRecords` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `petScores`, `portal`, `toggle`, `spawnPoint`, `talkingObject`, `raceGate`, `raceStart`, `raceFinish`, `raceRecords`, `tvScreen` |
 | `ApplianceKind` | *(empty)*, `coffee`, `drink`, `pet_feed` |
 | `SurfaceKind` | `rough`, `boost`, `item`, `ice` |
 

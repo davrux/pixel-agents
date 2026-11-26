@@ -168,3 +168,61 @@ export async function sheetFromPng(input: unknown, frame: { w: number; h: number
     return { ok: false, reason: `undecodable (${err instanceof Error ? err.message : 'unknown'})` };
   }
 }
+
+/**
+ * Byte ceiling for a television picture. The largest legal one is 0.59 megapixels
+ * (TV_MAX_FRAMES at TV_MAX_FRAME_W × TV_MAX_FRAME_H), which is 2.36 MB of RGBA — and, as for a
+ * sheet, a PNG of incompressible noise at that size is about as big. Three megabytes therefore
+ * admits every legal picture whatever it shows; a real GIF of a few dozen frames is a few hundred
+ * kilobytes.
+ */
+export const MAX_TV_PNG_BYTES = 3 * 1024 * 1024;
+
+export type ScreenFromPng = { ok: true; png: Buffer } | { ok: false; reason: string };
+
+/**
+ * The same gate as `sheetFromPng`, for what a television shows: a grid of `frames` equal frames
+ * (see `tvGrid`), packed by the client from whatever image or GIF its player chose.
+ *
+ * Same order and for the same reasons — bytes, signature, IHDR, then the DECLARED dimensions
+ * against exactly the grid the metadata promises, all before any decoder runs — and the same
+ * re-encode, so what every other viewer downloads is a PNG this server wrote. A frame size outside
+ * the television bounds, or a grid whose size does not match, is refused rather than cropped.
+ */
+export async function screenFromPng(
+  input: unknown,
+  frame: { w: number; h: number; frames: number },
+  bounds: { maxW: number; maxH: number; maxFrames: number; maxPixels: number },
+  grid: (w: number, h: number, frames: number) => { width: number; height: number },
+): Promise<ScreenFromPng> {
+  const bytes = input instanceof Uint8Array ? Buffer.from(input.buffer, input.byteOffset, input.byteLength) : null;
+  if (!bytes) return { ok: false, reason: 'not bytes' };
+  if (bytes.length > MAX_TV_PNG_BYTES) return { ok: false, reason: `over ${MAX_TV_PNG_BYTES} bytes` };
+
+  const head = readPngHeader(bytes);
+  if (!head) return { ok: false, reason: 'not a PNG' };
+  if (head.bitDepth !== 8) return { ok: false, reason: `bit depth ${head.bitDepth}` };
+  if (head.interlace !== 0) return { ok: false, reason: 'interlaced' };
+
+  const { width, height } = head;
+  if (width < 1 || height < 1) return { ok: false, reason: 'empty' };
+  if (width * height > bounds.maxPixels) return { ok: false, reason: `${width}×${height} is too many pixels` };
+  const { w, h, frames } = frame;
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > bounds.maxW || h > bounds.maxH) {
+    return { ok: false, reason: `frame ${w}×${h}` };
+  }
+  if (!Number.isInteger(frames) || frames < 1 || frames > bounds.maxFrames) return { ok: false, reason: `${frames} frames` };
+  const want = grid(w, h, frames);
+  if (width !== want.width || height !== want.height) {
+    return { ok: false, reason: `${width}×${height} is not ${frames} frames of ${w}×${h}` };
+  }
+
+  try {
+    const decoded = await parsePng(bytes);
+    const out = new PNG({ width: decoded.width, height: decoded.height });
+    out.data = decoded.data;
+    return { ok: true, png: await packPng(out) };
+  } catch (err) {
+    return { ok: false, reason: `undecodable (${err instanceof Error ? err.message : 'unknown'})` };
+  }
+}

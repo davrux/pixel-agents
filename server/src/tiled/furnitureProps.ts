@@ -82,6 +82,9 @@ export const FURNITURE_TILE_PROPS: ReadonlyArray<{
   // action can name the room (see actionProps.ts). An ActionArea gets it from
   // its own class in Pixels.tiled-project.
   { name: 'meetingRoomName', default: '' },
+  // Where a television's glass is, `"x,y,w,h"` in the art's pixels — read only by the `tvScreen`
+  // action (actionProps.ts), like actionUrl is read only by `iframe`. Empty = the whole piece.
+  { name: 'actionScreen', default: '' },
 ];
 
 /** The behaviour a FurnitureTile declares — the catalog default for every

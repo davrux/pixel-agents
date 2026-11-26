@@ -287,6 +287,25 @@ export class RaceSync extends Schema {
 }
 
 /**
+ * What one television is showing — see Action `tvScreen` and `shared/office/tvScreen.ts`.
+ *
+ * Synced rather than sent per viewer, because a picture on a screen is a fact about the room that
+ * everyone sees, and a late joiner has to see it too. The pixels do NOT travel here: `src` is a
+ * URL the client fetches once (it carries the content hash, so it is immutable and cacheable),
+ * and what is synced is only what a renderer needs to slice and play it. The frame PHASE is
+ * presentation timing and stays on each client (invariant 2), exactly like the furniture's own
+ * animation.
+ */
+export class TvScreenSync extends Schema {
+  /** `/tv/<zone>/<col,row>/<hash>` — the server builds it, the client fetches it through serverFetch. */
+  @type('string') src = '';
+  @type('uint16') frameW = 0;
+  @type('uint16') frameH = 0;
+  /** One per frame, in ms. A still picture is one frame. */
+  @type(['uint16']) delays = new ArraySchema<number>();
+}
+
+/**
  * Hands a collection definition to `@type` without the compiler type-checking the
  * argument. Purely type-level — `type` receives exactly the object literal written at
  * the call site, so the wire layout is still decided by the same code as before.
@@ -338,4 +357,11 @@ export class RoomState extends Schema {
    * it costs nothing anywhere else.
    */
   @type(['uint32']) slicks = new ArraySchema<number>();
+  /**
+   * What each television in this zone shows, keyed by its anchor tile (`tvScreenKey`, `"col,row"`).
+   * A television that shows nothing has no entry, so a zone without one costs nothing on the wire.
+   * Entries are deleted when the picture is cleared AND when a pushed map no longer has a
+   * television on that tile.
+   */
+  @type(collection({ map: TvScreenSync })) tvScreens = new MapSchema<TvScreenSync>();
 }

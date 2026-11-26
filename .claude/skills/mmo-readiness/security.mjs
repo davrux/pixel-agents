@@ -551,20 +551,29 @@ const gateSrc = read(GATE_FILE);
 if (!gateSrc) {
   warn(`${GATE_FILE} not found — re-check by hand where a client's image is decoded`);
 } else {
-  // `async function` since the decode went to the threadpool, so match either spelling rather
-  // than the exact one of the day.
-  const fn = gateSrc.search(/export\s+(?:async\s+)?function\s+sheetFromPng/);
-  const decodeAt = fn >= 0 ? gateSrc.slice(fn).search(DECODERS) : -1;
-  const before = decodeAt >= 0 ? gateSrc.slice(fn, fn + decodeAt) : '';
-  const missing = [];
-  if (decodeAt < 0) missing.push('no decode call found — has it moved?');
-  if (!/\.(?:length|byteLength)\s*>=?\s*[\w$]*MAX[\w$]*|[\w$]*MAX[\w$]*\s*<=?\s*[\w$.]+\.(?:length|byteLength)/.test(before)) {
-    missing.push('no byte cap before the decode');
+  // EVERY `…FromPng` the gate file exports is a door for a client's image — the art sheet and the
+  // television picture today — so each one is checked on its own. `async function` since the
+  // decode went to the threadpool, so match either spelling rather than the exact one of the day.
+  const gates = [...gateSrc.matchAll(/export\s+(?:async\s+)?function\s+(\w+FromPng)\b/g)];
+  if (!gates.some((g) => g[1] === 'sheetFromPng')) bad(`${GATE_FILE}: sheetFromPng not found — has it moved?`);
+  for (const g of gates) {
+    const fn = g.index;
+    // Only this function's own text: up to the next export, so one gate's checks cannot vouch for
+    // another's decode.
+    const next = gateSrc.slice(fn + 1).search(/\nexport\s/);
+    const body = next >= 0 ? gateSrc.slice(fn, fn + 1 + next) : gateSrc.slice(fn);
+    const decodeAt = body.search(DECODERS);
+    const before = decodeAt >= 0 ? body.slice(0, decodeAt) : '';
+    const missing = [];
+    if (decodeAt < 0) missing.push('no decode call found — has it moved?');
+    if (!/\.(?:length|byteLength)\s*>=?\s*[\w$]*MAX[\w$]*|[\w$]*MAX[\w$]*\s*<=?\s*[\w$.]+\.(?:length|byteLength)/.test(before)) {
+      missing.push('no byte cap before the decode');
+    }
+    if (!/readPngHeader\s*\(|readUInt32BE\(\s*16\s*\)/.test(before)) missing.push('the header is not read before the decode');
+    if (!/MAX_SHEET_CELLS|width\s*\*\s*height/.test(before)) missing.push('the declared dimensions are not bounded');
+    if (missing.length) bad(`a client's image is decoded unsafely in ${g[1]}: ${missing.join('; ')}`);
+    else pass(`a client's image is byte-capped and header-checked before it is decoded (${g[1]})`);
   }
-  if (!/readPngHeader\s*\(|readUInt32BE\(\s*16\s*\)/.test(before)) missing.push('the header is not read before the decode');
-  if (!/MAX_SHEET_CELLS|width\s*\*\s*height/.test(before)) missing.push('the declared dimensions are not bounded');
-  if (missing.length) bad(`a client's image is decoded unsafely: ${missing.join('; ')}`);
-  else pass("a client's image is byte-capped and header-checked before it is decoded");
 }
 
 const handlerDecodes = handlers.filter((h) => DECODERS.test(h.body));

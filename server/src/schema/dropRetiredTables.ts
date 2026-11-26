@@ -60,6 +60,7 @@ export const LIVE_TABLES: readonly string[] = [
   'race_records',
   'sessions',
   'settings',
+  'tv_screens',
   'user_prefs',
   'user_totp',
   'users',

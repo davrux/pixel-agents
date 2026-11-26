@@ -53,6 +53,8 @@ import { registerAdminApi } from './adminApi.js';
 import { registerTotpApi } from './totpApi.js';
 import { registerArtApi } from './artApi.js';
 import { META_HEADER as ART_SHEET_HEADER, registerArtSaveApi } from './artSaveApi.js';
+import { registerTvScreenApi } from './tvScreenApi.js';
+import { TV_UPLOAD_HEADER } from '@pixel/shared/office/tvScreen.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
@@ -236,7 +238,8 @@ async function main(): Promise<void> {
   // NAME grants nothing — the route still authorizes from the bearer, and with no
   // Allow-Credentials no cookie travels. Pinned against a real boot in matchmaking.int.test.ts.
   const colyseusCors = matchMaker.controller.DEFAULT_CORS_HEADERS as Record<string, string>;
-  colyseusCors['Access-Control-Allow-Headers'] = `${colyseusCors['Access-Control-Allow-Headers']}, ${ART_SHEET_HEADER}`;
+  // `X-Pixel-Tv` likewise: a television picture is posted the same way (see tvScreenApi.ts).
+  colyseusCors['Access-Control-Allow-Headers'] = `${colyseusCors['Access-Control-Allow-Headers']}, ${ART_SHEET_HEADER}, ${TV_UPLOAD_HEADER}`;
   // Narrow cross-origin headers for the desktop bearer path (Authorization
   // allowed, no credentialed cookies) — see desktopCors. Applied before the
   // routes so preflight and actual responses carry the contract.
@@ -334,6 +337,8 @@ async function main(): Promise<void> {
   // Saving art is a POST, not a room message: see artSaveApi.ts for why (own size limit, an
   // answer the editor can show, and a decode that nothing in the room refers to any more).
   registerArtSaveApi(app);
+  // A television's picture, posted with a ticket the room issued on arrival — see tvScreenApi.ts.
+  registerTvScreenApi(app);
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in
   // the image — the operator bind-mounts ARCADE_CONTENT_DIR at runtime. The catalog
   // (metadata only) is public; the files are auth-gated (see auth.ts: /arcade/content

@@ -355,6 +355,8 @@ export class ZoneStore {
     this.db.prepare('DELETE FROM pet_scores WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM race_records WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM race_points WHERE zone_id = ?').run(id);
+    // What the zone's televisions show — see tvScreenStore, no foreign key for the same reason.
+    this.db.prepare('DELETE FROM tv_screens WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zones WHERE id = ?').run(id);
     return true;
   }

@@ -104,8 +104,11 @@ export const WORLD_ROOM = 'world';
  *     bytes that now hold its speed. They exist so the picture moves evenly between patches: a
  *     client easing towards the last known position moves a car in pulses, measured at a 75 %
  *     step-size ripple over a steady 47 fps, which is what "47 fps und irgendwie ruckelt es" was.
+ * 31 — televisions. `RoomState.tvScreens` is a new synced collection (what each one shows), and
+ *     arriving at one sends `tvScreenReady`. An older build would decode the room state wrongly
+ *     from the new collection on, so it is sent to the version gate instead.
  */
-export const PROTOCOL_VERSION = 30;
+export const PROTOCOL_VERSION = 31;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

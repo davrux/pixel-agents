@@ -12,6 +12,7 @@
  */
 import type { Action, ApplianceKind } from '@pixel/shared/office/types.js';
 import { cleanName, MAX_NAME_LEN } from '@pixel/shared';
+import { parseTvScreenRect } from '@pixel/shared/office/tvScreen.js';
 
 export type TiledProp = { name: string; type: string; value: string | number | boolean; propertytype?: string };
 export type PropBag = Record<string, string | number | boolean>;
@@ -57,6 +58,12 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
         // drawn before beacons existed says by saying nothing.
         dir: props[`${prefix}Dir`] === undefined ? -1 : Math.floor(Number(props[`${prefix}Dir`]) || 0),
       };
+    // Where the glass is, as `"x,y,w,h"` in the art's pixels. Absent or malformed is "the whole
+    // piece" (see parseTvScreenRect), so a plain monitor made a television needs nothing else.
+    case 'tvScreen': {
+      const screen = parseTvScreenRect(props[`${prefix}Screen`]);
+      return { kind, ...(screen ? { screen } : {}) };
+    }
     case 'iframe':
       return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
     case 'appliance':

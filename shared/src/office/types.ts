@@ -461,6 +461,14 @@ export const APPLIANCES_FOR = {
  * way an action can happen any more, so "has an action" no longer means
  * "walk up to it".
  */
+/** Where a television's glass is, in the art's own pixels — see Action `tvScreen`. */
+export interface TvScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export type Action =
   /** In-world video/audio call via ConferenceUI/LiveKitConference — on
    *  furniture this is today's conference monitor (explicit join/leave
@@ -577,6 +585,19 @@ export type Action =
   /** A board that shows this track's records. Like `petScores`, it is a property of a PLACEMENT —
    *  one whiteboard becomes the timing screen and every other one stays a whiteboard. */
   | { kind: 'raceRecords' }
+  /**
+   * A television. Whoever walks up to it may put a picture or an animated GIF on its screen, and
+   * every viewer in the zone then sees it there — until somebody changes it or switches it off.
+   *
+   * `screen` says where the glass is, in the art's own pixels (unscaled, unturned); absent means
+   * the whole piece. It belongs to the action rather than to the furniture because it only means
+   * something to this action — the same reason `url` lives on `iframe`. What is SHOWN is not part
+   * of the map at all: it is per zone × television state the server keeps (`tv_screens`) and syncs
+   * in `RoomState.tvScreens`, keyed by the piece's anchor TILE (`tvScreenKey`) rather than its uid —
+   * a placement's uid is minted afresh on every import, so a uid key would blank every screen on
+   * every map push, while a television that has not been moved keeps its tile.
+   */
+  | { kind: 'tvScreen'; screen?: TvScreenRect }
   /**
    * A talking object: it speaks by itself, with nobody there. On every full
    * hour it says the time — a speech bubble reading `9 UHR, 9 UHR !!!` — and

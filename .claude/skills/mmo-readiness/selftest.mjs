@@ -41,6 +41,15 @@ const SECURITY_CASES = [
     'byte cap',
   ],
   [
+    // The television picture is the second door for a client's image; each gate is checked on its
+    // own, so one gate's byte cap must not vouch for the other's decode.
+    'a television picture decoded without a byte cap',
+    'server/src/art/sheetPng.ts',
+    '  if (bytes.length > MAX_TV_PNG_BYTES) return { ok: false, reason: `over ${MAX_TV_PNG_BYTES} bytes` };',
+    '  // cap removed for the self-test',
+    'byte cap',
+  ],
+  [
     'an ungated GET route',
     'server/src/index.ts',
     "  app.get('/health',",
