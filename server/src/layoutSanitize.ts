@@ -22,6 +22,7 @@ import {
 // re-export a second copy from the pre-Tiled worldConfig, and this import was
 // silently taking that one (same value, but the wrong source).
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
+import { parseTvScreenRect } from '@pixel/shared/office/tvScreen.js';
 import { isSurfaceKind } from '@pixel/shared/office/types.js';
 import type { Action } from '@pixel/shared/office/types.js';
 
@@ -198,6 +199,11 @@ export function sanitizeAction(raw: unknown): Action | null {
       return { kind: 'raceFinish' };
     case 'raceRecords':
       return { kind: 'raceRecords' };
+    // The rect is rebuilt from four bounded integers or dropped — it reaches a renderer as geometry.
+    case 'tvScreen': {
+      const screen = parseTvScreenRect(rec.screen);
+      return { kind: 'tvScreen', ...(screen ? { screen } : {}) };
+    }
     default:
       return null;
   }

@@ -70,7 +70,11 @@ import {
   resolveOnState,
   catalogSize,
   entryFor,
+  getCatalogEntry,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { tvScreenKey, tvScreenWorldRect } from '@pixel/shared/office/tvScreen.js';
+import { TvScreenLayer, type TvShowing, type TvTarget } from '../render/tvScreens.js';
+import { openTvDialog } from '../ui/tvDialog.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
@@ -298,6 +302,11 @@ export class OfficeScene extends Phaser.Scene {
    *  viewer has nothing to derive it from. */
   private slicks: number[] = [];
   private furnitureArr: FurnitureInstance[] = [];
+  /** What the televisions show (a copy of RoomState.tvScreens), and the layer that draws it. The
+   *  dirty flag is raised by a change to either half — the map or the synced pictures. */
+  private tvShowing = new Map<string, TvShowing>();
+  private tvLayer!: TvScreenLayer;
+  private tvDirty = false;
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
   /** This zone's placements with the on-state applied — the map's own objects, not a decoded
    *  copy of them (see rebuildFurniture). Used for click hit-testing and seat resolution. */
@@ -552,6 +561,15 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#171514');
     this.os = new OfficeState();
     this.view = new PhaserRenderer(this, this.renderSource());
+    this.tvLayer = new TvScreenLayer(
+      this,
+      async (src) => {
+        const res = await serverFetch(src);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      },
+      () => this.wake(),
+    );
     // ── The loading phase ────────────────────────────────────────
     // Four independent channels feed the first frame: sets.json plus the sheet PNGs,
     // the baked atlas, the catalog message and the layout message. Nothing orders
@@ -978,6 +996,11 @@ export class OfficeScene extends Phaser.Scene {
           else if (m.kind === 'meetingManager') this.openMeetingRoomManageDialog({ col, row });
           else if (m.kind === 'iframe') openActionIframe(m.url as string, { overlay: this.iframeOverlay });
         }
+        else if (m.type === 'tvScreenReady' && typeof m.ticket === 'string') {
+          // Arrived at a television (Action `tvScreen`): the ticket is this client's permission to
+          // change THAT one, issued by the room — see ui/tvDialog.ts.
+          openTvDialog({ ticket: m.ticket, showing: m.showing === true, fetch: serverFetch });
+        }
         else {
           if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);
@@ -1085,6 +1108,7 @@ export class OfficeScene extends Phaser.Scene {
       characters: MapSchema<Record<string, unknown>>;
       pets: MapSchema<Record<string, unknown>>;
       karts: MapSchema<Record<string, unknown>>;
+      tvScreens: MapSchema<Record<string, unknown>>;
       furnitureOn: ArraySchema<string>;
       slicks: ArraySchema<number>;
     };
@@ -1170,6 +1194,57 @@ export class OfficeScene extends Phaser.Scene {
     $(state).slicks.onAdd(readSlicks);
     $(state).slicks.onChange(readSlicks);
     $(state).slicks.onRemove(readSlicks);
+
+    // What the televisions show. Copied out of the schema (a picture is four fields) so the layer
+    // never holds a schema object; a change to any of them re-reads that one television.
+    const readTv = (tv: Record<string, unknown>, key: string) => {
+      this.tvShowing.set(key, {
+        src: String(tv.src ?? ''),
+        frameW: Number(tv.frameW) || 1,
+        frameH: Number(tv.frameH) || 1,
+        delays: [...((tv.delays as Iterable<unknown> | undefined) ?? [])].map(Number),
+      });
+      this.tvDirty = true;
+      this.wake();
+    };
+    $(state).tvScreens.onAdd((tv: Record<string, unknown>, key: string) => {
+      readTv(tv, key);
+      $(tv).onChange(() => readTv(tv, key));
+    });
+    $(state).tvScreens.onRemove((_tv: unknown, key: string) => {
+      this.tvShowing.delete(key);
+      this.tvDirty = true;
+      this.wake();
+    });
+  }
+
+  /**
+   * Where each television's glass is in the world, from the map — the same placements the
+   * furniture is drawn from, so the picture moves with the piece when a map is pushed.
+   *
+   * A turned television shows nothing: its glass is no longer an upright rectangle, and a picture
+   * drawn upright across a turned frame is worse than the dark screen. A mirrored one mirrors the
+   * RECT but not the picture, so the glass lands where the art put it and text still reads.
+   */
+  private tvTargets(): TvTarget[] {
+    const out: TvTarget[] = [];
+    for (const f of this.furniturePlacements) {
+      const entry = entryFor(f);
+      const action = effectiveAction(f, entry);
+      if (!entry || action?.kind !== 'tvScreen' || f.angle) continue;
+      const art = getCatalogEntry(f.id);
+      const artW = art?.width ?? entry.width;
+      const artH = art?.height ?? entry.height;
+      let rect = action.screen;
+      if (rect && f.flippedHorizontally) rect = { ...rect, x: artW - rect.x - rect.w };
+      if (rect && f.flippedVertically) rect = { ...rect, y: artH - rect.y - rect.h };
+      const x = f.col * TILE_SIZE;
+      const y = f.row * TILE_SIZE;
+      const inst = this.furnitureArr.find((i) => i.x === x && i.y === y && i.spriteId === f.id);
+      const r = tvScreenWorldRect({ x, y }, entry.width, entry.height, artW, artH, rect);
+      out.push({ key: tvScreenKey(f.col, f.row), ...r, depth: inst?.zY ?? y + entry.height });
+    }
+    return out;
   }
 
   private applyChar(rc: RenderChar, cs: Record<string, unknown>): void {
@@ -2555,6 +2630,12 @@ export class OfficeScene extends Phaser.Scene {
     // patch, and then there is nothing to rebuild from yet.
     const furnitureRebuilt = this.furnitureDirty && this.rebuildFurniture();
     if (furnitureRebuilt) this.furnitureDirty = false;
+    // The televisions follow the map AND the synced pictures, and either can change on its own.
+    const tvChanged = furnitureRebuilt || this.tvDirty;
+    if (tvChanged) {
+      this.tvDirty = false;
+      this.tvLayer.set(this.tvTargets(), this.tvShowing);
+    }
     // Idle throttle: when nothing is moving/animating, skip the per-frame entity
     // sync + DOM overlays (the bulk of the CPU) and, after a short grace, sleep the
     // whole render loop — woken again by input, state patches, voice or tab focus.
@@ -2568,7 +2649,7 @@ export class OfficeScene extends Phaser.Scene {
     // applied it, the patch woke the loop — and the number on screen only caught up during the
     // few frames of grace before it slept again. Reported as menus that react late.
     this.updateRaceOverlay();
-    const busy = this.sceneBusy(_time) || furnitureRebuilt;
+    const busy = this.sceneBusy(_time) || furnitureRebuilt || tvChanged;
     if (busy) this.idleFrames = 0;
     else this.idleFrames++;
     const justStopped = !busy && this.wasBusy;
@@ -2617,6 +2698,7 @@ export class OfficeScene extends Phaser.Scene {
       p.y = (p.y ?? p.ty) + (p.ty - (p.y ?? p.ty)) * k;
     }
     this.view.update();
+    this.tvLayer.update(this.time.now);
     // DOM overlays (labels/bubbles/tooltip) don't need 60 Hz — cap to ~20 Hz, but
     // always run once when movement just stopped so labels settle at their final
     // position (avoids a 50 ms trailing lag freezing in the wrong spot).
@@ -2670,6 +2752,8 @@ export class OfficeScene extends Phaser.Scene {
     // An animated piece of furniture is motion on screen, and its clock is now local (see
     // PhaserRenderer.syncFurnitureAnimation) — nothing else would keep the loop awake for it.
     if (this.view.hasAnimatedFurniture()) return true;
+    // A GIF on a television is the same: motion whose clock is local (render/tvScreens.ts).
+    if (this.tvLayer.animating()) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
     for (const ch of this.characters.values()) {

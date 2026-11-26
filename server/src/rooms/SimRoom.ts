@@ -22,7 +22,8 @@ import {
 import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
 import { isWorkStatus } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
-import { CharacterSync, KartSync, PetSync, RoomState } from '@pixel/shared/schema';
+import { CharacterSync, KartSync, PetSync, RoomState, TvScreenSync } from '@pixel/shared/schema';
+import { tvScreenKey } from '@pixel/shared/office/tvScreen.js';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE, RACE_TICK_HZ } from '@pixel/shared/office/constants.js';
 import { RACE_PHASES, raceClock } from '@pixel/shared/office/race/raceState.js';
@@ -74,7 +75,11 @@ import {
   ZONE_LAYOUT_CHANGED_EVENT,
   PRESENCE_EVENT,
   QUOTES_CHANGED_EVENT,
+  TV_SCREEN_CHANGED_EVENT,
 } from '../controlBus.js';
+import { tvScreenStore } from '../tvScreenStore.js';
+import { tvScreenSrc, type TvScreenChange } from '../tvScreenApi.js';
+import { issueTvTicket } from '../tvTickets.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
@@ -403,6 +408,16 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.os.setQuotes(loadQuotes());
   };
 
+  /** A television in some zone was given a picture or switched off (tvScreenApi.ts). Only the
+   *  room hosting that zone acts, and only for a television its map actually has. */
+  private readonly onTvScreenChanged = (change: TvScreenChange): void => {
+    if (change.zoneId !== this.zone.id) return;
+    if (!this.tvScreenKeys().has(change.screen)) return;
+    const stored = tvScreenStore.get(this.zone.id, change.screen);
+    if (stored) this.setTvScreenState(stored);
+    else this.state.tvScreens.delete(change.screen);
+  };
+
   /** Somebody anywhere in the world joined, switched zone or left (see
    *  presence.ts) — push the refreshed roster to this room's clients. Coalesced
    *  onto the next macrotask: a zone switch is a leave plus a join, and a server
@@ -601,6 +616,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     controlBus.on(PRESENCE_EVENT, this.onPresenceChanged);
     controlBus.on(QUOTES_CHANGED_EVENT, this.onQuotesChanged);
+    controlBus.on(TV_SCREEN_CHANGED_EVENT, this.onTvScreenChanged);
+    this.syncTvScreens();
 
     this.registerRoomHandlers();
     // A race zone ticks faster, and only a race zone. Steering at 20 Hz feels like posting
@@ -641,6 +658,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.off(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     controlBus.off(PRESENCE_EVENT, this.onPresenceChanged);
     controlBus.off(QUOTES_CHANGED_EVENT, this.onQuotesChanged);
+    controlBus.off(TV_SCREEN_CHANGED_EVENT, this.onTvScreenChanged);
     if (this.presencePush !== null) clearTimeout(this.presencePush);
     this.zones?.close();
   }
@@ -1178,6 +1196,48 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const layout = this.zoneLayout();
     if (layout) this.os.rebuildFromLayout(layout);
     this.broadcast('m', this.zoneMapMessage());
+    this.syncTvScreens();
+  }
+
+  /** The anchor tiles of every television on this zone's current map. */
+  private tvScreenKeys(): Set<string> {
+    const keys = new Set<string>();
+    for (const f of this.os.layout.furniture) {
+      if (effectiveAction(f, entryFor(f))?.kind === 'tvScreen') keys.add(tvScreenKey(f.col, f.row));
+    }
+    return keys;
+  }
+
+  /** Publish one stored picture, unless that exact one is already published. */
+  private setTvScreenState(s: { key: string; frameW: number; frameH: number; delays: number[]; hash: string }): void {
+    const src = tvScreenSrc(this.zone.id, s.key, s.hash);
+    if (this.state.tvScreens.get(s.key)?.src === src) return;
+    const sync = new TvScreenSync();
+    sync.src = src;
+    sync.frameW = s.frameW;
+    sync.frameH = s.frameH;
+    for (const d of s.delays) sync.delays.push(d);
+    this.state.tvScreens.set(s.key, sync);
+  }
+
+  /**
+   * Make `state.tvScreens` say what the store says, for the televisions this map has — on
+   * creation and after every rebuild of the map.
+   *
+   * A stored picture whose television is no longer on the map is DELETED, not merely hidden: it
+   * is up to three megabytes that nothing can reach (a mapper who moves a television moves its
+   * anchor tile, and the picture was for that screen). Only when the zone actually has a map,
+   * so a zone whose map failed to load does not lose every picture it had.
+   */
+  private syncTvScreens(): void {
+    const here = this.tvScreenKeys();
+    const stored = tvScreenStore.list(this.zone.id);
+    if (this.zoneLayout()) {
+      for (const s of stored) if (!here.has(s.key)) tvScreenStore.clear(this.zone.id, s.key);
+    }
+    const kept = new Map(stored.filter((s) => here.has(s.key)).map((s) => [s.key, s]));
+    for (const key of [...this.state.tvScreens.keys()]) if (!kept.has(key)) this.state.tvScreens.delete(key);
+    for (const s of kept.values()) this.setTvScreenState(s);
   }
 
   /** Everything a viewer may send that isn't asset/zone administration. (Was
@@ -2100,6 +2160,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         });
         // Footprints/seats may have changed → rebuild the office from the layout.
         this.os.rebuildFromLayout(this.zoneLayout() ?? this.os.layout);
+        this.syncTvScreens();
         break;
     }
     const msgType = messageTypeForAsset(type);
@@ -2247,6 +2308,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
       const client = this.clientForPlayer(id);
       if (!client) continue;
+      if (action.kind === 'tvScreen') {
+        // A ticket for THIS television and THIS account — the upload is HTTP and only the room
+        // knows who is standing where (see tvTickets.ts). No account, no ticket: there is nobody
+        // to attribute the picture to.
+        const { userId } = authOf(client);
+        if (!userId) continue;
+        const screen = tvScreenKey(col, row);
+        client.send('m', {
+          type: 'tvScreenReady',
+          ticket: issueTvTicket(userId, this.zone.id, screen),
+          showing: this.state.tvScreens.has(screen),
+        });
+        continue;
+      }
       if (action.kind === 'portal') {
         const zones = this.zones
           .list()

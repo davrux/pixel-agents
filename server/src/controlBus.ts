@@ -69,3 +69,8 @@ export const PRESENCE_EVENT = 'presence';
  *  quote any whale says comes from the new pool, in every zone, without a
  *  restart. */
 export const QUOTES_CHANGED_EVENT = 'quotesChanged';
+
+/** A television's picture was set or cleared over HTTP (tvScreenApi.ts). Payload:
+ *  `{ zoneId, screen }`. The room hosting that zone re-reads that one screen from the store and
+ *  updates `RoomState.tvScreens`; every other room ignores it. */
+export const TV_SCREEN_CHANGED_EVENT = 'tvScreenChanged';
